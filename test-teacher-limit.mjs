@@ -15,6 +15,16 @@ import axios from 'axios'
 
 const API_BASE = 'http://127.0.0.1:3011/api'
 
+const dateOnly = (date) => date.toISOString().slice(0, 10)
+const today = new Date()
+const testStart = new Date(today)
+testStart.setDate(testStart.getDate() - 1)
+const topicSubmissionEnd = new Date(today)
+topicSubmissionEnd.setDate(topicSubmissionEnd.getDate() + 7)
+const testEnd = new Date(today)
+testEnd.setDate(testEnd.getDate() + 30)
+const testYear = `${today.getFullYear()}-${today.getFullYear() + 1}`
+
 // 测试用例数据
 const adminUser = { username: 'admin', password: '123456' }
 const teacherUser = { username: 'chen', password: '123456' }
@@ -145,20 +155,20 @@ async function main() {
   // 2. 创建选题周期，设定教师指导人数上限为 2
   console.log('2️⃣  创建选题周期（教师上限设为 2 人）...')
   cycleId = await createCycle(adminToken, {
-    name: '2025-2026学年教师人数上限测试周期',
+    name: `${testYear}学年教师人数上限测试周期`,
     description: '测试教师人数上限功能',
-    year: '2025-2026',
+    year: testYear,
     status: 'active',
-    phase: 'student_selection',  // 立即设置为学生选题阶段
-    startDate: '2025-09-01',
-    endDate: '2025-10-30',
+    startDate: dateOnly(testStart),
+    endDate: dateOnly(testEnd),
     phasesConfig: {
-      topic_submission: { start: '2025-09-01', end: '2025-09-15' },
-      student_selection: { start: '2025-09-16', end: '2025-09-30' },
+      topic_submission: { start: dateOnly(testStart), end: dateOnly(topicSubmissionEnd) },
+      student_selection: { start: dateOnly(testStart), end: dateOnly(testEnd) },
       teacherStudentLimit: 2  // ← 教师上限设为 2
     }
   })
   console.log(`✅ 周期已创建 (ID: ${cycleId})\n`)
+  await updateCycleStatus(adminToken, cycleId, 'active')
 
   // 3. 教师创建2个课题
   console.log('3️⃣  教师创建 2 个课题...')
