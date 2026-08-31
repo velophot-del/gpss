@@ -1,0 +1,479 @@
+<template>
+  <div class="cycle-management page-container">
+    <div class="card-container">
+      <h2 class="section-title">选题周期管理</h2>
+
+      <el-button type="primary" icon="Plus" style="margin-bottom: 20px;" @click="showCreateDialog">
+        创建新周期
+      </el-button>
+
+      <el-table :data="cycleStore.cycles" stripe v-loading="loading">
+        <el-table-column prop="name" label="周期名称" min-width="200" />
+        <el-table-column prop="year" label="年份" width="100" />
+        <el-table-column prop="status" label="状态" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag :type="cycleStatusType[row.status]" size="small">{{ cycleStatusLabel[row.status] }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="课题发布期" width="200">
+          <template #default="{ row }">
+            {{ formatDate(row.topicPublishStart) }} ~ {{ formatDate(row.topicPublishEnd) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="填报时间" width="180">
+          <template #default="{ row }">
+            {{ formatDate(row.studentApplyStart) }}
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="340" fixed="right">
+          <template #default="{ row }">
+            <div class="action-btns">
+            <el-button link type="primary" icon="Edit" size="small" @click="showEditDialog(row)">编辑</el-button>
+            <el-dropdown trigger="click">
+              <el-button link type="warning" icon="Switch" size="small">
+                切换状态
+              </el-button>
+              <template #dropdown>
+                <el-dropdown-menu>
+                  <el-dropdown-item @click="changeStatus(row.id, 'active')">设为当前</el-dropdown-item>
+                  <el-dropdown-item @click="changeStatus(row.id, 'selection')">进入选课</el-dropdown-item>
+                  <el-dropdown-item @click="changeStatus(row.id, 'review')">进入审核</el-dropdown-item>
+                  <el-dropdown-item @click="changeStatus(row.id, 'adjustment')">进入调剂</el-dropdown-item>
+                  <el-dropdown-item @click="changeStatus(row.id, 'completed')">结束</el-dropdown-item>
+                </el-dropdown-menu>
+              </template>
+            </el-dropdown>
+            <el-popconfirm
+              title="确定删除此选题周期？删除后不可恢复"
+              confirm-button-text="确定"
+              cancel-button-text="取消"
+              @confirm="handleDelete(row.id)"
+            >
+              <template #reference>
+                <el-tooltip
+                  v-if="['active','selection','review','adjustment'].includes(row.status)"
+                  content="进行中的周期不可删除，请先将状态切换为「已结束」"
+                  placement="top"
+                >
+                  <el-button link type="danger" icon="Delete" size="small" disabled>删除</el-button>
+                </el-tooltip>
+                <el-button v-else link type="danger" icon="Delete" size="small">删除</el-button>
+              </template>
+            </el-popconfirm>
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <!-- 创建弹窗 -->
+      <el-dialog v-model="dialogVisible" title="创建选题周期" width="680px">
+        <el-form ref="formRef" :model="form" label-width="110px" size="large">
+          <el-form-item label="周期名称" required>
+            <el-input v-model="form.name" placeholder="例如：2025届本科毕业设计选题" />
+          </el-form-item>
+          <el-form-item label="年度" required>
+            <el-input v-model="form.year" placeholder="例如：2025" />
+          </el-form-item>
+          <el-form-item label="初始状态">
+            <el-radio-group v-model="form.status">
+              <el-radio value="upcoming">未开始</el-radio>
+              <el-radio value="active">立即启用（进行中）</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="教师指导人数上限">
+            <el-input-number v-model="form.teacherStudentLimit" :min="0" :max="200" :step="1" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="描述">
+            <el-input v-model="form.description" type="textarea" :rows="2" />
+          </el-form-item>
+          <el-divider content-position="left">阶段时间安排</el-divider>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="发布开始">
+                <el-date-picker v-model="form.topicPublishStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="发布截止">
+                <el-date-picker v-model="form.topicPublishEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="填报开始">
+                <el-date-picker v-model="form.studentApplyStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="填报截止">
+                <el-date-picker v-model="form.studentApplyEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="遴选开始">
+                <el-date-picker v-model="form.teacherReviewStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="遴选截止">
+                <el-date-picker v-model="form.teacherReviewEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="结果公布">
+                <el-date-picker v-model="form.resultAnnounceTime" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="调剂开始">
+                <el-date-picker v-model="form.adjustmentStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="调剂结束">
+                <el-date-picker v-model="form.adjustmentEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </el-form>
+        <template #footer>
+          <el-button @click="dialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="submitting" @click="handleCreate">创建</el-button>
+        </template>
+      </el-dialog>
+
+      <!-- 编辑弹窗 -->
+      <el-dialog v-model="editDialogVisible" title="编辑选题周期" width="680px">
+        <el-form ref="editFormRef" :model="form" label-width="110px" size="large">
+          <el-form-item label="周期名称" required>
+            <el-input v-model="form.name" />
+          </el-form-item>
+          <el-form-item label="年度" required>
+            <el-input v-model="form.year" />
+          </el-form-item>
+          <el-form-item label="状态">
+            <el-radio-group v-model="form.status">
+              <el-radio value="upcoming">未开始</el-radio>
+              <el-radio value="active">进行中</el-radio>
+              <el-radio value="selection">选课中</el-radio>
+              <el-radio value="review">审核中</el-radio>
+              <el-radio value="adjustment">调剂中</el-radio>
+              <el-radio value="completed">已结束</el-radio>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="教师指导人数上限">
+            <el-input-number v-model="form.teacherStudentLimit" :min="0" :max="200" :step="1" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="描述">
+            <el-input v-model="form.description" type="textarea" :rows="2" />
+          </el-form-item>
+          <el-divider content-position="left">阶段时间安排</el-divider>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="发布开始">
+                <el-date-picker v-model="form.topicPublishStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="发布截止">
+                <el-date-picker v-model="form.topicPublishEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="填报开始">
+                <el-date-picker v-model="form.studentApplyStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="填报截止">
+                <el-date-picker v-model="form.studentApplyEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="遴选开始">
+                <el-date-picker v-model="form.teacherReviewStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="遴选截止">
+                <el-date-picker v-model="form.teacherReviewEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="结果公布">
+                <el-date-picker v-model="form.resultAnnounceTime" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="调剂开始">
+                <el-date-picker v-model="form.adjustmentStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="调剂结束">
+                <el-date-picker v-model="form.adjustmentEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+        </el-form>
+        <template #footer>
+          <el-button @click="editDialogVisible = false">取消</el-button>
+          <el-button type="primary" :loading="submitting" @click="handleEdit">保存修改</el-button>
+        </template>
+      </el-dialog>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, reactive, onMounted } from 'vue'
+import { useCycleStore } from '../../stores/cycle'
+import { cycleApi } from '../../api'
+import dayjs from 'dayjs'
+import { ElMessage } from 'element-plus'
+
+const cycleStore = useCycleStore()
+const loading = ref(false)
+const submitting = ref(false)
+
+const dialogVisible = ref(false)
+const editDialogVisible = ref(false)
+const editingId = ref<string | null>(null)
+
+const form = reactive({
+  name: '',
+  year: '',
+  status: 'upcoming' as string,
+  description: '',
+  teacherStudentLimit: 0,
+  topicPublishStart: '',
+  topicPublishEnd: '',
+  studentApplyStart: '',
+  studentApplyEnd: '',
+  teacherReviewStart: '',
+  teacherReviewEnd: '',
+  resultAnnounceTime: '',
+  adjustmentStart: '',
+  adjustmentEnd: ''
+})
+
+const cycleStatusType: Record<string, string> = {
+  upcoming: 'info', active: 'success', selection: 'primary',
+  review: 'warning', adjustment: 'danger', completed: 'success', draft: 'info'
+}
+const cycleStatusLabel: Record<string, string> = {
+  upcoming: '未开始', active: '进行中', selection: '选课中',
+  review: '审核中', adjustment: '调剂中', completed: '已结束', draft: '草稿'
+}
+
+// 加载周期列表
+async function fetchCycles() {
+  loading.value = true
+  try {
+    await cycleStore.fetchAllCycles()
+    // 同时刷新 store 中的当前周期
+    await cycleStore.fetchCurrentCycle()
+  } catch (e) {
+    console.error('获取周期列表失败:', e)
+  } finally {
+    loading.value = false
+  }
+}
+
+function showCreateDialog() {
+  editingId.value = null
+  Object.assign(form, {
+    name: '', year: '', status: 'upcoming', description: '',
+    topicPublishStart: '', topicPublishEnd: '',
+    studentApplyStart: '', studentApplyEnd: '',
+    teacherReviewStart: '', teacherReviewEnd: '',
+    resultAnnounceTime: '', adjustmentStart: '', adjustmentEnd: ''
+  })
+  dialogVisible.value = true
+}
+
+function showEditDialog(row: any) {
+  editingId.value = row.id
+  // 从 phases_config 解析阶段时间（如果存在）
+  const phases = typeof row.phases_config === 'string' ? JSON.parse(row.phases_config || '{}') : (row.phases_config || {})
+  Object.assign(form, {
+    name: row.name,
+    year: row.year,
+    status: row.status || 'upcoming',
+    description: row.description || '',
+    teacherStudentLimit: Number(phases.teacher_student_limit ?? row.teacherStudentLimit ?? 0) || 0,
+    topicPublishStart: phases.topic_publish?.start || row.topicPublishStart || '',
+    topicPublishEnd: phases.topic_publish?.end || row.topicPublishEnd || '',
+    studentApplyStart: phases.student_apply?.start || row.studentApplyStart || '',
+    studentApplyEnd: phases.student_apply?.end || row.studentApplyEnd || '',
+    teacherReviewStart: phases.teacher_review?.start || row.teacherReviewStart || '',
+    teacherReviewEnd: phases.teacher_review?.end || row.teacherReviewEnd || '',
+    resultAnnounceTime: phases.result_announce || row.resultAnnounceTime || '',
+    adjustmentStart: phases.adjustment?.start || row.adjustmentStart || '',
+    adjustmentEnd: phases.adjustment?.end || row.adjustmentEnd || ''
+  })
+  editDialogVisible.value = true
+}
+
+async function handleCreate() {
+  if (!form.name || !form.year) {
+    return ElMessage.warning('请填写周期名称和年度')
+  }
+
+  submitting.value = true
+  try {
+    await cycleApi.create({
+      name: form.name,
+      year: form.year,
+      status: form.status,
+      description: form.description || null,
+      startDate: form.topicPublishStart || null,
+      endDate: form.adjustmentEnd || null,
+      phasesConfig: {
+        topic_publish: { start: form.topicPublishStart, end: form.topicPublishEnd },
+        student_apply: { start: form.studentApplyStart, end: form.studentApplyEnd },
+        teacher_review: { start: form.teacherReviewStart, end: form.teacherReviewEnd },
+        result_announce: form.resultAnnounceTime,
+        adjustment: { start: form.adjustmentStart, end: form.adjustmentEnd },
+        teacher_student_limit: Number(form.teacherStudentLimit) || 0
+      }
+    })
+    ElMessage.success(`选题周期创建成功（状态：${form.status === 'active' ? '已启用' : '未开始'}）`)
+    dialogVisible.value = false
+    await fetchCycles()
+  } catch (e: any) {
+    console.error('创建周期失败:', e)
+    ElMessage.error(e.response?.data?.message || '创建失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function changeStatus(id: string, status: any) {
+  try {
+    const target = cycleStore.cycles.find((c: any) => c.id === id)
+    if (target) {
+      // 状态到阶段的正确映射（必须匹配数据库 phase ENUM 允许的值）
+      const statusToPhaseMap: Record<string, string> = {
+        active: 'topic_publish',
+        selection: 'student_apply',
+        review: 'teacher_review',
+        adjustment: 'adjustment',
+        completed: 'ended'
+      }
+      await cycleApi.update(id, {
+        status,
+        phase: statusToPhaseMap[status] || 'topic_publish'
+      })
+      ElMessage.success(`状态已更新为「${cycleStatusLabel[status] || status}」`)
+      await fetchCycles()
+    }
+  } catch (e: any) {
+    console.error('更新状态失败:', e)
+    ElMessage.error(e.response?.data?.message || '更新失败')
+  }
+}
+
+async function handleEdit() {
+  if (!form.name || !form.year) {
+    return ElMessage.warning('请填写周期名称和年度')
+  }
+  if (!editingId.value) return
+
+  submitting.value = true
+  try {
+    // 状态到阶段的映射
+    const statusToPhaseMap: Record<string, string> = {
+      active: 'topic_publish',
+      selection: 'student_apply',
+      review: 'teacher_review',
+      adjustment: 'adjustment',
+      completed: 'ended'
+    }
+    await cycleApi.update(editingId.value, {
+      name: form.name,
+      year: form.year,
+      status: form.status,
+      phase: statusToPhaseMap[form.status] || 'topic_publish',
+      description: form.description || null,
+      startDate: form.topicPublishStart || null,
+      endDate: form.adjustmentEnd || null,
+      phasesConfig: {
+        topic_publish: { start: form.topicPublishStart, end: form.topicPublishEnd },
+        student_apply: { start: form.studentApplyStart, end: form.studentApplyEnd },
+        teacher_review: { start: form.teacherReviewStart, end: form.teacherReviewEnd },
+        result_announce: form.resultAnnounceTime,
+        adjustment: { start: form.adjustmentStart, end: form.adjustmentEnd },
+        teacher_student_limit: Number(form.teacherStudentLimit) || 0
+      }
+    })
+    ElMessage.success('选题周期更新成功')
+    editDialogVisible.value = false
+    editingId.value = null
+    await fetchCycles()
+  } catch (e: any) {
+    console.error('更新周期失败:', e)
+    ElMessage.error(e.response?.data?.message || '更新失败')
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function handleDelete(id: string) {
+  try {
+    await cycleApi.delete(id)
+    ElMessage.success('选题周期已删除')
+    await fetchCycles()
+  } catch (e: any) {
+    console.error('删除周期失败:', e)
+    ElMessage.error(e.response?.data?.message || '删除失败')
+  }
+}
+
+function formatDate(dateStr: any): string {
+  if (!dateStr) return '-'
+  const d = dayjs(dateStr)
+  return d.isValid() ? d.format('YYYY-MM-DD') : '-'
+}
+
+onMounted(() => {
+  fetchCycles()
+})
+</script>
+
+<style scoped>
+.action-btns {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+@media (max-width: 768px) {
+  :deep(.el-table) { font-size: 12px; }
+  :deep(.el-table th) { font-size: 11px; padding: 8px 6px; }
+  :deep(.el-table td) { font-size: 11px; padding: 8px 6px; }
+  :deep(.el-button) { padding: 4px 8px; font-size: 11px; }
+}
+
+@media (max-width: 480px) {
+  :deep(.el-table) { font-size: 11px; }
+  :deep(.el-table th) { font-size: 10px; padding: 6px 4px; }
+  :deep(.el-table td) { font-size: 10px; padding: 6px 4px; }
+  :deep(.el-button) { padding: 2px 6px; font-size: 10px; }
+}
+</style>

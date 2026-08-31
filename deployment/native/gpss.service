@@ -1,0 +1,22 @@
+[Unit]
+Description=GPSS Graduation Project Selection System
+After=network-online.target mysql.service mysqld.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gpss
+Group=gpss
+WorkingDirectory=/opt/gpss/server
+EnvironmentFile=/etc/gpss/gpss.env
+ExecStart=/usr/bin/env node dist/index.js
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/gpss/uploads
+
+[Install]
+WantedBy=multi-user.target

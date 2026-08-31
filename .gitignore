@@ -1,0 +1,22 @@
+# Dependencies and build outputs
+node_modules/
+dist/
+server/dist/
+
+# Runtime data and local test output
+server/uploads/
+uploads/
+test-results/
+*.log
+.DS_Store
+
+# Local secrets: commit only the corresponding .env.example files
+.env
+.env.*
+!.env.example
+
+# Generated release packages and database exports
+*.tar.gz
+*.tar.gz.sha256
+*.zip
+*.sql

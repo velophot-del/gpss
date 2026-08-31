@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/tangwang/Desktop/27毕业设计课题系统/banshan-gpss-deploy/gpss -name Dockerfile -o -name *.dockerignore)",
+      "Bash(lsof -iTCP:3306 -sTCP:LISTEN -n)",
+      "Bash(command -v mysql)",
+      "Bash(mysql --version)",
+      "Bash(command -v mysqld)"
+    ]
+  }
+}

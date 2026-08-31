@@ -1,0 +1,182 @@
+<template>
+  <div class="application-data page-container">
+    <div class="card-container">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="section-title">选课申请数据</h2>
+        <div class="flex gap-2">
+          <el-button @click="exportData" type="primary" size="small">
+            <el-icon><Download /></el-icon> 导出数据
+          </el-button>
+        </div>
+      </div>
+
+      <el-card shadow="never" class="mb-4">
+        <el-row :gutter="20">
+          <el-col :span="6" :xs="12">
+            <div class="stat-box">
+              <span class="stat-value">{{ stats.total }}</span>
+              <span class="stat-label">申请总数</span>
+            </div>
+          </el-col>
+          <el-col :span="6" :xs="12">
+            <div class="stat-box accepted">
+              <span class="stat-value">{{ stats.accepted }}</span>
+              <span class="stat-label">已录取</span>
+            </div>
+          </el-col>
+          <el-col :span="6" :xs="12">
+            <div class="stat-box pending">
+              <span class="stat-value">{{ stats.pending }}</span>
+              <span class="stat-label">待审核</span>
+            </div>
+          </el-col>
+          <el-col :span="6" :xs="12">
+            <div class="stat-box rejected">
+              <span class="stat-value">{{ stats.rejected }}</span>
+              <span class="stat-label">已拒绝</span>
+            </div>
+          </el-col>
+        </el-row>
+      </el-card>
+
+      <el-card shadow="never">
+        <template #header>
+          <div class="flex justify-between items-center">
+            <strong>所有选课申请记录</strong>
+            <el-select v-model="filterStatus" placeholder="筛选状态" size="small" class="w-40">
+              <el-option label="全部" value="" />
+              <el-option label="待审核" value="pending" />
+              <el-option label="已录取" value="accepted" />
+              <el-option label="已拒绝" value="rejected" />
+            </el-select>
+          </div>
+        </template>
+        <el-table :data="filteredApplications" stripe size="small">
+          <el-table-column type="index" label="#" width="50" />
+          <el-table-column prop="student_code" label="学号" width="120" />
+          <el-table-column prop="student_name" label="学生姓名" width="120" />
+          <el-table-column prop="student_class" label="班级" width="120" />
+          <el-table-column prop="topic_title" label="课题名称" min-width="200" show-overflow-tooltip />
+          <el-table-column prop="teacher_name" label="指导教师" width="120" />
+          <el-table-column prop="topic_category" label="课题方向" width="100" />
+          <el-table-column prop="priority" label="志愿优先级" width="100" align="center">
+            <template #default="{ row }">
+              <el-tag :type="priorityType[row.priority]" size="small">
+                第{{ row.priority }}志愿
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="status" label="申请状态" width="100" align="center">
+            <template #default="{ row }">
+              <el-tag :type="statusType[row.status]" size="small">
+                {{ statusLabel[row.status] }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="created_at" label="申请时间" width="150" />
+          <el-table-column prop="comment" label="备注" min-width="150" show-overflow-tooltip />
+        </el-table>
+      </el-card>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted } from 'vue'
+import { Download } from '@element-plus/icons-vue'
+import { adminApi } from '@/api'
+
+const applications = ref<any[]>([])
+const filterStatus = ref('')
+
+const stats = computed(() => ({
+  total: applications.value.length,
+  accepted: applications.value.filter(a => a.status === 'accepted').length,
+  pending: applications.value.filter(a => a.status === 'pending').length,
+  rejected: applications.value.filter(a => a.status === 'rejected').length
+}))
+
+const filteredApplications = computed(() => {
+  if (!filterStatus.value) return applications.value
+  return applications.value.filter(a => a.status === filterStatus.value)
+})
+
+const priorityType: Record<number, string> = {
+  1: 'danger',
+  2: 'warning',
+  3: 'info'
+}
+
+const statusLabel: Record<string, string> = {
+  'pending': '待审核',
+  'accepted': '已录取',
+  'rejected': '已拒绝',
+  'withdrawn': '已撤回'
+}
+
+const statusType: Record<string, string> = {
+  'pending': 'warning',
+  'accepted': 'success',
+  'rejected': 'danger',
+  'withdrawn': 'info'
+}
+
+const loadApplications = async () => {
+  const res = await adminApi.getAllApplications()
+  applications.value = res.data
+}
+
+const exportData = () => {
+  const headers = ['学号', '学生姓名', '班级', '课题名称', '指导教师', '课题方向', '志愿优先级', '申请状态', '申请时间', '备注']
+  const rows = applications.value.map(a => [
+    a.student_code,
+    a.student_name,
+    a.student_class,
+    a.topic_title,
+    a.teacher_name,
+    a.topic_category,
+    `第${a.priority}志愿`,
+    statusLabel[a.status],
+    a.created_at,
+    a.comment || ''
+  ])
+
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+  const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `选课申请数据_${new Date().toISOString().slice(0, 10)}.csv`
+  link.click()
+  URL.revokeObjectURL(url)
+}
+
+onMounted(loadApplications)
+</script>
+
+<style scoped>
+.stat-box {
+  text-align: center;
+  padding: 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+}
+.stat-box.accepted { background: #ecfdf5; }
+.stat-box.pending { background: #fffbeb; }
+.stat-box.rejected { background: #fef2f2; }
+
+.stat-value {
+  display: block;
+  font-size: 28px;
+  font-weight: bold;
+  color: #1e293b;
+}
+.stat-box.accepted .stat-value { color: #059669; }
+.stat-box.pending .stat-value { color: #d97706; }
+.stat-box.rejected .stat-value { color: #dc2626; }
+
+.stat-label {
+  font-size: 14px;
+  color: #64748b;
+}
+</style>

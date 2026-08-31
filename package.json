@@ -1,0 +1,35 @@
+{
+  "name": "graduation-project-selection-system",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview",
+    "build:all": "npm run build && cd server && npm run build",
+    "deploy": "npm run build && cd server && npm run start",
+    "test": "npm --prefix server run build && node --test test/deployment-runtime.test.mjs test/local-deployment.test.cjs test/shortlist-submission.test.mjs test/security-regressions.test.mjs",
+    "test:deployment": "npm --prefix server run build && node --test test/deployment-runtime.test.mjs"
+  },
+  "dependencies": {
+    "vue": "^3.4.21",
+    "vue-router": "^4.3.0",
+    "pinia": "^2.1.7",
+    "element-plus": "^2.6.1",
+    "@element-plus/icons-vue": "^2.3.1",
+    "axios": "^1.6.7",
+    "dayjs": "^1.11.10",
+    "xlsx": "^0.18.5",
+    "file-saver": "^2.0.5",
+    "nprogress": "^0.2.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.4",
+    "typescript": "^5.3.3",
+    "vite": "^5.1.4",
+    "vue-tsc": "^2.0.6",
+    "@types/nprogress": "^0.2.3",
+    "@types/file-saver": "^2.0.7"
+  }
+}

@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>毕业设计管理系统 · 使用说明</title>
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+    color: #303133;
+    font-size: 13px;
+    line-height: 1.75;
+    margin: 0;
+  }
+  h1 {
+    font-size: 22px;
+    color: #17324d;
+    text-align: center;
+    margin: 0 0 8px;
+  }
+  h1:first-of-type { border-bottom: 3px solid #c66a32; padding-bottom: 14px; margin-bottom: 20px; }
+  h2 {
+    font-size: 17px;
+    color: #17324d;
+    border-left: 4px solid #c66a32;
+    padding-left: 10px;
+    margin: 26px 0 12px;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 15px;
+    color: #409eff;
+    margin: 20px 0 8px;
+    page-break-after: avoid;
+  }
+  h4 { font-size: 13px; color: #303133; margin: 16px 0 6px; }
+  p { margin: 8px 0; }
+  strong { color: #17324d; }
+  ul, ol { margin: 8px 0; padding-left: 22px; }
+  li { margin: 3px 0; }
+  blockquote {
+    margin: 12px 0;
+    padding: 8px 14px;
+    border-left: 4px solid #c66a32;
+    background: #fdf6f0;
+    color: #7c4322;
+    font-size: 12px;
+  }
+  code {
+    font-family: "SF Mono", "Menlo", "Consolas", monospace;
+    background: #f5f7fa;
+    color: #c66a32;
+    padding: 1px 5px;
+    border-radius: 3px;
+    font-size: 12px;
+  }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 12px 0;
+    font-size: 12px;
+    page-break-inside: avoid;
+  }
+  th, td {
+    border: 1px solid #dcdfe6;
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: top;
+  }
+  th { background: #eef2f7; color: #17324d; font-weight: 600; }
+  img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    margin: 12px auto;
+    border: 1px solid #ebeef5;
+    border-radius: 4px;
+    page-break-inside: avoid;
+  }
+  a { color: #409eff; text-decoration: none; }
+  hr { border: none; border-top: 1px solid #ebeef5; margin: 20px 0; }
+</style>
+</head>
+<body>
+<h1>毕业设计管理系统 · 使用说明</h1>
+<blockquote>
+<p>适用对象：学生、指导教师、系统管理员
+系统版本：V2（选题 → 任务书 → 开题 → 中期 → 论文/作品 → 答辩 → 成绩 → 归档）</p>
+</blockquote>
+<hr>
+<h2>目录</h2>
+<ul>
+<li><a href="#%E4%B8%80%E7%B3%BB%E7%BB%9F%E7%99%BB%E5%BD%95">一、系统登录</a></li>
+<li><a href="#%E4%BA%8C%E5%AD%A6%E7%94%9F%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97">二、学生使用指南</a><ul>
+<li><a href="#1-%E9%80%89%E9%A2%98%E5%B7%A5%E4%BD%9C%E5%8F%B0">1. 选题工作台</a></li>
+<li><a href="#2-%E6%9F%A5%E7%9C%8B%E4%BB%BB%E5%8A%A1%E4%B9%A6">2. 查看任务书</a></li>
+<li><a href="#3-%E6%8F%90%E4%BA%A4%E5%BC%80%E9%A2%98%E6%8A%A5%E5%91%8A">3. 提交开题报告</a></li>
+<li><a href="#4-%E6%8F%90%E4%BA%A4%E4%B8%AD%E6%9C%9F%E6%A3%80%E6%9F%A5">4. 提交中期检查</a></li>
+<li><a href="#5-%E6%8F%90%E4%BA%A4%E6%AF%95%E4%B8%9A%E8%AE%BA%E6%96%87">5. 提交毕业论文</a></li>
+<li><a href="#6-%E6%8F%90%E4%BA%A4%E8%AE%BE%E8%AE%A1%E4%BD%9C%E5%93%81">6. 提交设计作品</a></li>
+<li><a href="#7-%E5%A1%AB%E5%86%99%E6%8C%87%E5%AF%BC%E8%AE%B0%E5%BD%95">7. 填写指导记录</a></li>
+<li><a href="#8-%E6%9F%A5%E7%9C%8B%E6%88%90%E7%BB%A9%E4%B8%8E%E7%AD%94%E8%BE%A9">8. 查看成绩与答辩</a></li>
+</ul>
+</li>
+<li><a href="#%E4%B8%89%E6%95%99%E5%B8%88%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97">三、教师使用指南</a><ul>
+<li><a href="#1-%E7%AE%A1%E7%90%86%E8%AF%BE%E9%A2%98">1. 管理课题</a></li>
+<li><a href="#2-%E4%B8%8B%E8%BE%BE%E4%BB%BB%E5%8A%A1%E4%B9%A6">2. 下达任务书</a></li>
+<li><a href="#3-%E5%AE%A1%E6%A0%B8%E5%BC%80%E9%A2%98%E6%8A%A5%E5%91%8A">3. 审核开题报告</a></li>
+<li><a href="#4-%E4%B8%AD%E6%9C%9F%E6%A3%80%E6%9F%A5%E8%AF%84%E5%88%86">4. 中期检查评分</a></li>
+<li><a href="#5-%E8%AE%BA%E6%96%87%E4%B8%8E%E4%BD%9C%E5%93%81%E6%89%B9%E9%98%85">5. 论文与作品批阅</a></li>
+<li><a href="#6-%E8%AE%B0%E5%BD%95%E6%8C%87%E5%AF%BC%E8%BF%87%E7%A8%8B">6. 记录指导过程</a></li>
+</ul>
+</li>
+<li><a href="#%E5%9B%9B%E7%AE%A1%E7%90%86%E5%91%98%E4%BD%BF%E7%94%A8%E6%8C%87%E5%8D%97">四、管理员使用指南</a><ul>
+<li><a href="#1-%E5%85%A8%E6%B5%81%E7%A8%8B%E7%9C%8B%E6%9D%BF">1. 全流程看板</a></li>
+<li><a href="#2-%E7%AD%94%E8%BE%A9%E5%88%86%E7%BB%84%E7%AE%A1%E7%90%86">2. 答辩分组管理</a></li>
+<li><a href="#3-%E6%88%90%E7%BB%A9%E8%AF%84%E5%AE%9A%E4%B8%8E%E5%8F%91%E5%B8%83">3. 成绩评定与发布</a></li>
+<li><a href="#4-%E5%85%AC%E5%91%8A%E7%AE%A1%E7%90%86">4. 公告管理</a></li>
+<li><a href="#5-%E9%80%89%E9%A2%98%E5%91%A8%E6%9C%9F%E4%B8%8E%E9%98%B6%E6%AE%B5%E5%88%87%E6%8D%A2">5. 选题周期与阶段切换</a></li>
+<li><a href="#6-%E7%94%A8%E6%88%B7%E7%AE%A1%E7%90%86">6. 用户管理</a></li>
+</ul>
+</li>
+<li><a href="#%E4%BA%94%E5%B8%B8%E8%A7%81%E9%97%AE%E9%A2%98">五、常见问题</a></li>
+</ul>
+<hr>
+<h2>一、系统登录</h2>
+<p>打开系统后进入登录页，输入用户名和密码即可登录。系统提供「开发模式登录」入口，可一键使用演示账号快速体验各角色功能。</p>
+<p><img src="screenshots/login.png" alt="登录页"></p>
+<p>演示账号如下：</p>
+<table>
+<thead>
+<tr>
+<th>角色</th>
+<th>用户名</th>
+<th>密码</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>管理员</td>
+<td><code>admin</code></td>
+<td><code>123456</code></td>
+<td>全流程管理与系统配置</td>
+</tr>
+<tr>
+<td>教师</td>
+<td><code>chen</code></td>
+<td><code>123456</code></td>
+<td>课题发布、指导与批阅</td>
+</tr>
+<tr>
+<td>学生</td>
+<td><code>zhangyi</code></td>
+<td><code>123456</code></td>
+<td>选题与毕业全流程</td>
+</tr>
+</tbody></table>
+<p><img src="screenshots/debug-login.png" alt="开发模式登录"></p>
+<blockquote>
+<p>说明：开发模式仅用于演示环境，正式环境请在登录页使用账号密码登录。</p>
+</blockquote>
+<hr>
+<h2>二、学生使用指南</h2>
+<p>学生登录后，左侧菜单的「毕业流程」栏目覆盖了从选题到成绩的完整环节。下面按操作顺序说明。</p>
+<h3>1. 选题工作台</h3>
+<p><strong>入口：</strong> 左侧菜单「选题工作台」</p>
+<p>这是学生选课的起始页面，可浏览教师发布的课题、按关键词/专业方向/难度筛选，点击课题查看详情，并提交志愿申请。</p>
+<p><strong>操作步骤：</strong></p>
+<ol>
+<li>在课题列表中浏览并筛选感兴趣的课题；</li>
+<li>点击课题卡片进入详情页，查看课题简介、要求与教师信息；</li>
+<li>在详情页点击「申请该课题」，填写优先级与申请理由后提交；</li>
+<li>可在「选课结果」中查看录取情况。</li>
+</ol>
+<p><img src="screenshots/student-browse.png" alt="学生选题工作台"></p>
+<h3>2. 查看任务书</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业流程 → 任务书」</p>
+<p>选题录取后，导师会下达任务书。学生在此查看任务书标题、任务内容、成果要求、进度安排及附件。</p>
+<p><img src="screenshots/student-task-book.png" alt="学生任务书"></p>
+<h3>3. 提交开题报告</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业流程 → 开题报告」</p>
+<p>进入开题阶段后，学生填写开题报告并提交给导师审核。</p>
+<p><strong>操作步骤：</strong></p>
+<ol>
+<li>填写开题题目、选题背景、研究/设计目标、主要内容、方法与技术路线、进度计划；</li>
+<li>上传开题报告相关附件（PDF / Word / 压缩包）；</li>
+<li>点击「保存草稿」可暂存，点击「提交」正式提交导师审核；</li>
+<li>导师审核通过后，页面状态显示「已通过」并锁定，导师意见会以黄色提示条展示。</li>
+</ol>
+<p><img src="screenshots/student-proposal.png" alt="学生开题报告"></p>
+<h3>4. 提交中期检查</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业流程 → 中期检查」</p>
+<p>中期阶段，学生填写进度总结、已完成内容、存在问题与后续计划，导师审核后给出评分与意见。</p>
+<p><img src="screenshots/student-midterm.png" alt="学生中期检查"></p>
+<h3>5. 提交毕业论文</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业流程 → 毕业论文」</p>
+<p>学生填写论文标题、摘要、关键词，并上传论文文件（支持多版本重传）。提交后等待导师批阅。</p>
+<p><img src="screenshots/student-thesis.png" alt="学生毕业论文"></p>
+<h3>6. 提交设计作品</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业流程 → 设计作品」</p>
+<p>学生填写作品名称、设计说明，并上传作品文件（支持图片 / 视频 / 模型 / 压缩包等多种格式）。</p>
+<p><img src="screenshots/student-design.png" alt="学生设计作品"></p>
+<h3>7. 填写指导记录</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业流程 → 指导记录」</p>
+<p>学生可记录每次与导师交流的指导内容，形成完整的指导过程档案。</p>
+<p><strong>操作步骤：</strong></p>
+<ol>
+<li>点击「新增指导记录」；</li>
+<li>填写指导日期、指导内容、下一步计划，可上传附件；</li>
+<li>保存后可在列表中查看历史记录。</li>
+</ol>
+<p><img src="screenshots/student-guidance.png" alt="学生指导记录"></p>
+<h3>8. 查看成绩与答辩</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业流程 → 我的成绩 / 我的答辩」</p>
+<ul>
+<li><strong>我的成绩</strong>：查看导师评分、评阅评分、答辩评分、总评成绩与等级。</li>
+<li><strong>我的答辩</strong>：查看答辩分组、时间、地点、评委及各评委给出的分数。</li>
+</ul>
+<p><img src="screenshots/student-grades.png" alt="学生成绩"></p>
+<p><img src="screenshots/student-defense.png" alt="学生答辩"></p>
+<hr>
+<h2>三、教师使用指南</h2>
+<p>教师登录后，左侧菜单「毕业指导」栏目覆盖了课题管理到成绩评定的完整环节。</p>
+<h3>1. 管理课题</h3>
+<p><strong>入口：</strong> 左侧菜单「我的课题」「发布课题」</p>
+<p>教师可查看自己发布的课题，新增/编辑/删除课题。课题发布后学生即可浏览并申请。</p>
+<p><img src="screenshots/teacher-topics.png" alt="教师我的课题"></p>
+<h3>2. 下达任务书</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业指导 → 任务书下达」</p>
+<p>在学生录取后，教师为其下达任务书。</p>
+<p><strong>操作步骤：</strong></p>
+<ol>
+<li>点击「下达 / 编辑任务书」；</li>
+<li>从下拉框选择学生（仅显示已被录取到名下的学生）；</li>
+<li>填写任务书标题、任务内容、成果要求、进度安排，可上传附件；</li>
+<li>保存后学生端即可查看。</li>
+</ol>
+<p><img src="screenshots/teacher-task-book.png" alt="教师任务书下达"></p>
+<h3>3. 审核开题报告</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业指导 → 开题审核」</p>
+<p>教师查看学生提交的开题报告，逐条给出审核结论。</p>
+<p><strong>操作步骤：</strong></p>
+<ol>
+<li>在列表中点击某学生的「查看 / 审核」；</li>
+<li>查看开题报告内容与附件；</li>
+<li>选择审核结论（通过 / 退回修改 / 不通过）并填写评语；</li>
+<li>点击「确认」提交，学生端会收到相应状态与意见。</li>
+</ol>
+<p><img src="screenshots/teacher-proposal-review.png" alt="教师开题审核"></p>
+<h3>4. 中期检查评分</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业指导 → 中期检查」</p>
+<p>教师查看学生中期检查报告，除审核结论外还可给出评分（0-100 分）。</p>
+<p><img src="screenshots/teacher-midterm-review.png" alt="教师中期检查"></p>
+<h3>5. 论文与作品批阅</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业指导 → 论文批阅 / 作品批阅」</p>
+<p>教师批阅学生的毕业论文与设计作品，结论支持通过 / 退回修改 / 不通过 / 定稿四种状态。</p>
+<p><img src="screenshots/teacher-thesis-review.png" alt="教师论文批阅"></p>
+<p><img src="screenshots/teacher-design-review.png" alt="教师作品批阅"></p>
+<h3>6. 记录指导过程</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业指导 → 指导记录」</p>
+<p>教师为名下学生记录每次指导内容，便于过程管理与追溯。</p>
+<p><img src="screenshots/teacher-guidance.png" alt="教师指导记录"></p>
+<hr>
+<h2>四、管理员使用指南</h2>
+<p>管理员登录后，左侧「系统管理」「数据总览」「毕业全流程」三个栏目提供全局管理能力。</p>
+<h3>1. 全流程看板</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业全流程 → 全流程看板」</p>
+<p>看板展示当前所处阶段及各环节的数据统计（学生数、录取数、开题/中期/论文/作品提交数、答辩分组、成绩记录），便于整体把控进度。</p>
+<p><img src="screenshots/admin-overview.png" alt="全流程看板"></p>
+<h3>2. 答辩分组管理</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业全流程 → 答辩管理」</p>
+<p>管理员创建答辩分组，指定评委与答辩学生，并在「评分总览」中查看各评委打分情况。</p>
+<p><strong>操作步骤：</strong></p>
+<ol>
+<li>点击「新建分组」；</li>
+<li>填写分组名称、答辩时间、地点；</li>
+<li>选择评委（教师）与答辩学生；</li>
+<li>保存后，被指定的评委可在「答辩评分」中为学生打分。</li>
+</ol>
+<p><img src="screenshots/admin-defense.png" alt="答辩分组管理"></p>
+<h3>3. 成绩评定与发布</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业全流程 → 成绩评定」</p>
+<p>管理员/导师录入学生成绩，管理员可发布最终成绩。</p>
+<p><strong>操作步骤：</strong></p>
+<ol>
+<li>点击「录入 / 编辑成绩」选择学生；</li>
+<li>填写导师评分、评阅评分、答辩评分（系统按 40% / 20% / 40% 权重自动合成总分与等级）；</li>
+<li>保存后，点击「发布」将成绩正式发布给学生查看。</li>
+</ol>
+<p><img src="screenshots/admin-grades.png" alt="成绩评定"></p>
+<h3>4. 公告管理</h3>
+<p><strong>入口：</strong> 左侧菜单「毕业全流程 → 公告管理」</p>
+<p>管理员/教师发布面向全体、学生或教师的公告，可设置发布或存草稿。</p>
+<p><img src="screenshots/admin-announcements.png" alt="公告管理"></p>
+<h3>5. 选题周期与阶段切换</h3>
+<p><strong>入口：</strong> 左侧菜单「系统管理 → 选题周期」</p>
+<p>管理员创建选题周期，并通过<strong>手动切换阶段</strong>推进整个毕业流程。各环节（任务书、开题、中期、论文/作品、答辩、成绩）只有在对应阶段开启后，师生才能进行相应操作。</p>
+<p><img src="screenshots/admin-cycles.png" alt="选题周期"></p>
+<h3>6. 用户管理</h3>
+<p><strong>入口：</strong> 左侧菜单「系统管理 → 用户管理」</p>
+<p>管理员对教师/学生账号进行增删改查、重置密码、批量导入等操作。</p>
+<p><img src="screenshots/admin-users.png" alt="用户管理"></p>
+<hr>
+<h2>五、常见问题</h2>
+<p><strong>Q1：学生看不到「开题报告」等菜单？</strong>
+毕业全流程各环节由管理员在「选题周期」中手动切换阶段开启，只有当前阶段及之后的环节才会开放相应操作。请联系管理员确认当前所处阶段。</p>
+<p><strong>Q2：提交后想修改怎么办？</strong></p>
+<ul>
+<li>导师未审核时，学生可在页面上重新编辑并提交；</li>
+<li>导师审核「退回修改」后，学生可修改后重新提交；</li>
+<li>已「通过 / 定稿」的内容将锁定，如需修改请联系导师退回。</li>
+</ul>
+<p><strong>Q3：上传文件有大小/格式限制吗？</strong>
+有。系统按文件类别限制了格式与大小（如论文/开题支持 PDF、Word，设计作品支持图片/视频/模型/压缩包）。上传前请留意页面上的提示文字。</p>
+<p><strong>Q4：成绩总分如何计算？</strong>
+总分 = 导师评分 × 40% + 评阅评分 × 20% + 答辩评分 × 40%，系统自动合成并评定等级（优秀/良好/中等/及格/不及格）。</p>
+<p><strong>Q5：忘记密码怎么办？</strong>
+请联系管理员，在「用户管理」中对账号重置密码。</p>
+
+</body>
+</html>
