@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from 'uuid'
 import { query, transaction } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error, paginated } from '../utils/response.js'
+import { getStudentMajorCode, getTopicAccessPolicy, isTopicVisible } from '../utils/topicAccess.js'
+import { getActiveCycle } from '../utils/processFlow.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -18,6 +20,21 @@ router.get('/', async (req: AuthRequest, res) => {
     let whereSql = `WHERE t.status = 'published'`
     const params: any[] = []
 
+    if (req.user!.role === 'student') {
+      const majorCode = await getStudentMajorCode(req.user!.id)
+      const active = await getActiveCycle()
+      const policy = await getTopicAccessPolicy(active?.id)
+      if (policy.mode === 'all') {
+        // 管理员允许学生查看全部专业课题
+      } else if (policy.mode === 'matrix') {
+        const allowed = policy.matrix[majorCode] || []
+        if (!allowed.length) whereSql += ' AND 1 = 0'
+        else { whereSql += ` AND t.major_code IN (${allowed.map(() => '?').join(',')})`; params.push(...allowed) }
+      } else if (majorCode) {
+        whereSql += ' AND t.major_code = ?'; params.push(majorCode)
+      } else whereSql += ' AND 1 = 0'
+    }
+
     if (keyword) {
       whereSql += ` AND (t.title LIKE ? OR t.description LIKE ?)`
       params.push(`%${keyword}%`, `%${keyword}%`)
@@ -30,7 +47,7 @@ router.get('/', async (req: AuthRequest, res) => {
       whereSql += ` AND t.difficulty = ?`
       params.push(difficulty)
     }
-    if (req.query.major) {
+    if (req.query.major && req.user!.role !== 'student') {
       whereSql += ` AND t.major = ?`
       params.push(req.query.major)
     }
@@ -93,9 +110,16 @@ router.get('/teacher/mine', requireRole(['teacher']), async (req: AuthRequest, r
     const { keyword, status } = req.query
     let sql = `
       SELECT t.*,
+             u.real_name AS teacher_name,
+             u.title AS teacher_title,
+             u.department AS teacher_department,
+             u.email AS teacher_email,
+             u.phone AS teacher_phone,
+             u.avatar AS teacher_avatar,
              COALESCE(ac.apply_count, 0) AS apply_count,
              COALESCE(ac.accepted_count, 0) AS accepted_count
       FROM topics t
+      LEFT JOIN users u ON t.teacher_id = u.id
       LEFT JOIN (
         SELECT topic_id,
                COUNT(*) AS apply_count,
@@ -124,6 +148,12 @@ router.get('/teacher/mine', requireRole(['teacher']), async (req: AuthRequest, r
     const formattedList = list.map(item => ({
       ...item,
       teacherId: item.teacher_id,
+      teacherName: item.teacher_name,
+      teacherTitle: item.teacher_title,
+      teacherDepartment: item.teacher_department,
+      teacherEmail: item.teacher_email,
+      teacherPhone: item.teacher_phone,
+      teacherAvatar: item.teacher_avatar,
       maxStudents: item.max_students,
       applyCount: Number(item.apply_count),
       currentCount: Number(item.accepted_count),
@@ -159,6 +189,12 @@ router.get('/:id', async (req: AuthRequest, res) => {
     const topic = topicRows[0]
 
     if (!topic) return error(res, '课题不存在')
+
+    if (req.user!.role === 'student') {
+      const policy = await getTopicAccessPolicy(topic.cycle_id)
+      const majorCode = await getStudentMajorCode(req.user!.id)
+      if (!isTopicVisible(policy, majorCode, topic.major_code)) return error(res, '您无权查看其他专业的课题', 403)
+    }
 
     await query('UPDATE topics SET view_count = view_count + 1 WHERE id = ?', [id])
     ;(topic as any).view_count++

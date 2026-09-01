@@ -21,13 +21,14 @@ import adminRoutes from './routes/admin.js'
 import taskBookRoutes from './routes/taskBooks.js'
 import proposalRoutes from './routes/proposals.js'
 import midtermRoutes from './routes/midterm.js'
-import thesisRoutes from './routes/thesis.js'
-import designRoutes from './routes/design.js'
 import defenseRoutes from './routes/defense.js'
 import gradeRoutes from './routes/grades.js'
 import guidanceRoutes from './routes/guidance.js'
 import announcementRoutes from './routes/announcements.js'
 import notificationRoutes from './routes/notifications.js'
+import documentTemplateRoutes from './routes/documentTemplates.js'
+import topicAccessRoutes from './routes/topicAccess.js'
+import profileOptionsRoutes from './routes/profileOptions.js'
 
 // 导入认证中间件
 import { authMiddleware, type AuthRequest } from './middleware/auth.js'
@@ -48,7 +49,7 @@ app.use(cors({
 app.use(express.json({ limit: '10mb' }))
 app.use(express.urlencoded({ extended: true }))
 
-// 静态文件上传目录
+// 静态文件上传目录（私有模板存放在 uploads 目录之外，不会被这里暴露）
 app.use('/uploads', express.static(resolveUploadDir(), {
   setHeaders(res, filePath) {
     res.setHeader('X-Content-Type-Options', 'nosniff')
@@ -97,6 +98,8 @@ app.use('/api/users', userRoutes)
 app.use('/api/topics', topicRoutes)
 app.use('/api/applications', applicationRoutes)
 app.use('/api/cycles', cycleRoutes)
+app.use('/api/topic-access', topicAccessRoutes)
+app.use('/api/profile-options', profileOptionsRoutes)
 app.use('/api/statistics', statisticsRoutes)
 app.use('/api/students', studentRoutes)
 app.use('/api/upload', uploadRoutes)
@@ -105,13 +108,12 @@ app.use('/api/admin', adminRoutes)
 app.use('/api/task-books', taskBookRoutes)
 app.use('/api/proposals', proposalRoutes)
 app.use('/api/midterm', midtermRoutes)
-app.use('/api/thesis', thesisRoutes)
-app.use('/api/design', designRoutes)
 app.use('/api/defense', defenseRoutes)
 app.use('/api/grades', gradeRoutes)
 app.use('/api/guidance', guidanceRoutes)
 app.use('/api/announcements', announcementRoutes)
 app.use('/api/notifications', notificationRoutes)
+app.use('/api/document-templates', documentTemplateRoutes)
 
 // 当前用户信息（GET /api/auth/me 需要 authMiddleware）
 app.get('/api/auth/me', authMiddleware, (req: AuthRequest, res) => {

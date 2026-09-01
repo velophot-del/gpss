@@ -4,14 +4,14 @@ import { query } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
 import { getDefenseScoreAccess, getDefenseScoreListScope, parseRequiredScore } from '../utils/policies.js'
+import { safeParseJson } from '../utils/json.js'
 
 const router = Router()
 router.use(authMiddleware)
 
 function parseJsonArray(v: any): any[] {
-  if (v == null) return []
-  if (typeof v === 'string') { try { return JSON.parse(v) } catch { return [] } }
-  return Array.isArray(v) ? v : []
+  const parsed = safeParseJson<unknown[]>(v, [])
+  return Array.isArray(parsed) ? parsed : []
 }
 
 // ===== 答辩分组 =====

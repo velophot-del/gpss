@@ -4,6 +4,9 @@ import { query, transaction } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
 import { getTeacherStudentLimit, resolveAdjustmentSource, validateAdjustmentCycle, validateAdjustmentTarget } from '../utils/policies.js'
+import { getStudentMajorCode, getTopicAccessPolicy, isTopicVisible } from '../utils/topicAccess.js'
+import { getActiveCycle } from '../utils/processFlow.js'
+import { safeParseJson } from '../utils/json.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -17,9 +20,7 @@ router.post('/', requireRole(['student']), async (req: AuthRequest, res) => {
     if (!topicId) return error(res, '请选择课题')
 
     // 检查当前是否在志愿填报阶段
-    const [activeCycle] = await query<any>(
-      "SELECT phase FROM cycles WHERE status IN ('active','selection','review','adjustment') ORDER BY created_at DESC LIMIT 1"
-    )
+    const activeCycle = await getActiveCycle()
     if (!activeCycle || activeCycle.phase !== 'student_selection') {
       return error(res, '当前不在志愿填报阶段，无法提交申请')
     }
@@ -27,6 +28,9 @@ router.post('/', requireRole(['student']), async (req: AuthRequest, res) => {
     // 检查课题是否存在且已发布
     const [topic] = await query<any>('SELECT * FROM topics WHERE id = ? AND status = ?', [topicId, 'published'])
     if (!topic) return error(res, '课题不存在或未开放选课')
+    const studentMajor = await getStudentMajorCode(req.user!.id)
+    const accessPolicy = await getTopicAccessPolicy(topic.cycle_id)
+    if (!isTopicVisible(accessPolicy, studentMajor, topic.major_code)) return error(res, '只能申请允许查看范围内的专业课题', 403)
 
     // 检查是否已申请过该课题
     const [existing] = await query<any>(
@@ -165,9 +169,7 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
           )
           const cycle = cycles[0]
           if (cycle && cycle.phases_config) {
-            const phasesConfig = typeof cycle.phases_config === 'string' 
-              ? JSON.parse(cycle.phases_config) 
-              : cycle.phases_config
+            const phasesConfig = safeParseJson<Record<string, any>>(cycle.phases_config, {})
             const teacherStudentLimit = getTeacherStudentLimit(phasesConfig)
             
             if (teacherStudentLimit > 0) {
@@ -392,7 +394,7 @@ router.put('/adjustments/:id', requireRole(['admin']), async (req: AuthRequest, 
 
       if (targetTopic.cycle_id) {
         const rawConfig = cycle?.phases_config
-        const phasesConfig = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig
+        const phasesConfig = safeParseJson<Record<string, any>>(rawConfig, {})
         const teacherStudentLimit = getTeacherStudentLimit(phasesConfig)
         if (teacherStudentLimit > 0) {
           const [teacherRows] = await conn.query<any[]>(`

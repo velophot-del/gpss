@@ -1,4 +1,5 @@
 import path from 'path'
+import { safeParseJson } from './json.js'
 
 export type UserRole = 'admin' | 'teacher' | 'student'
 
@@ -48,14 +49,8 @@ export function resolveSessionUser(tokenUser: TokenUser, databaseUser?: Database
 }
 
 function parseJsonArray(value: unknown): string[] {
-  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string')
-  if (typeof value !== 'string') return []
-  try {
-    const parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
-  } catch {
-    return []
-  }
+  const parsed = safeParseJson<unknown[]>(value, [])
+  return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
 }
 
 export function getDefenseScoreAccess(
@@ -73,6 +68,15 @@ export function getDefenseScoreListScope(user: Pick<SessionUser, 'role'>): 'all'
   return user.role === 'teacher' ? 'judge' : 'student'
 }
 
+export function canDownloadDocumentTemplate(
+  user: Pick<SessionUser, 'role'>,
+  template: { cycle_id: number; status: string },
+  acceptedCycleId: number | null,
+) {
+  if (user.role === 'admin') return true
+  return user.role === 'student' && template.status === 'published' && acceptedCycleId === template.cycle_id
+}
+
 export const UPLOAD_CATEGORY_CONFIG: Record<string, { allowed: string[]; maxSize: number; label: string }> = {
   thesis: { allowed: ['.pdf', '.doc', '.docx', '.zip'], maxSize: 50 * 1024 * 1024, label: '论文' },
   proposal: { allowed: ['.pdf', '.doc', '.docx', '.zip'], maxSize: 50 * 1024 * 1024, label: '开题报告' },
@@ -81,6 +85,7 @@ export const UPLOAD_CATEGORY_CONFIG: Record<string, { allowed: string[]; maxSize
   design: { allowed: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.mp4', '.mov', '.zip', '.rar', '.stl', '.obj', '.pdf'], maxSize: 500 * 1024 * 1024, label: '设计作品' },
   image: { allowed: ['.jpg', '.jpeg', '.png', '.gif', '.webp'], maxSize: 100 * 1024 * 1024, label: '图片' },
   portfolio: { allowed: ['.jpg', '.jpeg', '.png', '.gif', '.pdf', '.mp4', '.mov'], maxSize: 50 * 1024 * 1024, label: '作品集' },
+  document_template: { allowed: ['.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.zip'], maxSize: 50 * 1024 * 1024, label: '毕业资料模板' },
   general: { allowed: ['.pdf', '.doc', '.docx', '.zip', '.jpg', '.jpeg', '.png'], maxSize: 50 * 1024 * 1024, label: '文件' },
 }
 

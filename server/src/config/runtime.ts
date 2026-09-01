@@ -32,6 +32,12 @@ export function resolveUploadDir(env: Environment = process.env, cwd = process.c
   return path.isAbsolute(configuredPath) ? configuredPath : path.resolve(cwd, configuredPath)
 }
 
+// 私有模板目录：uploads 的兄弟目录（uploads-private），位于公共静态服务范围之外
+export function resolvePrivateTemplateDir(env: Environment = process.env, cwd = process.cwd()) {
+  const uploadDir = resolveUploadDir(env, cwd)
+  return path.join(path.dirname(uploadDir), `${path.basename(uploadDir)}-private`)
+}
+
 // 对外访问路径前缀（内嵌到「半山学堂」时为 /gpss；独立部署时为空字符串）
 // 用于给返回给前端的 URL（如上传文件 /uploads/...）加上子路径前缀
 export function resolvePublicBasePath(env: Environment = process.env) {

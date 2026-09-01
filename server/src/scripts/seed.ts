@@ -12,6 +12,10 @@ const __dirname = path.dirname(__filename)
 dotenv.config({ path: path.resolve(__dirname, '../../.env') })
 dotenv.config()
 
+if (process.env.NODE_ENV === 'production' && process.env.ALLOW_DEMO_SEED !== 'true') {
+  throw new Error('生产环境禁止执行演示种子数据；如需导入经审核的数据，请使用独立导入流程并显式设置 ALLOW_DEMO_SEED=true')
+}
+
 const dbConfig = resolveDatabaseConfig()
 
 // 默认密码：123456

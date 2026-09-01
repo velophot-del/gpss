@@ -6,10 +6,9 @@ export default createSubmissionRouter({
   stagePhase: 'midterm',
   label: '中期检查',
   textFields: [
-    { column: 'progress_summary', key: 'progressSummary', required: true, label: '进度总结' },
-    { column: 'completed_work', key: 'completedWork', required: true, label: '已完成内容' },
-    { column: 'problems', key: 'problems', label: '存在问题' },
-    { column: 'next_plan', key: 'nextPlan', label: '后续计划' }
+    { column: 'completed_work', key: 'completedWork', required: true, label: '目前已完成工作' },
+    { column: 'problems', key: 'problems', required: true, label: '目前存在的主要问题' },
+    { column: 'next_plan', key: 'nextPlan', required: true, label: '下一步的主要任务、具体时间安排' }
   ],
   hasScore: true,
   initialStatus: 'not_started',

@@ -4,10 +4,11 @@ import { query } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
 import { getAcceptedSelection, getCurrentPhase, notify } from './processFlow.js'
+import { sendOfficialDocx, type OfficialDocumentType } from './officialDocx.js'
 
 /**
- * 「学生提交 → 教师审核(通过/退回/评分)」统一流程工厂。
- * 用于开题(proposals)、中期(midterm_reports)、论文(thesis_submissions)、设计作品(design_submissions)。
+ * 「学生提交 → 教师审核(通过/退回/拒绝)」统一流程工厂。
+ * 用于开题(proposals)、中期(midterm_reports)。
  */
 
 interface TextField { column: string; key: string; required?: boolean; label?: string }
@@ -20,17 +21,35 @@ export interface SubmissionConfig {
   titleField?: string         // 有 title 列则填 'title'
   textFields: TextField[]     // 文本字段（不含 title 与 file_urls）
   hasScore?: boolean
-  hasVersion?: boolean
-  allowFinal?: boolean        // 是否允许定稿（final）状态（论文/作品）
   initialStatus: 'not_started' | 'draft'
   submitStatus: string        // 'submitted'
   reviewStates: ReviewStates
 }
 
-function parseJson(v: any): any[] {
-  if (v == null) return []
-  if (typeof v === 'string') { try { return JSON.parse(v) } catch { return [] } }
-  return Array.isArray(v) ? v : []
+// 学生提交记录的公共展示字段（各环节在此基础上补充各自字段）
+export function presentSubmissionBase(row: any) {
+  const { file_urls, ...rest } = row
+  return {
+    ...rest,
+    studentId: row.student_id,
+    studentName: row.student_name,
+    studentCode: row.student_code,
+    className: row.class_name,
+    topicId: row.topic_id,
+    topicTitle: row.topic_title,
+    teacherName: row.teacher_name,
+    teacherComment: row.teacher_comment,
+    reviewedAt: row.reviewed_at,
+  }
+}
+
+function present(row: any) {
+  return {
+    ...presentSubmissionBase(row),
+    progressSummary: row.progress_summary,
+    completedWork: row.completed_work,
+    nextPlan: row.next_plan,
+  }
 }
 
 export function createSubmissionRouter(cfg: SubmissionConfig): Router {
@@ -42,12 +61,11 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
   router.post('/', requireRole(['student']), async (req: AuthRequest, res) => {
     try {
       const phase = await getCurrentPhase()
-      if (phase !== cfg.stagePhase) return error(res, `当前不在「${cfg.label}」阶段，无法提交`)
+      const submit = req.body.submit !== false
+      if (submit && phase !== cfg.stagePhase) return error(res, `当前不在「${cfg.label}」阶段，无法提交`)
 
       const sel = await getAcceptedSelection(req.user!.id)
       if (!sel) return error(res, `您尚未确定选题，无法提交${cfg.label}`)
-
-      const submit = req.body.submit !== false
 
       if (submit) {
         if (cfg.titleField && !req.body.title) return error(res, '请填写标题')
@@ -61,8 +79,8 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
         [req.user!.id, sel.topic_id]
       )
 
-      // 已通过/定稿后锁定，需导师退回才能修改
-      if (existing && [cfg.reviewStates.pass, 'final'].includes(existing.status)) {
+      // 已通过/拒绝后锁定，需导师退回才能修改
+      if (existing && [cfg.submitStatus, cfg.reviewStates.pass, cfg.reviewStates.reject].includes(existing.status)) {
         return error(res, `当前状态「${existing.status}」不可再编辑，请联系导师退回后修改`)
       }
 
@@ -74,19 +92,12 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
       for (const f of cfg.textFields) {
         if (req.body[f.key] !== undefined) { sets.push(`${f.column} = ?`); params.push(req.body[f.key]) }
       }
-      if (req.body.fileUrls !== undefined) { sets.push('file_urls = ?'); params.push(JSON.stringify(req.body.fileUrls || [])) }
-
-      // 从已评审状态重新提交时版本 +1
-      let versionInc = ''
-      if (cfg.hasVersion && existing && [cfg.reviewStates.revision, cfg.reviewStates.reject, cfg.reviewStates.pass].includes(existing.status)) {
-        versionInc = ', version = version + 1'
-      }
 
       let id: string
       if (existing) {
         id = existing.id
         sets.push('status = ?'); params.push(targetStatus)
-        await query(`UPDATE ${table} SET ${sets.join(', ')}${versionInc}, updated_at = NOW() WHERE id = ?`, [...params, id])
+        await query(`UPDATE ${table} SET ${sets.join(', ')}, updated_at = NOW() WHERE id = ?`, [...params, id])
       } else {
         id = uuidv4()
         const cols = ['id', 'student_id', 'topic_id', 'cycle_id']
@@ -97,7 +108,7 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
         const vals: any[] = [id, req.user!.id, sel.topic_id, sel.cycle_id || null]
         if (cfg.titleField) vals.push(req.body.title || '')
         for (const f of cfg.textFields) vals.push(req.body[f.key] ?? null)
-        vals.push(JSON.stringify(req.body.fileUrls || []))
+        vals.push('[]')
         vals.push(targetStatus)
         await query(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`, vals)
       }
@@ -117,7 +128,7 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
     try {
       const { id } = req.params
       const { status, comment, score } = req.body
-      const allowed = [cfg.reviewStates.pass, cfg.reviewStates.reject, cfg.reviewStates.revision, ...(cfg.allowFinal ? ['final'] : [])]
+      const allowed = [cfg.reviewStates.pass, cfg.reviewStates.reject, cfg.reviewStates.revision]
       if (!allowed.includes(status)) return error(res, '无效的审核状态')
 
       const [row] = await query<any>(
@@ -157,10 +168,12 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
       let rows: any[]
       if (req.user!.role === 'student') {
         rows = await query<any>(`
-          SELECT s.*, t.title AS topic_title, t.category, u.real_name AS teacher_name
+          SELECT s.*, t.title AS topic_title, t.category, u.real_name AS teacher_name,
+                 st.real_name AS student_name, st.student_id AS student_code, st.class_name, st.major
           FROM ${table} s
           JOIN topics t ON s.topic_id = t.id
           LEFT JOIN users u ON t.teacher_id = u.id
+          LEFT JOIN users st ON s.student_id = st.id
           WHERE s.student_id = ?
           ORDER BY s.updated_at DESC
         `, [req.user!.id])
@@ -184,12 +197,7 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
         `)
       }
 
-      const list = rows.map(r => {
-        const clean: any = { ...r, fileUrls: parseJson(r.file_urls) }
-        delete clean.file_urls
-        return clean
-      })
-      success(res, list)
+      success(res, rows.map(present))
     } catch (err: any) {
       console.error(`[${table}] 列表失败:`, err)
       error(res, '服务器内部错误', 500)
@@ -197,6 +205,33 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
   })
 
   // 详情
+  router.get('/:id/export', async (req: AuthRequest, res) => {
+    try {
+      if (cfg.stagePhase !== 'proposal' && cfg.stagePhase !== 'midterm') {
+        return error(res, '该环节暂无正式 Word 模板', 404)
+      }
+      const rows = await query<any>(`
+        SELECT s.*, t.title AS topic_title, t.category, t.teacher_id, u.real_name AS teacher_name,
+               st.real_name AS student_name, st.student_id AS student_code, st.class_name, st.major
+        FROM ${table} s
+        JOIN topics t ON s.topic_id = t.id
+        LEFT JOIN users u ON t.teacher_id = u.id
+        LEFT JOIN users st ON s.student_id = st.id
+        WHERE s.id = ?`, [req.params.id])
+      if (!rows[0]) return error(res, '记录不存在', 404)
+      const row = rows[0]
+      if (req.user!.role === 'student' && row.student_id !== req.user!.id) return error(res, '无权导出', 403)
+      if (req.user!.role === 'teacher' && row.teacher_id !== req.user!.id) return error(res, '无权导出', 403)
+      const exportable = ['draft', cfg.submitStatus, cfg.reviewStates.revision, cfg.reviewStates.pass, cfg.reviewStates.reject]
+      if (!exportable.includes(row.status)) return error(res, `当前状态无法导出${cfg.label}`)
+      const record = present(row)
+      await sendOfficialDocx(res, cfg.stagePhase as OfficialDocumentType, record, row.status, cfg.reviewStates.pass)
+    } catch (err: any) {
+      console.error(`[${table}] 导出失败:`, err)
+      error(res, `导出${cfg.label}失败`, 500)
+    }
+  })
+
   router.get('/:id', async (req: AuthRequest, res) => {
     try {
       const { id } = req.params
@@ -215,9 +250,7 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
       if (req.user!.role === 'student' && r.student_id !== req.user!.id) return error(res, '无权查看', 403)
       if (req.user!.role === 'teacher' && r.teacher_id !== req.user!.id) return error(res, '无权查看', 403)
 
-      const clean: any = { ...r, fileUrls: parseJson(r.file_urls) }
-      delete clean.file_urls
-      success(res, clean)
+      success(res, present(r))
     } catch (err: any) {
       console.error(`[${table}] 详情失败:`, err)
       error(res, '服务器内部错误', 500)

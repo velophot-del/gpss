@@ -5,7 +5,9 @@ server/dist/
 
 # Runtime data and local test output
 server/uploads/
+server/uploads-private/
 uploads/
+uploads-private/
 test-results/
 *.log
 .DS_Store

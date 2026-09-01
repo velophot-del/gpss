@@ -88,7 +88,7 @@ async function createTables(conn) {
     description TEXT,
     year VARCHAR(10),
     status ENUM('draft','active','closed') DEFAULT 'draft',
-    phase ENUM('topic_submission','topic_publish','student_apply','teacher_review','result_announce','adjustment','completed','none') DEFAULT 'none',
+    phase ENUM('topic_submission','topic_publish','student_apply','student_selection','teacher_review','result_announce','adjustment','result','task_book','proposal','midterm','thesis_design','defense','grading','archive','ended') DEFAULT 'topic_submission',
     topic_publish_start DATE,
     topic_publish_end DATE,
     student_apply_start DATE,

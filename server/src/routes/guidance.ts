@@ -8,16 +8,10 @@ import { getAcceptedSelection } from '../utils/processFlow.js'
 const router = Router()
 router.use(authMiddleware)
 
-function parseJson(v: any): any[] {
-  if (v == null) return []
-  if (typeof v === 'string') { try { return JSON.parse(v) } catch { return [] } }
-  return Array.isArray(v) ? v : []
-}
-
 // 新增指导记录（教师为名下学生记录，学生记录自己的指导过程）
 router.post('/', requireRole(['teacher', 'student']), async (req: AuthRequest, res) => {
   try {
-    const { studentId, recordDate, content, nextAction, fileUrls } = req.body
+    const { studentId, recordDate, content, nextAction } = req.body
 
     let targetStudentId: string
     if (req.user!.role === 'student') {
@@ -40,7 +34,7 @@ router.post('/', requireRole(['teacher', 'student']), async (req: AuthRequest, r
       INSERT INTO guidance_records (id, student_id, teacher_id, topic_id, cycle_id, record_date, content, next_action, file_urls)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [id, targetStudentId, sel.teacher_id, sel.topic_id, sel.cycle_id || null,
-      recordDate || new Date(), content, nextAction ?? null, JSON.stringify(fileUrls || [])])
+      recordDate || new Date(), content, nextAction ?? null, '[]'])
 
     success(res, { id }, '指导记录已保存')
   } catch (err: any) {
@@ -81,7 +75,7 @@ router.get('/', async (req: AuthRequest, res) => {
         ORDER BY g.record_date DESC
       `)
     }
-    const list = rows.map(r => { const c: any = { ...r, fileUrls: parseJson(r.file_urls) }; delete c.file_urls; return c })
+    const list = rows.map(({ file_urls, ...row }) => row)
     success(res, list)
   } catch (err: any) {
     console.error('获取指导记录失败:', err)

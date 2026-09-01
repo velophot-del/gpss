@@ -16,14 +16,15 @@ router.get('/', async (req: AuthRequest, res) => {
     const offset = (p - 1) * ps
 
     const role = req.user!.role
-    const params: any[] = []
-
-    let where = `WHERE a.status = 'published' AND a.scope IN ('all', ?)`
-    params.push(role)
+    let where: string
+    let params: any[]
     if (role === 'admin' || role === 'teacher') {
       // 教师/管理员额外看到自己的草稿
       where = `WHERE (a.status = 'published' AND a.scope IN ('all', ?)) OR (a.created_by = ?)`
-      params.push(role, req.user!.id)
+      params = [role, req.user!.id]
+    } else {
+      where = `WHERE a.status = 'published' AND a.scope IN ('all', ?)`
+      params = [role]
     }
 
     const list = await query<any>(`

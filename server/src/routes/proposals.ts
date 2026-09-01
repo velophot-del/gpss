@@ -7,11 +7,10 @@ export default createSubmissionRouter({
   label: '开题报告',
   titleField: 'title',
   textFields: [
-    { column: 'background', key: 'background', required: true, label: '选题背景' },
-    { column: 'objectives', key: 'objectives', required: true, label: '研究/设计目标' },
-    { column: 'content', key: 'content', required: true, label: '主要内容' },
-    { column: 'methods', key: 'methods', required: true, label: '方法与技术路线' },
-    { column: 'plan', key: 'plan', label: '进度计划' }
+    { column: 'background', key: 'background', required: true, label: '设计的目的和意义（市场价值等）' },
+    { column: 'objectives', key: 'objectives', required: true, label: '设计内容和预期成果' },
+    { column: 'methods', key: 'methods', required: true, label: '拟采取的设计方法和手段（技术）' },
+    { column: 'plan', key: 'plan', required: true, label: '毕业设计方案（步骤）或毕业设计报告提纲' }
   ],
   initialStatus: 'not_started',
   submitStatus: 'submitted',

@@ -22,14 +22,20 @@ export async function getAcceptedSelection(studentId: string) {
   return rows[0] || null
 }
 
-// 获取当前进行中的周期阶段（phase）
-export async function getCurrentPhase() {
+// 获取当前进行中的周期（active/selection/review/adjustment 任一状态）
+export async function getActiveCycle() {
   const rows = await query<any>(`
-    SELECT phase FROM cycles
+    SELECT * FROM cycles
     WHERE status IN ('active', 'selection', 'review', 'adjustment')
     ORDER BY created_at DESC LIMIT 1
   `)
-  return rows[0]?.phase || null
+  return rows[0] || null
+}
+
+// 获取当前进行中的周期阶段（phase）
+export async function getCurrentPhase() {
+  const cycle = await getActiveCycle()
+  return cycle?.phase || null
 }
 
 // 发送站内通知

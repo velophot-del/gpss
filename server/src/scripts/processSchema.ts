@@ -19,6 +19,31 @@ export function processPhaseEnum(): string {
 }
 
 export async function createProcessTables(conn: any) {
+  // ===== 周期级毕业资料模板 =====
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS document_templates (
+      id VARCHAR(36) PRIMARY KEY,
+      cycle_id INT NOT NULL,
+      document_type ENUM('task_book', 'proposal', 'midterm', 'thesis', 'other') NOT NULL,
+      title VARCHAR(200) NOT NULL,
+      version VARCHAR(50) NOT NULL,
+      description TEXT,
+      original_name VARCHAR(255) NOT NULL,
+      storage_key VARCHAR(255) NOT NULL,
+      mime_type VARCHAR(100),
+      size BIGINT UNSIGNED NOT NULL DEFAULT 0,
+      status ENUM('draft', 'published', 'archived') NOT NULL DEFAULT 'draft',
+      published_at DATETIME,
+      created_by VARCHAR(36),
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (cycle_id) REFERENCES cycles(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by) REFERENCES users(id),
+      UNIQUE KEY uk_cycle_type_version (cycle_id, document_type, version),
+      INDEX idx_cycle_status (cycle_id, status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `)
+
   // ===== 毕业全流程：任务书 =====
   await conn.query(`
     CREATE TABLE IF NOT EXISTS task_books (
@@ -28,12 +53,17 @@ export async function createProcessTables(conn: any) {
       cycle_id INT,
       title VARCHAR(200) NOT NULL,
       content TEXT,
+      main_content TEXT,
       requirements TEXT,
+      specific_requirements TEXT,
       schedule TEXT,
       file_urls JSON,
-      status ENUM('draft', 'issued') NOT NULL DEFAULT 'draft',
+      status ENUM('draft', 'issued', 'submitted', 'need_revision', 'confirmed') NOT NULL DEFAULT 'draft',
       issued_by VARCHAR(36),
       issued_at DATETIME,
+      teacher_comment TEXT,
+      reviewed_by VARCHAR(36),
+      reviewed_at DATETIME,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       FOREIGN KEY (student_id) REFERENCES users(id) ON DELETE CASCADE,

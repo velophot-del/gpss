@@ -9,6 +9,7 @@ import mysql from 'mysql2/promise'
 import dotenv from 'dotenv'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
+import { processPhaseEnum } from './processSchema.js'
 
 dotenv.config()
 
@@ -37,12 +38,8 @@ async function migrate() {
 
     // 2. 更新 phase 字段：扩展为完整的阶段列表
     await conn.query(`
-      ALTER TABLE cycles 
-      MODIFY COLUMN phase ENUM(
-        'topic_submission', 'topic_publish', 'student_apply', 
-        'student_selection', 'teacher_review', 'result_announce',
-        'adjustment', 'result', 'ended'
-      ) NOT NULL DEFAULT 'topic_submission'
+      ALTER TABLE cycles
+      MODIFY COLUMN phase ${processPhaseEnum()} NOT NULL DEFAULT 'topic_submission'
     `)
     console.log('✓ phase 字段已更新: 支持所有阶段值')
 

@@ -3,139 +3,163 @@ import { v4 as uuidv4 } from 'uuid'
 import { query } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
-import { getAcceptedSelection, notify } from '../utils/processFlow.js'
+import { getAcceptedSelection, getCurrentPhase, notify } from '../utils/processFlow.js'
+import { presentSubmissionBase } from '../utils/submissionFlow.js'
+import { sendOfficialDocx } from '../utils/officialDocx.js'
+import { safeParseJson } from '../utils/json.js'
 
 const router = Router()
 router.use(authMiddleware)
 
-function parseJson(v: any): any[] {
-  if (v == null) return []
-  if (typeof v === 'string') { try { return JSON.parse(v) } catch { return [] } }
-  return Array.isArray(v) ? v : []
+const TASK_BOOK_PHASES = ['选题、下达任务书', '实施研究、收集资料', '开题报告', '撰写设计报告、完成初稿', '毕业设计中期检查', '完成修改、定稿', '学术不端检测', '答辩、展览']
+
+function parseSchedule(value: unknown): Array<{ phase: string; month: number | '' }> {
+  const parsed = safeParseJson<Array<{ phase: string; month: number | '' }>>(value, [])
+  return Array.isArray(parsed) ? parsed : []
 }
 
-// 教师下达任务书（按 student_id 定位其被录取的课题）
-router.post('/', requireRole(['teacher']), async (req: AuthRequest, res) => {
+function present(row: any) {
+  return {
+    ...presentSubmissionBase(row),
+    mainContent: row.main_content,
+    specificRequirements: row.specific_requirements,
+    schedule: parseSchedule(row.schedule),
+  }
+}
+
+// 本校任务书：学生填写 → 指导教师确认。确认后仅允许教师退回修改。
+router.post('/', requireRole(['student']), async (req: AuthRequest, res) => {
   try {
-    const { studentId, title, content, requirements, schedule, fileUrls, status } = req.body
-    if (!studentId || !title) return error(res, '请选择学生并填写任务书标题')
+    const isSubmit = req.body.submit !== false
+    if (isSubmit && await getCurrentPhase() !== 'task_book') return error(res, '当前不在「任务书」阶段，无法提交')
+    const sel = await getAcceptedSelection(req.user!.id)
+    if (!sel) return error(res, '您尚未正式确定课题，无法填写任务书')
 
-    const sel = await getAcceptedSelection(studentId)
-    if (!sel) return error(res, '该学生尚无已录取的选题')
-    if (sel.teacher_id !== req.user!.id && req.user!.role !== 'admin') {
-      return error(res, '只能给名下学生下达任务书')
+    const { content, mainContent, requirements, specificRequirements, submit } = req.body
+    const schedule = parseSchedule(req.body.schedule)
+    const title = String(req.body.title || '').trim() || sel.topic_title
+    if (isSubmit) {
+      const required = [
+        ['设计目的和意义', content], ['设计主要内容', mainContent],
+        ['基本要求', requirements], ['具体要求', specificRequirements], ['阶段工作计划', schedule.length === TASK_BOOK_PHASES.length && schedule.every(item => item.phase && item.month) ? 'ok' : '']
+      ]
+      const missing = required.find(([, value]) => !String(value || '').trim())
+      if (missing) return error(res, `请填写${missing[0]}`)
     }
 
-    const targetStatus = status === 'issued' ? 'issued' : 'draft'
-    const [existing] = await query<any>(
-      'SELECT * FROM task_books WHERE student_id = ? AND topic_id = ?',
-      [studentId, sel.topic_id]
-    )
+    const [existing] = await query<any>('SELECT * FROM task_books WHERE student_id = ? AND topic_id = ?', [req.user!.id, sel.topic_id])
+    if (existing && ['confirmed', 'submitted', 'issued'].includes(existing.status)) {
+      return error(res, existing.status === 'confirmed' ? '任务书已由指导教师确认，如需修改请联系教师退回' : '任务书已提交审核，暂不可修改')
+    }
 
+    const status = isSubmit ? 'submitted' : 'draft'
+    const values = [title, content ?? null, mainContent ?? null, requirements ?? null,
+      specificRequirements ?? null, JSON.stringify(schedule), '[]', status]
+    let id: string
     if (existing) {
-      await query(`
-        UPDATE task_books SET title = ?, content = ?, requirements = ?, schedule = ?,
-          file_urls = ?, status = ?, issued_by = ?, issued_at = NOW(), updated_at = NOW()
-        WHERE id = ?
-      `, [title, content ?? null, requirements ?? null, schedule ?? null,
-        JSON.stringify(fileUrls || []), targetStatus, req.user!.id, existing.id])
-      await notify([studentId], 'task_book_issued', '任务书已更新', `导师更新了您的任务书「${title}」`, 'task_books', existing.id)
-      return success(res, { id: existing.id }, '任务书已更新')
+      id = existing.id
+      await query(`UPDATE task_books SET title = ?, content = ?, main_content = ?, requirements = ?,
+        specific_requirements = ?, schedule = ?, file_urls = ?, status = ?, updated_at = NOW() WHERE id = ?`, [...values, id])
+    } else {
+      id = uuidv4()
+      await query(`INSERT INTO task_books
+        (id, student_id, topic_id, cycle_id, title, content, main_content, requirements, specific_requirements, schedule, file_urls, status)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id, req.user!.id, sel.topic_id, sel.cycle_id || null, ...values])
     }
-
-    const id = uuidv4()
-    await query(`
-      INSERT INTO task_books (id, student_id, topic_id, cycle_id, title, content, requirements, schedule, file_urls, status, issued_by, issued_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-    `, [id, studentId, sel.topic_id, sel.cycle_id || null, title, content ?? null, requirements ?? null, schedule ?? null,
-      JSON.stringify(fileUrls || []), targetStatus, req.user!.id])
-
-    await notify([studentId], 'task_book_issued', '任务书已下达', `导师为您下达了任务书「${title}」，请查看`, 'task_books', id)
-    success(res, { id }, '任务书已下达')
+    if (isSubmit && sel.teacher_id) {
+      await notify([sel.teacher_id], 'task_book_submitted', '任务书待确认', `学生提交了任务书「${title}」`, 'task_books', id)
+    }
+    success(res, { id }, isSubmit ? '任务书已提交，待指导教师确认' : '任务书草稿已保存')
   } catch (err: any) {
-    console.error('下达任务书失败:', err)
+    console.error('填写任务书失败:', err)
     error(res, '服务器内部错误', 500)
   }
 })
 
-// 列表
+router.put('/:id/review', requireRole(['teacher', 'admin']), async (req: AuthRequest, res) => {
+  try {
+    const { status, comment } = req.body
+    if (!['confirmed', 'need_revision'].includes(status)) return error(res, '无效的确认状态')
+    const [row] = await query<any>(`
+      SELECT tb.*, t.teacher_id FROM task_books tb JOIN topics t ON tb.topic_id = t.id WHERE tb.id = ?
+    `, [req.params.id])
+    if (!row) return error(res, '记录不存在', 404)
+    if (req.user!.role !== 'admin' && row.teacher_id !== req.user!.id) return error(res, '无权确认此任务书', 403)
+    if (row.status !== 'submitted' && row.status !== 'need_revision') return error(res, '仅可确认已提交的任务书')
+
+    await query(`UPDATE task_books SET status = ?, teacher_comment = ?, reviewed_by = ?, reviewed_at = NOW(), updated_at = NOW()
+      WHERE id = ?`, [status, comment ?? null, req.user!.id, row.id])
+    await notify([row.student_id], 'task_book_reviewed', '任务书确认结果',
+      status === 'confirmed' ? '您的任务书已由指导教师确认' : `您的任务书需修改${comment ? '：' + comment : ''}`,
+      'task_books', row.id)
+    success(res, null, status === 'confirmed' ? '任务书已确认' : '已退回学生修改')
+  } catch (err: any) {
+    console.error('确认任务书失败:', err)
+    error(res, '服务器内部错误', 500)
+  }
+})
+
 router.get('/', async (req: AuthRequest, res) => {
   try {
     let rows: any[]
     if (req.user!.role === 'student') {
       rows = await query<any>(`
-        SELECT tb.*, t.title AS topic_title, t.category, u.real_name AS teacher_name
-        FROM task_books tb
-        JOIN topics t ON tb.topic_id = t.id
-        LEFT JOIN users u ON t.teacher_id = u.id
-        WHERE tb.student_id = ?
-        ORDER BY tb.updated_at DESC
-      `, [req.user!.id])
+        SELECT tb.*, t.title AS topic_title, u.real_name AS teacher_name
+        FROM task_books tb JOIN topics t ON tb.topic_id = t.id LEFT JOIN users u ON t.teacher_id = u.id
+        WHERE tb.student_id = ? ORDER BY tb.updated_at DESC`, [req.user!.id])
     } else if (req.user!.role === 'teacher') {
       rows = await query<any>(`
         SELECT tb.*, t.title AS topic_title, st.real_name AS student_name, st.student_id AS student_code, st.class_name, st.major
-        FROM task_books tb
-        JOIN topics t ON tb.topic_id = t.id
-        JOIN users st ON tb.student_id = st.id
-        WHERE t.teacher_id = ?
-        ORDER BY tb.updated_at DESC
-      `, [req.user!.id])
+        FROM task_books tb JOIN topics t ON tb.topic_id = t.id JOIN users st ON tb.student_id = st.id
+        WHERE t.teacher_id = ? ORDER BY tb.updated_at DESC`, [req.user!.id])
     } else {
       rows = await query<any>(`
-        SELECT tb.*, t.title AS topic_title, st.real_name AS student_name, st.student_id AS student_code, st.class_name, st.major, u.real_name AS teacher_name
-        FROM task_books tb
-        JOIN topics t ON tb.topic_id = t.id
-        JOIN users st ON tb.student_id = st.id
-        LEFT JOIN users u ON t.teacher_id = u.id
-        ORDER BY tb.updated_at DESC
-      `)
+        SELECT tb.*, t.title AS topic_title, st.real_name AS student_name, st.student_id AS student_code, st.class_name, st.major,
+          u.real_name AS teacher_name
+        FROM task_books tb JOIN topics t ON tb.topic_id = t.id JOIN users st ON tb.student_id = st.id
+        LEFT JOIN users u ON t.teacher_id = u.id ORDER BY tb.updated_at DESC`)
     }
-    const list = rows.map(r => { const c: any = { ...r, fileUrls: parseJson(r.file_urls) }; delete c.file_urls; return c })
-    success(res, list)
+    success(res, rows.map(present))
   } catch (err: any) {
     console.error('获取任务书失败:', err)
     error(res, '服务器内部错误', 500)
   }
 })
 
-// 详情
-router.get('/:id', async (req: AuthRequest, res) => {
+router.get('/:id/export', async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
-    const rows = await query<any>(`
-      SELECT tb.*, t.title AS topic_title, t.category, t.teacher_id, u.real_name AS teacher_name,
-             st.real_name AS student_name, st.student_id AS student_code, st.class_name, st.major
-      FROM task_books tb
-      JOIN topics t ON tb.topic_id = t.id
-      LEFT JOIN users u ON t.teacher_id = u.id
-      LEFT JOIN users st ON tb.student_id = st.id
-      WHERE tb.id = ?
-    `, [id])
-    if (!rows[0]) return error(res, '记录不存在', 404)
-    const r = rows[0]
-    if (req.user!.role === 'student' && r.student_id !== req.user!.id) return error(res, '无权查看', 403)
-    if (req.user!.role === 'teacher' && r.teacher_id !== req.user!.id) return error(res, '无权查看', 403)
-    const c: any = { ...r, fileUrls: parseJson(r.file_urls) }; delete c.file_urls
-    success(res, c)
+    const [row] = await query<any>(`
+      SELECT tb.*, t.title AS topic_title, t.teacher_id, t.schedules AS topic_schedules, u.real_name AS teacher_name,
+        st.real_name AS student_name, st.student_id AS student_code, st.class_name, st.major,
+        c.phases_config, c.start_date AS cycle_start_date, c.end_date AS cycle_end_date
+      FROM task_books tb JOIN topics t ON tb.topic_id = t.id
+      LEFT JOIN users u ON t.teacher_id = u.id LEFT JOIN users st ON tb.student_id = st.id
+      LEFT JOIN cycles c ON tb.cycle_id = c.id WHERE tb.id = ?`, [req.params.id])
+    if (!row) return error(res, '记录不存在', 404)
+    if (req.user!.role === 'student' && row.student_id !== req.user!.id) return error(res, '无权导出', 403)
+    if (req.user!.role === 'teacher' && row.teacher_id !== req.user!.id) return error(res, '无权导出', 403)
+    if (!['draft', 'submitted', 'need_revision', 'confirmed', 'issued'].includes(row.status)) return error(res, '当前状态无法导出任务书')
+    const record = { ...present(row), topicSchedules: row.topic_schedules, phasesConfig: row.phases_config }
+    await sendOfficialDocx(res, 'task-book', record, row.status, 'confirmed')
   } catch (err: any) {
-    console.error('获取任务书详情失败:', err)
-    error(res, '服务器内部错误', 500)
+    console.error('导出任务书失败:', err)
+    error(res, '导出任务书失败', 500)
   }
 })
 
-// 删除（教师/管理员）
-router.delete('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
+router.get('/:id', async (req: AuthRequest, res) => {
   try {
-    const { id } = req.params
-    const rows = await query<any>(`
-      SELECT tb.*, t.teacher_id FROM task_books tb JOIN topics t ON tb.topic_id = t.id WHERE tb.id = ?
-    `, [id])
-    if (!rows[0]) return error(res, '记录不存在', 404)
-    if (rows[0].teacher_id !== req.user!.id && req.user!.role !== 'admin') return error(res, '无权删除', 403)
-    await query('DELETE FROM task_books WHERE id = ?', [id])
-    success(res, null, '任务书已删除')
+    const [row] = await query<any>(`
+      SELECT tb.*, t.title AS topic_title, t.teacher_id, u.real_name AS teacher_name,
+        st.real_name AS student_name, st.student_id AS student_code, st.class_name, st.major
+      FROM task_books tb JOIN topics t ON tb.topic_id = t.id
+      LEFT JOIN users u ON t.teacher_id = u.id LEFT JOIN users st ON tb.student_id = st.id WHERE tb.id = ?`, [req.params.id])
+    if (!row) return error(res, '记录不存在', 404)
+    if (req.user!.role === 'student' && row.student_id !== req.user!.id) return error(res, '无权查看', 403)
+    if (req.user!.role === 'teacher' && row.teacher_id !== req.user!.id) return error(res, '无权查看', 403)
+    success(res, present(row))
   } catch (err: any) {
-    console.error('删除任务书失败:', err)
+    console.error('获取任务书详情失败:', err)
     error(res, '服务器内部错误', 500)
   }
 })
