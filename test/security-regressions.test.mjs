@@ -55,6 +55,15 @@ test('upload policy rejects SVG active content and accepts ordinary images', () 
   assert.equal(policies.validateUploadFile?.('image', 'poster.png', 100).ok, true)
 })
 
+test('document templates are downloadable only by an administrator or an accepted student in the same cycle', () => {
+  const template = { cycle_id: 12, status: 'published' }
+  assert.equal(policies.canDownloadDocumentTemplate?.({ role: 'admin' }, template, null), true)
+  assert.equal(policies.canDownloadDocumentTemplate?.({ role: 'student' }, template, 12), true)
+  assert.equal(policies.canDownloadDocumentTemplate?.({ role: 'student' }, template, 13), false)
+  assert.equal(policies.canDownloadDocumentTemplate?.({ role: 'student' }, { ...template, status: 'draft' }, 12), false)
+  assert.equal(policies.canDownloadDocumentTemplate?.({ role: 'teacher' }, template, 12), false)
+})
+
 test('grade policy accepts blank scores but rejects non-finite and out-of-range values', () => {
   assert.equal(policies.parseOptionalScore?.(''), null)
   assert.equal(policies.parseOptionalScore?.('   '), null)

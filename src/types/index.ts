@@ -328,11 +328,32 @@ export interface TaskBook {
   teacherName?: string
   title: string
   content?: string
+  mainContent?: string
   requirements?: string
+  specificRequirements?: string
   schedule?: string
-  fileUrls: FileItem[]
-  status: 'draft' | 'issued'
-  issuedAt?: string
+  status: 'draft' | 'issued' | 'submitted' | 'need_revision' | 'confirmed'
+  teacherComment?: string
+  reviewedAt?: string
+  updatedAt?: string
+}
+
+export type DocumentTemplateType = 'task_book' | 'proposal' | 'midterm' | 'thesis' | 'other'
+
+export interface DocumentTemplate {
+  id: string
+  cycleId: number
+  cycleName?: string
+  documentType: DocumentTemplateType
+  title: string
+  version: string
+  description?: string
+  originalName: string
+  mimeType?: string
+  size: number
+  status: 'draft' | 'published' | 'archived'
+  publishedAt?: string
+  createdAt?: string
   updatedAt?: string
 }
 
@@ -349,7 +370,6 @@ export interface Proposal {
   content?: string
   methods?: string
   plan?: string
-  fileUrls: FileItem[]
   status: SubmissionStatus
   teacherComment?: string
   reviewedAt?: string
@@ -371,52 +391,8 @@ export interface MidtermReport {
   completedWork?: string
   problems?: string
   nextPlan?: string
-  fileUrls: FileItem[]
   status: SubmissionStatus
   score?: number | null
-  teacherComment?: string
-  reviewedAt?: string
-  updatedAt?: string
-}
-
-// 毕业论文提交
-export interface ThesisSubmission {
-  id: string
-  studentId: string
-  studentName?: string
-  studentCode?: string
-  className?: string
-  major?: string
-  topicId: string
-  topicTitle?: string
-  teacherName?: string
-  title: string
-  abstract?: string
-  keywords?: string
-  fileUrls: FileItem[]
-  version: number
-  status: SubmissionStatus
-  teacherComment?: string
-  reviewedAt?: string
-  updatedAt?: string
-}
-
-// 设计作品提交
-export interface DesignSubmission {
-  id: string
-  studentId: string
-  studentName?: string
-  studentCode?: string
-  className?: string
-  major?: string
-  topicId: string
-  topicTitle?: string
-  teacherName?: string
-  title: string
-  description?: string
-  fileUrls: FileItem[]
-  version: number
-  status: SubmissionStatus
   teacherComment?: string
   reviewedAt?: string
   updatedAt?: string
@@ -484,7 +460,6 @@ export interface GuidanceRecord {
   recordDate?: string
   content: string
   nextAction?: string
-  fileUrls: FileItem[]
   updatedAt?: string
 }
 

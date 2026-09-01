@@ -30,7 +30,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useCycleStore } from '../../stores/cycle'
 import { PROCESS_PHASES, PROCESS_PHASE_LABELS } from '../../types'
-import { adminApi, applicationApi, proposalApi, midtermApi, thesisApi, designApi, defenseApi, gradeApi } from '../../api'
+import { adminApi, applicationApi, proposalApi, midtermApi, defenseApi, gradeApi } from '../../api'
 
 const cycleStore = useCycleStore()
 const loading = ref(false)
@@ -47,8 +47,6 @@ const stats = reactive({
   accepted: 0,
   proposals: 0,
   midterm: 0,
-  thesis: 0,
-  design: 0,
   defenseGroups: 0,
   grades: 0
 })
@@ -58,8 +56,6 @@ const cards = computed(() => [
   { label: '已录取', value: stats.accepted, color: '#67c23a' },
   { label: '开题提交', value: stats.proposals, color: '#e6a23c' },
   { label: '中期提交', value: stats.midterm, color: '#e6a23c' },
-  { label: '论文提交', value: stats.thesis, color: '#f56c6c' },
-  { label: '作品提交', value: stats.design, color: '#f56c6c' },
   { label: '答辩分组', value: stats.defenseGroups, color: '#909399' },
   { label: '成绩记录', value: stats.grades, color: '#909399' }
 ])
@@ -67,13 +63,11 @@ const cards = computed(() => [
 async function load() {
   loading.value = true
   try {
-    const [stu, apps, props_, mid, thesis, design, groups, grades] = await Promise.allSettled([
+    const [stu, apps, props_, mid, groups, grades] = await Promise.allSettled([
       adminApi.getStudents(),
       applicationApi.getList(),
       proposalApi.getList(),
       midtermApi.getList(),
-      thesisApi.getList(),
-      designApi.getList(),
       defenseApi.getGroups(),
       gradeApi.getList()
     ])
@@ -84,8 +78,6 @@ async function load() {
     stats.accepted = (v(apps) || []).filter((a: any) => a.status === 'accepted').length
     stats.proposals = (v(props_) || []).filter((a: any) => a.status === 'submitted' || a.status === 'approved').length
     stats.midterm = (v(mid) || []).filter((a: any) => a.status === 'submitted' || a.status === 'passed').length
-    stats.thesis = (v(thesis) || []).filter((a: any) => a.status !== 'not_started' && a.status !== 'draft').length
-    stats.design = (v(design) || []).filter((a: any) => a.status !== 'not_started' && a.status !== 'draft').length
     stats.defenseGroups = (v(groups) || []).length
     stats.grades = (v(grades) || []).length
   } finally {

@@ -103,6 +103,18 @@ export const studentApi = {
   getProfileByUserId: (userId: string) => request.get(`/students/${userId}`)
 }
 
+export const profileOptionsApi = {
+  get: () => request.get('/profile-options'),
+  getAdmin: () => request.get('/profile-options/admin'),
+  save: (options: any[]) => request.put('/profile-options', options),
+  importExcel: (file: File) => { const form = new FormData(); form.append('file', file); return request.post('/profile-options/import', form, { headers: { 'Content-Type': 'multipart/form-data' } }) }
+}
+
+export const topicAccessApi = {
+  get: (cycleId: string) => request.get(`/topic-access/${cycleId}`),
+  save: (cycleId: string, data: any) => request.put(`/topic-access/${cycleId}`, data)
+}
+
 // ===== 文件上传 =====
 export const uploadApi = {
   file: (file: File, category?: string) => {
@@ -121,6 +133,18 @@ export const uploadApi = {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
   }
+}
+
+// ===== 周期级毕业资料模板 =====
+export const documentTemplateApi = {
+  getAll: (cycleId?: number) => request.get('/document-templates', { params: cycleId ? { cycleId } : undefined }),
+  getMine: () => request.get('/document-templates/mine'),
+  create: (data: FormData) => request.post('/document-templates', data, {
+    headers: { 'Content-Type': 'multipart/form-data' }
+  }),
+  updateStatus: (id: string, status: 'draft' | 'published' | 'archived') =>
+    request.put(`/document-templates/${id}`, { status }),
+  download: (id: string) => request.get(`/document-templates/${id}/download`, { responseType: 'blob' })
 }
 
 // ===== 管理员数据管理 =====
@@ -145,14 +169,17 @@ export const shortlistApi = {
 export const taskBookApi = {
   getList: () => request.get('/task-books'),
   getDetail: (id: string) => request.get(`/task-books/${id}`),
-  create: (data: any) => request.post('/task-books', data),
-  remove: (id: string) => request.delete(`/task-books/${id}`)
+  exportDocx: (id: string) => request.get(`/task-books/${id}/export`, { responseType: 'blob' }),
+  submit: (data: any) => request.post('/task-books', data),
+  review: (id: string, data: { status: 'confirmed' | 'need_revision'; comment?: string }) =>
+    request.put(`/task-books/${id}/review`, data)
 }
 
 // ===== 毕业全流程：开题 =====
 export const proposalApi = {
   getList: () => request.get('/proposals'),
   getDetail: (id: string) => request.get(`/proposals/${id}`),
+  exportDocx: (id: string) => request.get(`/proposals/${id}/export`, { responseType: 'blob' }),
   submit: (data: any) => request.post('/proposals', data),
   review: (id: string, data: { status: string; comment?: string }) =>
     request.put(`/proposals/${id}/review`, data)
@@ -162,27 +189,10 @@ export const proposalApi = {
 export const midtermApi = {
   getList: () => request.get('/midterm'),
   getDetail: (id: string) => request.get(`/midterm/${id}`),
+  exportDocx: (id: string) => request.get(`/midterm/${id}/export`, { responseType: 'blob' }),
   submit: (data: any) => request.post('/midterm', data),
   review: (id: string, data: { status: string; comment?: string; score?: number }) =>
     request.put(`/midterm/${id}/review`, data)
-}
-
-// ===== 毕业全流程：毕业论文 =====
-export const thesisApi = {
-  getList: () => request.get('/thesis'),
-  getDetail: (id: string) => request.get(`/thesis/${id}`),
-  submit: (data: any) => request.post('/thesis', data),
-  review: (id: string, data: { status: string; comment?: string }) =>
-    request.put(`/thesis/${id}/review`, data)
-}
-
-// ===== 毕业全流程：设计作品 =====
-export const designApi = {
-  getList: () => request.get('/design'),
-  getDetail: (id: string) => request.get(`/design/${id}`),
-  submit: (data: any) => request.post('/design', data),
-  review: (id: string, data: { status: string; comment?: string }) =>
-    request.put(`/design/${id}/review`, data)
 }
 
 // ===== 毕业全流程：答辩 =====

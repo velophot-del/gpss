@@ -36,12 +36,6 @@
         <el-descriptions-item v-for="f in cfg.fields" :key="f.key" :label="f.label">
           <div class="pre">{{ current?.[f.key] || '—' }}</div>
         </el-descriptions-item>
-        <el-descriptions-item label="附件">
-          <div v-if="current?.fileUrls?.length">
-            <a v-for="(f, i) in current.fileUrls" :key="i" :href="f.url" target="_blank" class="mr8">{{ f.name }}</a>
-          </div>
-          <span v-else>无</span>
-        </el-descriptions-item>
       </el-descriptions>
 
       <el-form label-width="90px">
@@ -53,7 +47,6 @@
             <el-radio-button :label="cfg.reviewPass">通过</el-radio-button>
             <el-radio-button label="need_revision">退回修改</el-radio-button>
             <el-radio-button :label="cfg.reviewReject">不通过</el-radio-button>
-            <el-radio-button v-if="['thesis', 'design'].includes(cfg.stage)" label="final">定稿</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="评语">

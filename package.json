@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "build:all": "npm run build && cd server && npm run build",
     "deploy": "npm run build && cd server && npm run start",
-    "test": "npm --prefix server run build && node --test test/deployment-runtime.test.mjs test/local-deployment.test.cjs test/shortlist-submission.test.mjs test/security-regressions.test.mjs",
+    "test": "npm --prefix server run build && node --test test/deployment-runtime.test.mjs test/local-deployment.test.cjs test/shortlist-submission.test.mjs test/security-regressions.test.mjs test/docx-export.test.mjs test/student-process-scope.test.mjs",
     "test:deployment": "npm --prefix server run build && node --test test/deployment-runtime.test.mjs"
   },
   "dependencies": {

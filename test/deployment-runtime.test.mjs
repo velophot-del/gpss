@@ -78,6 +78,29 @@ test('native installer only reveals a password when it creates the administrator
   assert.match(installScript, /if \[ -n "\$admin_password" \]/)
 })
 
+test('deployment runs the idempotent cycle phase migration after schema initialization', async () => {
+  const deployScript = await readFile(new URL('../deployment/deploy.sh', import.meta.url), 'utf8')
+  const nativeInstaller = await readFile(new URL('../deployment/native/install.sh', import.meta.url), 'utf8')
+  const processSchema = await readFile(new URL('../server/src/scripts/processSchema.ts', import.meta.url), 'utf8')
+  const legacyInit = await readFile(new URL('../server/init-db.cjs', import.meta.url), 'utf8')
+  const importSeed = await readFile(new URL('../server/scripts/import-seed.cjs', import.meta.url), 'utf8')
+
+  for (const script of [deployScript, nativeInstaller]) {
+    assert.match(script, /initDb\.js[\s\S]*migrateAddProcessStages\.js/)
+  }
+  for (const phase of ['topic_publish', 'student_apply', 'teacher_review', 'result_announce']) {
+    assert.match(processSchema, new RegExp(`'${phase}'`))
+    assert.match(legacyInit, new RegExp(`'${phase}'`))
+    assert.match(importSeed, new RegExp(`'${phase}'`))
+  }
+  assert.match(processSchema, /CREATE TABLE IF NOT EXISTS document_templates/)
+  assert.match(processSchema, /main_content TEXT/)
+  assert.match(processSchema, /specific_requirements TEXT/)
+  assert.match(processSchema, /'submitted', 'need_revision', 'confirmed'/)
+  assert.match(await readFile(new URL('../server/src/routes/taskBooks.ts', import.meta.url), 'utf8'), /requireRole\(\['student'\]\)/)
+  assert.match(await readFile(new URL('../server/src/routes/taskBooks.ts', import.meta.url), 'utf8'), /task_book_submitted/)
+})
+
 test('HTTPS template uses the current Nginx HTTP/2 directive', async () => {
   const nginxConfig = await readFile(new URL('../deployment/nginx/https.conf.example', import.meta.url), 'utf8')
   assert.doesNotMatch(nginxConfig, /listen\s+443\s+ssl\s+http2/)

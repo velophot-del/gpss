@@ -93,6 +93,14 @@ const router = createRouter({
           component: () => import('../views/admin/ApplicationData.vue'),
           meta: { roles: ['admin'] }
         },
+        {
+          path: 'admin/document-templates',
+          name: 'DocumentTemplateAdmin',
+          component: () => import('../views/process/DocumentTemplates.vue'),
+          meta: { roles: ['admin'] }
+        },
+        { path: 'admin/profile-options', name: 'AdminProfileOptions', component: () => import('../views/admin/ProfileOptions.vue'), meta: { roles: ['admin'] } },
+        { path: 'admin/topic-access', name: 'AdminTopicAccess', component: () => import('../views/admin/TopicAccess.vue'), meta: { roles: ['admin'] } },
         // 教师端路由
         {
           path: 'teacher/topics',
@@ -157,6 +165,12 @@ const router = createRouter({
           meta: { roles: ['student'] }
         },
         { path: 'student/shortlist', redirect: '/student/browse' },
+        {
+          path: 'student/document-templates',
+          name: 'DocumentTemplateStudent',
+          component: () => import('../views/process/DocumentTemplates.vue'),
+          meta: { roles: ['student'] }
+        },
 
         // ===== 毕业全流程路由 =====
         {
@@ -199,36 +213,6 @@ const router = createRouter({
           name: 'MidtermReview',
           component: () => import('../views/process/TeacherSubmissionReview.vue'),
           props: { stage: 'midterm' },
-          meta: { roles: ['teacher'] }
-        },
-        // 毕业论文
-        {
-          path: 'process/thesis',
-          name: 'ThesisSubmit',
-          component: () => import('../views/process/StudentSubmission.vue'),
-          props: { stage: 'thesis' },
-          meta: { roles: ['student'] }
-        },
-        {
-          path: 'process/thesis/review',
-          name: 'ThesisReview',
-          component: () => import('../views/process/TeacherSubmissionReview.vue'),
-          props: { stage: 'thesis' },
-          meta: { roles: ['teacher'] }
-        },
-        // 设计作品
-        {
-          path: 'process/design',
-          name: 'DesignSubmit',
-          component: () => import('../views/process/StudentSubmission.vue'),
-          props: { stage: 'design' },
-          meta: { roles: ['student'] }
-        },
-        {
-          path: 'process/design/review',
-          name: 'DesignReview',
-          component: () => import('../views/process/TeacherSubmissionReview.vue'),
-          props: { stage: 'design' },
           meta: { roles: ['teacher'] }
         },
         // 指导记录

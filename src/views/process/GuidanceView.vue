@@ -19,12 +19,6 @@
         <el-table-column prop="topicTitle" label="选题" min-width="180" show-overflow-tooltip />
         <el-table-column prop="content" label="指导内容" min-width="220" show-overflow-tooltip />
         <el-table-column prop="nextAction" label="下一步计划" min-width="180" show-overflow-tooltip />
-        <el-table-column label="附件" width="90">
-          <template #default="{ row }">
-            <span v-if="row.fileUrls?.length">{{ row.fileUrls.length }} 个</span>
-            <span v-else>—</span>
-          </template>
-        </el-table-column>
         <el-table-column v-if="isTeacher" label="操作" width="90" fixed="right">
           <template #default="{ row }">
             <el-button link type="danger" @click="remove(row)">删除</el-button>
@@ -49,9 +43,6 @@
         <el-form-item label="下一步计划">
           <el-input v-model="form.nextAction" type="textarea" :rows="2" placeholder="布置下一步任务 / 计划" />
         </el-form-item>
-        <el-form-item label="附件">
-          <FileUploadList v-model="form.fileUrls" category="general" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png" tip="支持 PDF / Word / 图片" />
-        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -66,8 +57,6 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useUserStore } from '../../stores/user'
 import { guidanceApi, applicationApi } from '../../api'
-import FileUploadList from '../../components/FileUploadList.vue'
-import type { FileItem } from '../../types'
 
 const userStore = useUserStore()
 const isTeacher = computed(() => userStore.userRole === 'teacher' || userStore.userRole === 'admin')
@@ -78,12 +67,11 @@ const list = ref<any[]>([])
 const studentOptions = ref<{ value: string; label: string }[]>([])
 const dialogVisible = ref(false)
 
-const form = reactive<{ studentId: string; recordDate: string; content: string; nextAction: string; fileUrls: FileItem[] }>({
+const form = reactive<{ studentId: string; recordDate: string; content: string; nextAction: string }>({
   studentId: '',
   recordDate: '',
   content: '',
-  nextAction: '',
-  fileUrls: []
+  nextAction: ''
 })
 
 function formatDate(d: string) {
@@ -125,7 +113,6 @@ function openDialog() {
   form.recordDate = ''
   form.content = ''
   form.nextAction = ''
-  form.fileUrls = []
   if (isTeacher.value) loadStudents()
   dialogVisible.value = true
 }
@@ -138,8 +125,7 @@ async function save() {
     const body: any = {
       recordDate: form.recordDate || undefined,
       content: form.content,
-      nextAction: form.nextAction,
-      fileUrls: form.fileUrls
+      nextAction: form.nextAction
     }
     if (isTeacher.value) body.studentId = form.studentId
     await guidanceApi.create(body)

@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import type { StudentProfile } from '../types'
-import { studentApi as api } from '../api'
+import { studentApi as api, profileOptionsApi } from '../api'
 import { DESIGN_SKILLS, TOPIC_CATEGORIES } from '../types'
 import { ElMessage } from 'element-plus'
 
@@ -10,10 +10,10 @@ export const useStudentStore = defineStore('student', () => {
   const profiles = ref<StudentProfile[]>([])
 
   // 技能列表 — 从 DESIGN_SKILLS 统一导入（覆盖4个专业共47项）
-  const allSkills = [...DESIGN_SKILLS] as string[]
+  const allSkills = ref([...DESIGN_SKILLS] as string[])
 
   // 兴趣方向选项 — 从 TOPIC_CATEGORIES 统一导入（4个专业24个大类）
-  const interestOptions = [...TOPIC_CATEGORIES] as string[]
+  const interestOptions = ref([...TOPIC_CATEGORIES] as string[])
 
   // 归一化并过滤：仅保留当前有效选项中的值，剔除历史遗留的旧分类名
   function filterValid(list: unknown, valid: string[]): string[] {
@@ -26,9 +26,21 @@ export const useStudentStore = defineStore('student', () => {
     return arr.filter((v): v is string => typeof v === 'string' && valid.includes(v))
   }
 
+  async function fetchOptions() {
+    try {
+      const res: any = await profileOptionsApi.get()
+      const options = Array.isArray(res.data) ? res.data : []
+      if (options.length) {
+        allSkills.value = options.filter((o: any) => o.type === 'skill').map((o: any) => o.label)
+        interestOptions.value = options.filter((o: any) => o.type === 'interest').map((o: any) => o.label)
+      }
+    } catch (error) { console.warn('读取动态标签失败，使用默认标签', error) }
+  }
+
   // 获取当前登录学生的档案
   async function fetchProfile() {
     try {
+      await fetchOptions()
       const res: any = await api.getProfile()
       profile.value = res.data ? {
         ...res.data,
@@ -36,8 +48,8 @@ export const useStudentStore = defineStore('student', () => {
         contactEmail: res.data.contact_email || res.data.contactEmail || '',
         contactPhone: res.data.contact_phone || res.data.contactPhone || '',
         personalStatement: res.data.personalStatement || res.data.selfIntro || res.data.self_intro || '',
-        skills: filterValid(res.data.skills, allSkills),
-        interests: filterValid(res.data.interests, interestOptions),
+        skills: filterValid(res.data.skills, allSkills.value),
+        interests: filterValid(res.data.interests, interestOptions.value),
         portfolio: Array.isArray(res.data.portfolio) ? res.data.portfolio : (typeof res.data.portfolio === 'string' ? JSON.parse(res.data.portfolio || '[]') : []),
         isComplete: !!(res.data.is_complete ?? res.data.isComplete) || !!(res.data.gpa != null && (res.data.personalStatement || res.data.selfIntro || res.data.self_intro) && (Array.isArray(res.data.skills) ? res.data.skills.length > 0 : false))
       } : null
@@ -65,8 +77,8 @@ export const useStudentStore = defineStore('student', () => {
           gpa: item.gpa ?? 0,
           ranking: item.ranking ?? 0,
           totalStudents: item.total_students ?? item.totalStudents ?? 0,
-          skills: filterValid(item.skills, allSkills),
-          interests: filterValid(item.interests, interestOptions),
+          skills: filterValid(item.skills, allSkills.value),
+          interests: filterValid(item.interests, interestOptions.value),
           portfolio: Array.isArray(item.portfolio) ? item.portfolio : (typeof item.portfolio === 'string' ? JSON.parse(item.portfolio || '[]') : []),
           personalStatement: item.self_intro || item.selfIntro || item.personalStatement || '',
           contactEmail: item.contact_email || item.contactEmail || '',
@@ -121,8 +133,8 @@ export const useStudentStore = defineStore('student', () => {
           gpa: res.data.gpa ?? 0,
           ranking: res.data.ranking ?? 0,
           totalStudents: res.data.totalStudents ?? 0,
-          skills: filterValid(res.data.skills, allSkills),
-          interests: filterValid(res.data.interests, interestOptions),
+          skills: filterValid(res.data.skills, allSkills.value),
+          interests: filterValid(res.data.interests, interestOptions.value),
           portfolio: Array.isArray(res.data.portfolio) ? res.data.portfolio : [],
           personalStatement: res.data.personalStatement || '',
           contactEmail: res.data.contactEmail || '',
@@ -157,6 +169,7 @@ export const useStudentStore = defineStore('student', () => {
     profiles,
     allSkills,
     interestOptions,
+    fetchOptions,
     fetchProfile,
     fetchProfiles,
     saveProfile,

@@ -4,9 +4,12 @@
       <template #header>
         <div class="page-header">
           <span class="title">{{ cfg.pageTitle }}</span>
-          <el-tag v-if="record" :type="statusTagType(record.status)" effect="dark" round>
-            {{ statusLabel(record.status) }}
-          </el-tag>
+          <div class="header-actions">
+            <el-button type="primary" :disabled="!record" :loading="exporting" @click="downloadDocx">
+              {{ record?.status === cfg.reviewPass ? '下载正式 Word' : '下载 Word（预览版）' }}
+            </el-button>
+            <el-tag v-if="record" :type="statusTagType(record.status)" effect="dark" round>{{ statusLabel(record.status) }}</el-tag>
+          </div>
         </div>
       </template>
 
@@ -38,9 +41,6 @@
           <el-input v-if="f.type === 'input'" v-model="form[f.key]" :placeholder="'请输入' + f.label" :disabled="locked" />
           <el-input v-else v-model="form[f.key]" type="textarea" :rows="f.rows || 3" :placeholder="'请输入' + f.label" :disabled="locked" />
         </el-form-item>
-        <el-form-item label="附件材料">
-          <FileUploadList v-model="form.fileUrls" :category="cfg.category" :accept="cfg.accept" :tip="cfg.uploadTip" />
-        </el-form-item>
       </el-form>
 
       <div v-if="!locked" class="actions">
@@ -54,9 +54,9 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import FileUploadList from '../../components/FileUploadList.vue'
+import { saveAs } from 'file-saver'
 import { STAGE_CONFIGS } from './processConfig'
-import { SUBMISSION_STATUS_LABELS, SUBMISSION_STATUS_TAG, type FileItem } from '../../types'
+import { SUBMISSION_STATUS_LABELS, SUBMISSION_STATUS_TAG } from '../../types'
 
 const props = defineProps<{ stage: string }>()
 
@@ -66,19 +66,31 @@ const loading = ref(false)
 const saving = ref(false)
 const submitting = ref(false)
 const record = ref<any>(null)
+const exporting = ref(false)
 
-const form = reactive<Record<string, any>>({ title: '', fileUrls: [] as FileItem[] })
+const form = reactive<Record<string, any>>({ title: '' })
 
 // 初始化动态字段
 for (const f of cfg.value.fields) form[f.key] = ''
 
 const locked = computed(() => {
   if (!record.value) return false
-  return [cfg.value.reviewPass, 'final'].includes(record.value.status)
+  return [cfg.value.submitStatus, cfg.value.reviewPass, cfg.value.reviewReject, 'final'].includes(record.value.status)
 })
 
 function statusLabel(s: string) { return SUBMISSION_STATUS_LABELS[s] || s }
 function statusTagType(s: string): any { return SUBMISSION_STATUS_TAG[s] || 'info' }
+async function downloadDocx() {
+  if (!record.value) return
+  exporting.value = true
+  try {
+    const blob: any = await cfg.value.api.exportDocx(record.value.id)
+    const prefix = record.value.status === cfg.value.reviewPass ? '' : '预览版_'
+    saveAs(blob, `${prefix}${record.value.studentName || '学生'}_${cfg.value.reviewLabel}.docx`)
+  } catch (e) {
+    // 拦截器已提示
+  } finally { exporting.value = false }
+}
 
 async function load() {
   loading.value = true
@@ -89,7 +101,6 @@ async function load() {
     if (record.value) {
       form.title = record.value.title || ''
       for (const f of cfg.value.fields) form[f.key] = record.value[f.key] || ''
-      form.fileUrls = record.value.fileUrls || []
     }
   } catch (e) {
     // 拦截器已提示
@@ -108,8 +119,6 @@ async function save(submit: boolean) {
   const body: any = { submit }
   if (cfg.value.hasTitle) body.title = form.title
   for (const f of cfg.value.fields) body[f.key] = form[f.key]
-  body.fileUrls = form.fileUrls
-
   if (submit) submitting.value = true
   else saving.value = true
   try {
@@ -136,6 +145,7 @@ onMounted(load)
   align-items: center;
   justify-content: space-between;
 }
+.header-actions { display: flex; align-items: center; gap: 10px; }
 .page-header .title {
   font-size: 16px;
   font-weight: 600;

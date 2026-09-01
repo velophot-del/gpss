@@ -41,6 +41,8 @@ const teacherTopicsRoute = read('server/src/routes/topics.ts')
 assert.match(teacherTopicsRoute, /AS apply_count/)
 assert.match(teacherTopicsRoute, /AS accepted_count/)
 assert.match(teacherTopicsRoute, /currentCount: Number\(item\.accepted_count\)/)
+assert.match(teacherTopicsRoute, /LEFT JOIN users u ON t\.teacher_id = u\.id/)
+assert.match(teacherTopicsRoute, /teacherName: item\.teacher_name/)
 
 const statisticsView = read('src/views/admin/Statistics.vue')
 assert.match(statisticsView, /adminApi\.getAllTopics\(\)/)

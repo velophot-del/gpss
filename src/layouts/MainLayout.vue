@@ -43,6 +43,8 @@
             </template>
             <el-menu-item index="/admin/library">选题库管理</el-menu-item>
             <el-menu-item index="/admin/cycles">选题周期</el-menu-item>
+            <el-menu-item index="/admin/profile-options">学生标签</el-menu-item>
+            <el-menu-item index="/admin/topic-access">选题查看规则</el-menu-item>
             <el-menu-item index="/admin/users">用户管理</el-menu-item>
             <el-menu-item index="/admin/stats">数据统计</el-menu-item>
           </el-sub-menu>
@@ -61,6 +63,7 @@
               <span>毕业全流程</span>
             </template>
             <el-menu-item index="/process/overview">全流程看板</el-menu-item>
+            <el-menu-item index="/admin/document-templates">毕业资料库</el-menu-item>
             <el-menu-item index="/process/defense">答辩管理</el-menu-item>
             <el-menu-item index="/process/grades">成绩评定</el-menu-item>
             <el-menu-item index="/process/announcements">公告管理</el-menu-item>
@@ -90,11 +93,9 @@
               <el-icon><Notebook /></el-icon>
               <span>毕业指导</span>
             </template>
-            <el-menu-item index="/process/task-book">任务书下达</el-menu-item>
+            <el-menu-item index="/process/task-book">任务书确认</el-menu-item>
             <el-menu-item index="/process/proposal/review">开题审核</el-menu-item>
             <el-menu-item index="/process/midterm/review">中期检查</el-menu-item>
-            <el-menu-item index="/process/thesis/review">论文批阅</el-menu-item>
-            <el-menu-item index="/process/design/review">作品批阅</el-menu-item>
             <el-menu-item index="/process/guidance">指导记录</el-menu-item>
             <el-menu-item index="/process/defense">答辩评分</el-menu-item>
             <el-menu-item index="/process/grades">成绩评定</el-menu-item>
@@ -126,10 +127,9 @@
               <span>毕业流程</span>
             </template>
             <el-menu-item index="/process/task-book">任务书</el-menu-item>
+            <el-menu-item index="/student/document-templates">毕业资料</el-menu-item>
             <el-menu-item index="/process/proposal">开题报告</el-menu-item>
             <el-menu-item index="/process/midterm">中期检查</el-menu-item>
-            <el-menu-item index="/process/thesis">毕业论文</el-menu-item>
-            <el-menu-item index="/process/design">设计作品</el-menu-item>
             <el-menu-item index="/process/guidance">指导记录</el-menu-item>
             <el-menu-item index="/process/defense">我的答辩</el-menu-item>
             <el-menu-item index="/process/grades">我的成绩</el-menu-item>
