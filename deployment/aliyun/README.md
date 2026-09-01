@@ -75,6 +75,16 @@ HTTP_PORT=80
 docker compose up -d --build
 ```
 
+首次部署或升级已有数据库后，执行一次幂等迁移，再重启应用：
+
+```bash
+docker compose exec app node dist/scripts/initDb.js
+docker compose exec app node dist/scripts/migrateAddProcessStages.js
+docker compose restart app
+```
+
+第二条命令会扩展 `cycles.phase`，包含 `topic_publish`、`student_apply`、`teacher_review` 与 `result_announce`，不会删除已有周期数据。
+
 ## 5. 查看状态
 
 ```bash

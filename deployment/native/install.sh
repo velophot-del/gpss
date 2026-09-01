@@ -71,6 +71,7 @@ npm --prefix "$APP_DIR/server" ci --omit=dev
 chown -R gpss:gpss "$APP_DIR" "$DATA_DIR"
 
 (cd "$APP_DIR/server" && node dist/scripts/initDb.js)
+(cd "$APP_DIR/server" && node dist/scripts/migrateAddProcessStages.js)
 
 admin_count=$(MYSQL_PWD="$DB_PASSWORD" mysql --batch --skip-column-names -h "$DB_HOST" -P "$DB_PORT" -u"$DB_USER" "$DB_NAME" -e "SELECT COUNT(*) FROM users WHERE username='admin' AND role='admin';")
 if [ "$admin_count" = "0" ]; then

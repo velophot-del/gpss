@@ -42,6 +42,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?请在 .env.deploy 中设置 JWT_SECRET}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
       ENABLE_DEMO_LOGIN: "false"
+      ALLOW_DEMO_SEED: "false"
       FRONTEND_URL: ${PUBLIC_URL:?请在 .env.deploy 中设置 PUBLIC_URL}
       UPLOAD_DIR: /data/uploads
       TZ: ${TZ:-Asia/Shanghai}
@@ -50,6 +51,8 @@ services:
         condition: service_healthy
     volumes:
       - uploads_data:/data/uploads
+      # 私有模板目录(uploads 兄弟目录)持久化,防止容器重建后丢失已发布模板
+      - uploads_private_data:/data/uploads-private
     expose: ["3011"]
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3011/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
@@ -74,6 +77,7 @@ services:
 volumes:
   mysql_data:
   uploads_data:
+  uploads_private_data:
 
 networks:
   internal:

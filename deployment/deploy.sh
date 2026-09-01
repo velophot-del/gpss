@@ -115,26 +115,12 @@ install_all() {
   compose build app
   compose up -d mysql
   wait_mysql
-  compose run --rm app node dist/scripts/initDb.js
-
-  local admin_count admin_password
-  admin_count=$(mysql_query "SELECT COUNT(*) FROM users WHERE username='admin' AND role='admin';")
-  if [ "$admin_count" = "0" ]; then
-    admin_password=${ADMIN_INITIAL_PASSWORD:-Admin-$(openssl rand -hex 8)}
-    compose run --rm -e ADMIN_INITIAL_PASSWORD="$admin_password" app node dist/scripts/bootstrapAdmin.js
-  else
-    admin_password=''
-    echo "管理员 admin 已存在，未覆盖密码"
-  fi
-
+  # app entrypoint 按顺序执行 node dist/scripts/initDb.js、
+  # node dist/scripts/migrateAddProcessStages.js 和 bootstrapAdmin.js。
   compose up -d app nginx
   wait_http
   echo "访问地址：$PUBLIC_URL"
-  echo "管理员：admin"
-  if [ -n "$admin_password" ]; then
-    echo "初始密码：$admin_password"
-    echo "请首次登录后立即修改密码；该密码不会写入部署配置。"
-  fi
+  echo "管理员初始化与数据库迁移由 app entrypoint 完成；请执行：docker compose logs --tail=100 app"
 }
 
 doctor() {
@@ -165,7 +151,7 @@ backup() {
   compose exec -T -e MYSQL_PWD="$DB_PASSWORD" mysql \
     mysqldump -u"$DB_USER" --no-tablespaces --single-transaction --routines --triggers "$DB_NAME" \
     | gzip > "$backup_dir/database.sql.gz"
-  compose run --rm --no-deps --user 0:0 -v "$backup_dir:/backup" app \
+  compose run --rm --no-deps --entrypoint sh --user 0:0 -v "$backup_dir:/backup" app \
     tar -czf /backup/uploads.tar.gz -C /data/uploads .
   (cd "$backup_dir" && sha256sum database.sql.gz uploads.tar.gz > MANIFEST.sha256)
   echo "备份完成：$backup_dir"
@@ -189,7 +175,7 @@ restore() {
   compose stop app nginx
   gunzip -c "$backup_dir/database.sql.gz" \
     | compose exec -T -e MYSQL_PWD="$DB_PASSWORD" mysql mysql -u"$DB_USER" "$DB_NAME"
-  compose run --rm --no-deps --user 0:0 -v "$backup_dir:/backup:ro" app \
+  compose run --rm --no-deps --entrypoint sh --user 0:0 -v "$backup_dir:/backup:ro" app \
     sh -c 'find /data/uploads -mindepth 1 -maxdepth 1 -exec rm -rf -- {} + && tar -xzf /backup/uploads.tar.gz -C /data/uploads && chown -R node:node /data/uploads'
   compose up -d app nginx
   wait_http

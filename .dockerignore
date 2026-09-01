@@ -1,0 +1,16 @@
+node_modules
+dist
+server/node_modules
+server/dist
+server/uploads
+server/seed-data
+server/scripts/import-seed.cjs
+server/init-db.cjs
+server/test-insert.cjs
+test
+test-results
+.git
+.env
+.env.*
+*.log
+release

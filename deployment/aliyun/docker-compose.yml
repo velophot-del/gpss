@@ -53,6 +53,8 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - /opt/gpss/uploads:/data/uploads
+      # 私有模板目录(uploads 兄弟目录)持久化,防止容器重建后丢失已发布模板
+      - /opt/gpss/uploads-private:/data/uploads-private
     ports:
       - "3011:3011"
     networks:

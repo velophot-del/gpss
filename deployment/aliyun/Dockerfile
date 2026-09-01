@@ -20,8 +20,10 @@ RUN cd server && npm run build
 
 # 运行时目录
 RUN mkdir -p /data/uploads && chown -R node:node /app /data/uploads
+COPY deployment/aliyun/entrypoint.sh /entrypoint.sh
+RUN chmod 755 /entrypoint.sh
 USER node
 
 EXPOSE 3011
 
-CMD ["sh", "-c", "cd server && NODE_ENV=production node dist/index.js"]
+ENTRYPOINT ["/entrypoint.sh"]
