@@ -71,6 +71,11 @@ export const applicationApi = {
   // 教师审批
   review: (id: string, data: { status: string; comment?: string }) =>
     request.put(`/applications/${id}`, data),
+  // 教师提交/确认本课题名单（未被选中的自动落选进入下一志愿）
+  finalizeTopic: (topicId: string) => request.post('/applications/finalize-topic', { topicId }),
+  // 学生整批提交志愿（原子，全部成功或全部失败）
+  submitVolunteers: (volunteers: { topicId: string; priority: number; motivation?: string }[]) =>
+    request.post('/applications/volunteers/submit', { volunteers }),
 
   // 调整相关
   submitAdjustment: (data: { fromTopicId?: string; toTopicId?: string; reason: string }) =>
@@ -87,6 +92,16 @@ export const cycleApi = {
   create: (data: any) => request.post('/cycles', data),
   update: (id: string, data: any) => request.put(`/cycles/${id}`, data),
   delete: (id: string) => request.delete(`/cycles/${id}`)
+}
+
+// ===== 周期级「毕业专业 + 研究方向」配置 =====
+export const cycleConfigApi = {
+  // 当前进行中周期的专业/研究方向（教师建题、学生工作台下拉用；无进行中周期回退默认）
+  get: () => request.get('/cycle-config'),
+  // 按周期读取（管理员编辑回填）
+  getByCycle: (cycleId: string | number) => request.get(`/cycle-config/${cycleId}`),
+  save: (cycleId: string | number, data: { majors: any[]; researchCategories: Record<string, string[]> }) =>
+    request.put(`/cycle-config/${cycleId}`, data)
 }
 
 // ===== 统计数据 =====

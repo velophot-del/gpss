@@ -183,6 +183,24 @@ export function getTeacherStudentLimit(config: unknown): number {
   return Number.isInteger(limit) && limit > 0 ? limit : 0
 }
 
+// 志愿审核截止时间：取自 phases_config 中 review_deadline / teacher_review.end / review.end。
+// 未配置（返回 null）则视为不启用“截止自动释放”，保持原有阻塞逻辑。
+export function getReviewDeadline(config: unknown): Date | null {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return null
+  const record = config as Record<string, unknown>
+  for (const key of ['review_deadline', 'teacher_review', 'review'] as const) {
+    const value = record[key]
+    const end = value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>).end
+      : value
+    if (typeof end === 'string' && end.trim()) {
+      const date = new Date(end)
+      if (!Number.isNaN(date.getTime())) return date
+    }
+  }
+  return null
+}
+
 export function resolveAdjustmentSource(
   acceptedTopicIds: string[],
   requestedSourceTopicId?: string | null,

@@ -176,13 +176,13 @@
             <el-input v-model="formData.className" placeholder="班级" />
           </el-form-item>
           <el-form-item label="专业">
-            <el-select v-model="formData.major" placeholder="选择专业" style="width: 100%;" filterable allow-create>
-              <el-option v-for="(info, code) in MAJOR_CATEGORIES" :key="code" :label="info.name" :value="info.name" />
+            <el-select v-model="formData.major" placeholder="选择或输入专业" style="width: 100%;" filterable allow-create>
+              <el-option v-for="opt in majorChoices" :key="`n-${opt.code}`" :label="opt.name" :value="opt.name" />
             </el-select>
           </el-form-item>
           <el-form-item label="专业代码">
-            <el-select v-model="formData.majorCode" placeholder="选择专业代码" style="width: 100%;">
-              <el-option v-for="(info, code) in MAJOR_CATEGORIES" :key="code" :label="`${code} - ${info.name}`" :value="code" />
+            <el-select v-model="formData.majorCode" placeholder="选择或输入专业代码" style="width: 100%;" filterable allow-create>
+              <el-option v-for="opt in majorChoices" :key="`c-${opt.code}`" :label="`${opt.code} - ${opt.name}`" :value="opt.code" />
             </el-select>
           </el-form-item>
           <el-form-item label="届别">
@@ -282,7 +282,7 @@ import { ref, computed, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import { useUserStore } from '../../stores/user'
-import { userApi } from '../../api'
+import { userApi, cycleConfigApi } from '../../api'
 import { MAJOR_CATEGORIES } from '../../types'
 import * as XLSX from 'xlsx'
 import { saveAs } from 'file-saver'
@@ -602,9 +602,27 @@ function formatDate(dateStr: string): string {
   return dateStr ? dayjs(dateStr).format('YYYY-MM-DD') : '-'
 }
 
+// ===== 周期级专业选项（支持管理员自定义专业，学生专业下拉可自由录入） =====
+const cycleMajors = ref<{ code: string; name: string }[]>([])
+async function loadCycleMajors() {
+  try {
+    const r: any = await cycleConfigApi.get()
+    cycleMajors.value = (r?.data?.majors || []).map((m: any) => ({ code: String(m.code || ''), name: String(m.name || '') }))
+  } catch {
+    cycleMajors.value = []
+  }
+}
+const majorChoices = computed(() => {
+  const map = new Map<string, string>()
+  cycleMajors.value.forEach(m => { if (m.code) map.set(m.code, m.name) })
+  Object.entries(MAJOR_CATEGORIES).forEach(([code, info]: [string, any]) => { if (!map.has(code)) map.set(code, info.name) })
+  return [...map.entries()].map(([code, name]) => ({ code, name }))
+})
+
 // 初始化加载
 onMounted(() => {
   fetchUsers()
+  loadCycleMajors()
 })
 
 // ===== 批量导入 =====

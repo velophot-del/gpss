@@ -32,6 +32,18 @@
             <el-tag :type="topic.currentCount >= topic.maxStudents ? 'danger' : 'success'" size="small">
               {{ topic.currentCount >= topic.maxStudents ? '已满员' : '还可选' + (topic.maxStudents - topic.currentCount) + '人' }}
             </el-tag>
+            <el-tooltip
+              content="确认本课题名单：未被选中的申请将自动落选，学生进入下一志愿/调剂"
+              placement="top"
+            >
+              <el-button
+                type="warning"
+                size="small"
+                style="margin-left: auto;"
+                :loading="finalizingTopicId === topic.id"
+                @click="handleFinalizeTopic(topic)"
+              >提交本课题名单</el-button>
+            </el-tooltip>
           </div>
 
           <!-- 学生申请列表 -->
@@ -246,6 +258,21 @@ function getStudentProfile(studentId: string) {
     p.userId === studentId ||
     p.studentId === studentId
   )
+}
+
+const finalizingTopicId = ref<string>('')
+
+async function handleFinalizeTopic(topic: any) {
+  finalizingTopicId.value = topic.id
+  try {
+    const res: any = await applicationStore.finalizeTopic(topic.id)
+    ElMessage.success(res?.message || '名单已提交，未选中学生自动进入下一志愿')
+    await topicStore.fetchMyTopics()
+  } catch (e: any) {
+    ElMessage.error(e?.message || '提交名单失败')
+  } finally {
+    finalizingTopicId.value = ''
+  }
 }
 
 function handleTabChange(topicId: string) {

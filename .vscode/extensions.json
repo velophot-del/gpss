@@ -1,0 +1,6 @@
+{
+    "recommendations": [
+        "openai.chatgpt",
+        "ms-python.vscode-pylance"
+    ]
+}

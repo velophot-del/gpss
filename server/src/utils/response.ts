@@ -14,13 +14,14 @@ export function error(res: Response, message = '操作失败', code = 400, detai
   return res.status(code).json({ code, message, ...(details && { details }) })
 }
 
-export function paginated(res: Response, list: any[], total: number, page: number, pageSize: number, message = '查询成功') {
+export function paginated(res: Response, list: any[], total: number, page: number, pageSize: number, message = '查询成功', extra?: Record<string, unknown>) {
   return res.json({
     code: 200,
     message,
     data: {
       list,
-      pagination: { total, page, pageSize, totalPages: Math.ceil(total / pageSize) }
+      pagination: { total, page, pageSize, totalPages: Math.ceil(total / pageSize) },
+      ...(extra || {})
     }
   })
 }

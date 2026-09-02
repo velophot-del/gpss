@@ -2,6 +2,8 @@ import { Router } from 'express'
 import { query } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
+import { isInProgressCycle } from '../utils/processFlow.js'
+import { safeParseJson } from '../utils/json.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -34,10 +36,22 @@ router.get('/active', async (req: AuthRequest, res) => {
 router.post('/', requireRole(['admin']), async (req: AuthRequest, res) => {
   try {
     const { name, description, year, startDate, endDate, phasesConfig, status } = req.body
+
+    const newStatus = status || 'draft'
+    // 同一时刻只允许一个进行中周期：直接以进行中状态创建前需先结束旧周期
+    if (isInProgressCycle(newStatus)) {
+      const rivalRows = await query<any>(
+        "SELECT id, name FROM cycles WHERE status IN ('active','selection','review','adjustment') LIMIT 1"
+      )
+      if (rivalRows.length > 0) {
+        return error(res, `已有进行中的周期「${rivalRows[0].name}」，请先将其结束再开启新周期`, 400)
+      }
+    }
+
     const result = await query<any>(`
       INSERT INTO cycles (name, description, year, status, phase, start_date, end_date, phases_config, created_by)
       VALUES (?, ?, ?, ?, 'topic_submission', ?, ?, ?, ?)
-    `, [name, description, year, status || 'upcoming', startDate, endDate, phasesConfig ? JSON.stringify(phasesConfig) : null, req.user!.id])
+    `, [name, description, year, newStatus, startDate, endDate, phasesConfig ? JSON.stringify(phasesConfig) : null, req.user!.id])
     success(res, { id: (result as any).insertId }, '周期创建成功')
   } catch (err: any) {
     console.error('创建周期失败:', err)
@@ -54,15 +68,26 @@ router.put('/:id', requireRole(['admin']), async (req: AuthRequest, res) => {
     const [existing] = await query<any>('SELECT * FROM cycles WHERE id = ?', [id])
     if (!existing) return error(res, '周期不存在')
 
-    // phases_config：优先用请求中的新值（需 JSON.stringify），否则保留旧值
-    let phasesConfigFinal: any = existing.phases_config
-    if (phasesConfig !== undefined) {
-      phasesConfigFinal = JSON.stringify(phasesConfig)
-    } else if (existing.phases_config && typeof existing.phases_config === 'object') {
-      // mysql2 自动将 JSON 列解析为对象，需转回字符串再存入
-      phasesConfigFinal = JSON.stringify(existing.phases_config)
+    // 同一时刻只允许一个进行中周期：开启本周期前须先结束其它进行中周期
+    const nextStatus = status ?? existing.status
+    if (isInProgressCycle(nextStatus)) {
+      const rivalRows = await query<any>(
+        "SELECT id, name FROM cycles WHERE status IN ('active','selection','review','adjustment') AND id != ? LIMIT 1",
+        [id]
+      )
+      if (rivalRows.length > 0) {
+        return error(res, `已有进行中的周期「${rivalRows[0].name}」，请先将其结束再开启新周期`, 400)
+      }
     }
-    // 如果已是字符串则直接使用
+
+    // phases_config：请求只覆盖其传的顶层键，未传的键（topicAccessPolicy/majors/researchCategories 等）保留，
+    // 避免编辑阶段时间时把其它周期配置整体清掉
+    const base = safeParseJson<any>(existing.phases_config, null)
+    const merged = base && typeof base === 'object' && !Array.isArray(base) ? { ...base } : {}
+    if (phasesConfig && typeof phasesConfig === 'object' && !Array.isArray(phasesConfig)) {
+      Object.assign(merged, phasesConfig)
+    }
+    const phasesConfigFinal = JSON.stringify(merged)
 
     await query(`
       UPDATE cycles SET name = ?, description = ?, year = ?, status = ?, phase = ?,

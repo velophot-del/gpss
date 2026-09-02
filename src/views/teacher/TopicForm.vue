@@ -19,37 +19,8 @@
           <el-col :span="12">
             <el-form-item label="研究方向" prop="category">
               <el-select v-model="form.category" placeholder="选择研究方向" style="width: 100%;">
-                <el-option-group label="视觉传达设计 (130502)">
-                  <el-option label="品牌形象与VI设计" value="品牌形象与VI设计" />
-                  <el-option label="书籍纸媒与插画绘本" value="书籍纸媒与插画绘本" />
-                  <el-option label="包装视觉与结构设计" value="包装视觉与结构设计" />
-                  <el-option label="企业实题与社会服务设计" value="企业实题与社会服务设计" />
-                  <el-option label="概念设计与实验性视觉" value="概念设计与实验性视觉" />
-                  <el-option label="视觉传达专业研究" value="视觉传达专业研究" />
-                </el-option-group>
-                <el-option-group label="数字媒体艺术-交互方向 (130508)">
-                  <el-option label="交互界面与系统设计" value="交互界面与系统设计" />
-                  <el-option label="用户体验与服务设计" value="用户体验与服务设计" />
-                  <el-option label="动态视觉与动效设计" value="动态视觉与动效设计" />
-                  <el-option label="游戏与虚拟体验设计" value="游戏与虚拟体验设计" />
-                  <el-option label="数字媒体叙事与创作" value="数字媒体叙事与创作" />
-                  <el-option label="数字媒体艺术研究" value="数字媒体艺术研究" />
-                </el-option-group>
-                <el-option-group label="包装工程 (081702)">
-                  <el-option label="包装结构设计与优化" value="包装结构设计与优化" />
-                  <el-option label="包装材料与性能研究" value="包装材料与性能研究" />
-                  <el-option label="包装工艺与智能制造" value="包装工艺与智能制造" />
-                  <el-option label="智能包装与物联网应用" value="智能包装与物联网应用" />
-                  <el-option label="绿色包装与循环经济" value="绿色包装与循环经济" />
-                  <el-option label="包装系统集成与产品设计" value="包装系统集成与产品设计" />
-                </el-option-group>
-                <el-option-group label="智能交互工科 (080906T)">
-                  <el-option label="智能硬件交互设计" value="智能硬件交互设计" />
-                  <el-option label="人工智能交互系统" value="人工智能交互系统" />
-                  <el-option label="机器人交互设计" value="机器人交互设计" />
-                  <el-option label="物联网与空间交互" value="物联网与空间交互" />
-                  <el-option label="感知与交互技术" value="感知与交互技术" />
-                  <el-option label="交互工程与原型开发" value="交互工程与原型开发" />
+                <el-option-group v-for="m in majors" :key="m.code" :label="`${m.name} (${m.code})`">
+                  <el-option v-for="c in (researchCategories[m.code] || [])" :key="c" :label="c" :value="c" />
                 </el-option-group>
               </el-select>
             </el-form-item>
@@ -57,10 +28,7 @@
           <el-col :span="12">
             <el-form-item label="专业设置" prop="major">
               <el-select v-model="form.major" placeholder="选择专业" style="width: 100%;">
-                <el-option label="视觉传达设计 (130502)" value="视觉传达设计" />
-                <el-option label="数字媒体艺术 (130508)" value="数字媒体艺术" />
-                <el-option label="包装工程 (081702)" value="包装工程" />
-                <el-option label="智能交互（工科）(080906T)" value="智能交互（工科）" />
+                <el-option v-for="m in majors" :key="m.code" :label="`${m.name} (${m.code})`" :value="m.code" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -219,16 +187,25 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, nextTick, onMounted } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import { useTopicStore } from '../../stores/topic'
 import { useCycleStore } from '../../stores/cycle'
-import { topicApi, uploadApi } from '../../api'
+import { topicApi, uploadApi, cycleConfigApi } from '../../api'
 import type { FormInstance, FormRules, UploadFile } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import { Document, Delete } from '@element-plus/icons-vue'
-import { MAJOR_OPTIONS } from '../../types'
+import type { MajorConfig } from '../../types'
+import { RESEARCH_CATEGORIES, resolveTopicMajorCode } from '../../types'
+
+// 未配置周期/接口不可用时的兜底选项（与后端默认 4 专业一致）
+const FALLBACK_MAJORS: MajorConfig[] = [
+  { code: '130502', name: '视觉传达设计' },
+  { code: '130508', name: '数字媒体艺术（交互方向）' },
+  { code: '081702', name: '包装工程' },
+  { code: '080906T', name: '智能交互（工科）' }
+]
 
 const route = useRoute()
 const router = useRouter()
@@ -240,6 +217,16 @@ const formRef = ref<FormInstance>()
 const submitting = ref(false)
 const isEdit = !!route.params.id
 const loading = ref(false)
+
+// 当期“毕业专业 + 研究方向”选项（来自周期配置；缺失回退默认）
+const cycleCfg = ref<{ majors: MajorConfig[]; researchCategories: Record<string, string[]> } | null>(null)
+const majors = computed<MajorConfig[]>(() =>
+  cycleCfg.value?.majors?.length ? cycleCfg.value.majors : FALLBACK_MAJORS
+)
+const researchCategories = computed<Record<string, string[]>>(() => {
+  const rc = cycleCfg.value?.researchCategories
+  return rc && Object.keys(rc).length ? rc : RESEARCH_CATEGORIES
+})
 
 const form = reactive({
   title: '',
@@ -369,12 +356,12 @@ async function handleSubmit(action: 'submit' | 'draft') {
         description: s.description
       }))
 
-    const majorOption = MAJOR_OPTIONS.find(m => m.value === form.major)
+    const m = majors.value.find(x => x.code === form.major)
     const payload: any = {
       title: form.title,
       category: form.category,
-      major: form.major,
-      majorCode: majorOption?.code,
+      major: m?.name || form.major,
+      majorCode: m?.code || form.major,
       description: form.description,
       requirements: form.requirements,
       difficulty: form.difficulty,
@@ -405,6 +392,12 @@ async function handleSubmit(action: 'submit' | 'draft') {
 
 // 编辑模式加载数据
 onMounted(async () => {
+  try {
+    const cfgRes: any = await cycleConfigApi.get()
+    cycleCfg.value = cfgRes?.data || null
+  } catch {
+    cycleCfg.value = null
+  }
   if (isEdit && route.params.id) {
     loading.value = true
     try {
@@ -414,7 +407,7 @@ onMounted(async () => {
         Object.assign(form, {
           title: t.title || '',
           category: t.category || '',
-          major: t.major || '',
+          major: t.majorCode || resolveTopicMajorCode(t) || '',
           difficulty: t.difficulty || 'medium',
           description: t.description || '',
           requirements: t.requirements || '',

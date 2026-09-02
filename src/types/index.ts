@@ -67,6 +67,42 @@ export const MAJOR_OPTIONS = [
   { value: '智能交互（工科）', label: '智能交互（工科）(080906T)', code: '080906T' }
 ]
 
+// 周期级“毕业专业”配置项（管理员在编辑周期时维护，专业代码为权威键）
+export interface MajorConfig {
+  code: string
+  name: string
+  degree?: string
+  keywords?: string[]
+}
+
+// 周期级“研究方向”配置结构：按专业代码分组的字符串数组
+export type MajorResearchCategories = Record<string, string[]>
+
+// 专业常见名称 → 代码（覆盖带“方向”后缀等写法），用于课题只填名称、未写 majorCode 时的兜底归类
+export const MAJOR_NAME_TO_CODE: Record<string, string> = {
+  '视觉传达设计': '130502',
+  '数字媒体艺术': '130508',
+  '数字媒体艺术（交互方向）': '130508',
+  '包装工程': '081702',
+  '智能交互（工科）': '080906T',
+  '智能交互': '080906T'
+}
+
+// 课题归属专业解析：优先 majorCode，缺失时按名称别名兜底
+export function resolveTopicMajorCode(topic?: { major?: string; majorCode?: string } | null): string {
+  if (!topic) return ''
+  if (topic.majorCode) return topic.majorCode
+  return topic.major ? (MAJOR_NAME_TO_CODE[topic.major] || '') : ''
+}
+
+// 各专业可选“研究大类”（与教师建题表单一致）
+export const RESEARCH_CATEGORIES: Record<string, string[]> = {
+  '130502': ['品牌形象与VI设计', '书籍纸媒与插画绘本', '包装视觉与结构设计', '企业实题与社会服务设计', '概念设计与实验性视觉', '视觉传达专业研究'],
+  '130508': ['交互界面与系统设计', '用户体验与服务设计', '动态视觉与动效设计', '游戏与虚拟体验设计', '数字媒体叙事与创作', '数字媒体艺术研究'],
+  '081702': ['包装结构设计与优化', '包装材料与性能研究', '包装工艺与智能制造', '智能包装与物联网应用', '绿色包装与循环经济', '包装系统集成与产品设计'],
+  '080906T': ['智能硬件交互设计', '人工智能交互系统', '机器人交互设计', '物联网与空间交互', '感知与交互技术', '交互工程与原型开发'],
+}
+
 // 选题范围分类（基于4个专业24个选题大类）
 // 视觉传达设计(130502)：品牌/书籍纸媒插画绘本/包装/企业实题/概念设计/专业研究
 // 数字媒体艺术130508：交互设计/用户体验/动态视觉动效/游戏虚拟体验/数字媒体叙事/服务设计

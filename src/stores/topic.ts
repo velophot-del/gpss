@@ -1,8 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Topic, TopicStatus } from '../types'
+import { resolveTopicMajorCode } from '../types'
 import { topicApi as api } from '../api'
 import { ElMessage } from 'element-plus'
+
+export interface MajorOptionLike { value: string; label: string; code: string }
 
 export const useTopicStore = defineStore('topic', () => {
   const topics = ref<Topic[]>([])
@@ -13,6 +16,8 @@ export const useTopicStore = defineStore('topic', () => {
   const selectedMajor = ref('')
   const loading = ref(false)
   const total = ref(0)
+  // 当前学生被“查看选题规则”允许浏览的专业（由后端按策略算好下发）
+  const allowedMajors = ref<MajorOptionLike[] | null>(null)
 
   // 获取已发布的课题列表（学生浏览用）
   async function fetchTopics(params?: { page?: number; pageSize?: number; keyword?: string; category?: string; difficulty?: string; major?: string }) {
@@ -30,6 +35,7 @@ export const useTopicStore = defineStore('topic', () => {
         // 分页响应格式
         topics.value = Array.isArray(res.data.list) ? res.data.list : (Array.isArray(res.data) ? res.data : [])
         total.value = res.data.pagination?.total ?? res.data.total ?? 0
+        allowedMajors.value = Array.isArray(res.data.allowedMajors) ? res.data.allowedMajors : null
         // 确保 tags 被解析为数组
         topics.value = topics.value.map((t: any) => ({
           ...t,
@@ -73,6 +79,7 @@ export const useTopicStore = defineStore('topic', () => {
   // 教师获取自己的课题
   async function fetchMyTopics() {
     loading.value = true
+    allowedMajors.value = null
     try {
       const res: any = await api.getMyTopics({
         keyword: searchKeyword.value
@@ -136,7 +143,8 @@ export const useTopicStore = defineStore('topic', () => {
       result = result.filter(t => t.difficulty === selectedDifficulty.value)
     }
     if (selectedMajor.value) {
-      result = result.filter(t => t.major === selectedMajor.value)
+      // selectedMajor 现为专业代码（value=code）；课题缺失 majorCode 时用名称别名兜底解析
+      result = result.filter(t => resolveTopicMajorCode(t) === selectedMajor.value)
     }
     return result
   })
@@ -154,6 +162,7 @@ export const useTopicStore = defineStore('topic', () => {
     selectedCategory,
     selectedDifficulty,
     selectedMajor,
+    allowedMajors,
     loading,
     total,
     fetchTopics,

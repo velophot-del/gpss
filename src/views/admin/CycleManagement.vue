@@ -150,7 +150,7 @@
       </el-dialog>
 
       <!-- 编辑弹窗 -->
-      <el-dialog v-model="editDialogVisible" title="编辑选题周期" width="680px">
+      <el-dialog v-model="editDialogVisible" title="编辑选题周期" width="760px">
         <el-form ref="editFormRef" :model="form" label-width="110px" size="large">
           <el-form-item label="周期名称" required>
             <el-input v-model="form.name" />
@@ -174,6 +174,31 @@
           <el-form-item label="描述">
             <el-input v-model="form.description" type="textarea" :rows="2" />
           </el-form-item>
+
+          <el-divider content-position="left">毕业专业与研究方向（本周期）</el-divider>
+          <div class="cycle-cfg-hint">
+            配置本周期允许发布的毕业专业与研究方向，作为教师建题、学生选志愿的专业/方向来源。未配置时按系统默认 4 个专业执行。
+          </div>
+          <div v-for="(m, idx) in cfgMajorsDraft" :key="`m-${m.code || idx}`" class="cfg-major-row">
+            <el-input v-model="m.name" placeholder="专业名称" />
+            <el-input v-model="m.code" placeholder="专业代码" style="width: 170px;" />
+            <el-button text type="danger" @click="removeMajorRow(idx)">删除</el-button>
+          </div>
+          <el-button size="small" type="primary" plain icon="Plus" @click="addMajorRow">添加专业</el-button>
+          <div v-for="m in cfgMajorsDraft" :key="`c-${m.code}`" class="cfg-cats-block">
+            <template v-if="m.code">
+              <div class="cfg-cats-head">{{ m.name || '未命名' }}（{{ m.code }}）研究方向</div>
+              <div class="cfg-cats-tags">
+                <el-tag v-for="(c, i) in cfgResearchDraft[m.code] || []" :key="c" closable @close="removeCat(m.code, i)">{{ c }}</el-tag>
+                <span v-if="!(cfgResearchDraft[m.code] || []).length" class="cfg-cats-empty">暂无方向</span>
+              </div>
+              <div class="cfg-cats-add">
+                <el-input v-model="cfgCatDrafts[m.code]" size="small" placeholder="输入研究方向，回车或点添加" style="width: 280px;" @keyup.enter="addCat(m.code)" />
+                <el-button size="small" @click="addCat(m.code)">添加方向</el-button>
+              </div>
+            </template>
+          </div>
+
           <el-divider content-position="left">阶段时间安排</el-divider>
           <el-row :gutter="16">
             <el-col :span="12">
@@ -232,7 +257,7 @@
           </el-row>
         </el-form>
         <template #footer>
-          <el-button @click="editDialogVisible = false">取消</el-button>
+          <el-button @click="closeEditDialog">取消</el-button>
           <el-button type="primary" :loading="submitting" @click="handleEdit">保存修改</el-button>
         </template>
       </el-dialog>
@@ -243,7 +268,7 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { useCycleStore } from '../../stores/cycle'
-import { cycleApi } from '../../api'
+import { cycleApi, cycleConfigApi } from '../../api'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
 
@@ -281,6 +306,47 @@ const cycleStatusLabel: Record<string, string> = {
   review: '审核中', adjustment: '调剂中', completed: '已结束', draft: '草稿'
 }
 
+// ===== 周期级「毕业专业 + 研究方向」配置编辑 =====
+const cfgMajorsDraft = ref<{ code: string; name: string }[]>([])
+const cfgResearchDraft = reactive<Record<string, string[]>>({})
+const cfgCatDrafts = reactive<Record<string, string>>({})
+
+function resetCfg() {
+  cfgMajorsDraft.value = []
+  for (const k of Object.keys(cfgResearchDraft)) delete cfgResearchDraft[k]
+  for (const k of Object.keys(cfgCatDrafts)) delete cfgCatDrafts[k]
+}
+function addMajorRow() { cfgMajorsDraft.value.push({ code: '', name: '' }) }
+function removeMajorRow(idx: number) {
+  const rm = cfgMajorsDraft.value.splice(idx, 1)[0]
+  if (rm?.code) { delete cfgResearchDraft[rm.code]; delete cfgCatDrafts[rm.code] }
+}
+function addCat(code: string) {
+  const v = (cfgCatDrafts[code] || '').trim()
+  if (!v) return
+  if (!cfgResearchDraft[code]) cfgResearchDraft[code] = []
+  if (!cfgResearchDraft[code].includes(v)) cfgResearchDraft[code].push(v)
+  cfgCatDrafts[code] = ''
+}
+function removeCat(code: string, index: number) { cfgResearchDraft[code]?.splice(index, 1) }
+// 校验并把草稿规整成可保存结构；非法返回 null
+function buildCfgPayload(): { majors: { code: string; name: string }[]; researchCategories: Record<string, string[]> } | null {
+  const seen = new Set<string>()
+  const majors = cfgMajorsDraft.value
+    .map(m => ({ code: m.code.trim(), name: m.name.trim() }))
+    .filter(m => m.code && m.name)
+  for (const m of majors) {
+    if (seen.has(m.code)) { ElMessage.warning(`专业代码重复：${m.code}`); return null }
+    seen.add(m.code)
+  }
+  if (!majors.length) { ElMessage.warning('请至少配置一个毕业专业'); return null }
+  const researchCategories: Record<string, string[]> = {}
+  for (const m of majors) {
+    if (Array.isArray(cfgResearchDraft[m.code])) researchCategories[m.code] = [...new Set(cfgResearchDraft[m.code].map(String).filter(Boolean))]
+  }
+  return { majors, researchCategories }
+}
+
 // 加载周期列表
 async function fetchCycles() {
   loading.value = true
@@ -307,8 +373,20 @@ function showCreateDialog() {
   dialogVisible.value = true
 }
 
-function showEditDialog(row: any) {
+async function showEditDialog(row: any) {
   editingId.value = row.id
+  resetCfg()
+  // 从周期配置读取“毕业专业 + 研究方向”（未配置时后端回退默认 4 专业）
+  try {
+    const r: any = await cycleConfigApi.getByCycle(row.id)
+    const majors = r?.data?.majors || []
+    const cats = r?.data?.researchCategories || {}
+    cfgMajorsDraft.value = majors.map((m: any) => ({ code: String(m.code || ''), name: String(m.name || '') }))
+    for (const [code, list] of Object.entries(cats)) cfgResearchDraft[code] = Array.isArray(list) ? [...list.map(String)] : []
+  } catch (e) {
+    console.error('读取周期专业配置失败:', e)
+    ElMessage.warning('读取该周期专业配置失败，可手动添加')
+  }
   // 从 phases_config 解析阶段时间（如果存在）
   const phases = typeof row.phases_config === 'string' ? JSON.parse(row.phases_config || '{}') : (row.phases_config || {})
   Object.assign(form, {
@@ -328,6 +406,11 @@ function showEditDialog(row: any) {
     adjustmentEnd: phases.adjustment?.end || row.adjustmentEnd || ''
   })
   editDialogVisible.value = true
+}
+
+function closeEditDialog() {
+  editDialogVisible.value = false
+  resetCfg()
 }
 
 async function handleCreate() {
@@ -395,6 +478,9 @@ async function handleEdit() {
   }
   if (!editingId.value) return
 
+  const cfgPayload = buildCfgPayload()
+  if (!cfgPayload) return
+
   submitting.value = true
   try {
     // 状态到阶段的映射
@@ -405,6 +491,7 @@ async function handleEdit() {
       adjustment: 'adjustment',
       completed: 'ended'
     }
+    // 阶段时间与专业/研究方向分两次保存（后端对 phases_config 深合并，互不覆盖）
     await cycleApi.update(editingId.value, {
       name: form.name,
       year: form.year,
@@ -422,8 +509,9 @@ async function handleEdit() {
         teacher_student_limit: Number(form.teacherStudentLimit) || 0
       }
     })
-    ElMessage.success('选题周期更新成功')
-    editDialogVisible.value = false
+    await cycleConfigApi.save(editingId.value, cfgPayload)
+    ElMessage.success('选题周期与专业/研究方向已更新')
+    closeEditDialog()
     editingId.value = null
     await fetchCycles()
   } catch (e: any) {
@@ -462,6 +550,14 @@ onMounted(() => {
   align-items: center;
   gap: 0;
 }
+
+.cycle-cfg-hint { font-size: 12px; color: #909399; margin: -6px 0 12px; line-height: 1.5; }
+.cfg-major-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+.cfg-cats-block { margin: 10px 0 14px; padding: 10px; background: #fafafa; border-radius: 8px; }
+.cfg-cats-head { font-size: 13px; font-weight: 600; margin-bottom: 6px; color: var(--primary-color); }
+.cfg-cats-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+.cfg-cats-empty { color: #c0c4cc; font-size: 12px; }
+.cfg-cats-add { display: flex; gap: 8px; }
 
 @media (max-width: 768px) {
   :deep(.el-table) { font-size: 12px; }

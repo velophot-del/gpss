@@ -65,6 +65,18 @@ async function init() {
   
   console.log('✅ All tables created');
 
+  // 防重复导入：目标库已有数据时中止（除非显式传 --force），避免产生第二个周期与重复数据
+  if (!process.argv.includes('--force')) {
+    const [[cnt]] = await c.query(
+      'SELECT (SELECT COUNT(*) FROM users) + (SELECT COUNT(*) FROM cycles) + (SELECT COUNT(*) FROM topics) AS total'
+    );
+    if (Number(cnt.total || 0) > 0) {
+      console.error('检测到 gpss_db 已有数据（users/cycles/topics 非空）。为防止重复导入产生第二个周期与重复数据，已中止。');
+      console.error('如需重建：请先清空该库；或显式传 --force 跳过本检查。');
+      process.exit(1);
+    }
+  }
+
   const pw = bcrypt.hashSync('123456', 10);
   const uuid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -115,21 +127,21 @@ async function init() {
 
   // Topics
   for (const t of [
-    ['非遗蜀锦纹样在现代品牌VI中的创新应用研究','品牌形象设计','hard',1,'t001'],
-    ['新式茶饮品牌"茶境"全案包装与空间视觉设计','包装设计','medium',2,'t001'],
-    ['适老化智能家居APP交互界面设计与可用性研究','交互界面设计','hard',1,'t002'],
-    ['城市记忆——济南泉水文化沉浸式动态视觉装置设计','数字媒体艺术','hard',1,'t002'],
-    ['《山海经》异兽主题原创儿童绘本创作','书籍与绘本设计','medium',2,'t003'],
-    ['基于情感计算的可变字体实验设计','字体与版式设计','medium',1,'t003'],
-    ['基于生物降解材料的绿色食品包装结构设计','包装结构与工艺','hard',1,'t004'],
-    ['生鲜冷链智能温控包装系统设计研究','智能包装系统','hard',1,'t004'],
-    ['AI驱动的中国风插画生成工具设计与实现','AI创意设计','hard',1,'t005'],
-    ['博物馆文物AR导览交互体验设计','跨媒介设计','medium',2,'t005'],
-    ['Z世代国潮美妆品牌视觉形象升级设计','品牌形象设计','easy',2,'t001'],
-    ['气候变化数据可视化动态短片创作','动态视觉与动画','medium',1,'t002']
+    ['非遗蜀锦纹样在现代品牌VI中的创新应用研究','品牌形象与VI设计','hard',1,'t001','130502','视觉传达设计'],
+    ['新式茶饮品牌"茶境"全案包装与空间视觉设计','包装系统集成与产品设计','medium',2,'t001','081702','包装工程'],
+    ['适老化智能家居APP交互界面设计与可用性研究','交互界面与系统设计','hard',1,'t002','080906T','智能交互（工科）'],
+    ['城市记忆——济南泉水文化沉浸式动态视觉装置设计','数字媒体叙事与创作','hard',1,'t002','130508','数字媒体艺术（交互方向）'],
+    ['《山海经》异兽主题原创儿童绘本创作','书籍纸媒与插画绘本','medium',2,'t003','130502','视觉传达设计'],
+    ['基于情感计算的可变字体实验设计','概念设计与实验性视觉','medium',1,'t003','130502','视觉传达设计'],
+    ['基于生物降解材料的绿色食品包装结构设计','包装结构设计与优化','hard',1,'t004','081702','包装工程'],
+    ['生鲜冷链智能温控包装系统设计研究','智能包装与物联网应用','hard',1,'t004','081702','包装工程'],
+    ['AI驱动的中国风插画生成工具设计与实现','数字媒体叙事与创作','hard',1,'t005','130508','数字媒体艺术（交互方向）'],
+    ['博物馆文物AR导览交互体验设计','数字媒体叙事与创作','medium',2,'t005','080906T','智能交互（工科）'],
+    ['Z世代国潮美妆品牌视觉形象升级设计','品牌形象与VI设计','easy',2,'t001','130502','视觉传达设计'],
+    ['气候变化数据可视化动态短片创作','动态视觉与动效设计','medium',1,'t002','130508','数字媒体艺术（交互方向）']
   ]) {
-    await c.query("INSERT INTO topics (id,title,description,category,difficulty,max_students,status,teacher_id,cycle_id,tags) VALUES (?,?,?,?,?,?,?,?,?,?)",
-      [uuid(), t[0], '', t[1], t[2], t[3], 'published', t[4], cycleId, '[]']);
+    await c.query("INSERT INTO topics (id,title,description,category,difficulty,max_students,status,teacher_id,cycle_id,major,major_code,tags) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+      [uuid(), t[0], '', t[1], t[2], t[3], 'published', t[4], cycleId, t[6], t[5], '[]']);
   }
   console.log('✅ 12 topics');
 
@@ -142,7 +154,7 @@ async function init() {
       [uuid(), 's003', topicList[2].id, 1, 'accepted', '我的毕设方向是交互设计']);
     if (topicList.length >= 11) {
       await c.query("INSERT INTO applications (id,student_id,topic_id,priority,status,motivation) VALUES (?,?,?,?,?,?)",
-        [uuid(), 's001', topicList[10].id, 2, 'pending', '作为备选方向']);
+        [uuid(), 's004', topicList[10].id, 2, 'pending', '作为备选方向']);
     }
   }
   console.log('✅ sample data done');

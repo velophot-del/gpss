@@ -23,8 +23,21 @@ const DEFAULT_PASSWORD = bcrypt.hashSync('123456', 10)
 
 async function seed() {
   const conn = await mysql.createConnection(dbConfig)
-  
+
   console.log('开始导入种子数据...')
+
+  // 防重复导入：目标库已有数据时中止（除非显式传 --force），避免产生第二个进行中周期与重复录取
+  if (!process.argv.includes('--force')) {
+    const result: any = await conn.query(
+      'SELECT (SELECT COUNT(*) FROM cycles) + (SELECT COUNT(*) FROM topics) AS total'
+    )
+    const total = Number(result?.[0]?.[0]?.total || 0)
+    if (total > 0) {
+      console.error('检测到数据库已有数据（cycles/topics 非空）。为防止重复导入产生第二个进行中周期与重复录取，已中止。')
+      console.error('如需重建：请先清空目标库；或显式传 --force 跳过本检查。')
+      process.exit(1)
+    }
+  }
 
   // ===== 管理员 =====
   await conn.query(`
@@ -116,18 +129,30 @@ async function seed() {
 
   // ===== 课题 =====
   const topics = [
-    { title: '非遗蜀锦纹样在现代品牌VI中的创新应用研究', category: '品牌形象设计', difficulty: 'hard', teacherId: 't001', maxStudents: 1, tags: ['非遗', '蜀锦', '品牌VI', '传统文化'], desc: '以四川成都蜀锦传统纹样为研究对象，探索其在现代品牌视觉识别系统中的创新转化路径。要求学生具备较强的图形设计能力和文化研究能力。' },
-    { title: '新式茶饮品牌"茶境"全案包装与空间视觉设计', category: '包装设计', difficulty: 'medium', teacherId: 't001', maxStudents: 2, tags: ['茶饮品牌', '包装设计', '空间设计'], desc: '为虚构新式茶饮品牌"茶境"进行完整的品牌包装体系及门店空间视觉设计。' },
-    { title: '适老化智能家居APP交互界面设计与可用性研究', category: '交互界面设计', difficulty: 'hard', teacherId: 't002', maxStudents: 1, tags: ['适老化', '智能家居', '交互设计', '可用性'], desc: '针对65+老年用户群体，设计一套智能家居控制应用的交互方案，并进行可用性测试验证。需掌握Figma和用户研究方法。' },
-    { title: '城市记忆——济南泉水文化沉浸式动态视觉装置设计', category: '数字媒体艺术', difficulty: 'hard', teacherId: 't002', maxStudents: 1, tags: ['城市IP', '动态视觉', '装置艺术', 'TouchDesigner'], desc: '以济南泉水文化为主题，运用投影映射和交互技术创作一件大型公共空间沉浸式视觉装置作品。' },
-    { title: '《山海经》异兽主题原创儿童绘本创作', category: '书籍与绘本设计', difficulty: 'medium', teacherId: 't003', maxStudents: 2, tags: ['绘本', '山海经', '儿童插画', '故事创作'], desc: '选取《山海经》中3-5个经典异兽形象进行现代化改编，创作一套面向6-12岁儿童的原创绘本。' },
-    { title: '基于情感计算的可变字体实验设计', category: '字体与版式设计', difficulty: 'medium', teacherId: 't003', maxStudents: 1, tags: ['可变字体', '字体设计', '实验设计'], desc: '探索可变字体技术（Variable Fonts）在情感表达层面的可能性，完成一套具有情感响应能力的可变字体设计方案。' },
-    { title: '基于生物降解材料的绿色食品包装结构设计', category: '包装结构与工艺', difficulty: 'hard', teacherId: 't004', maxStudents: 1, tags: ['绿色包装', '生物降解', '结构设计', '可持续'], desc: '选用PLA或PHA等生物降解材料，设计一款新型绿色食品包装，需完成结构设计、打样测试和性能对比报告。' },
-    { title: '生鲜冷链智能温控包装系统设计研究', category: '智能包装系统', difficulty: 'hard', teacherId: 't004', maxStudents: 1, tags: ['冷链物流', '温控', '智能包装', 'IoT'], desc: '设计一款集成温度传感和数据记录功能的智能温控包装系统原型，适用于高端生鲜产品运输。' },
-    { title: 'AI驱动的中国风插画生成工具设计与实现', category: 'AI创意设计', difficulty: 'hard', teacherId: 't005', maxStudents: 1, tags: ['AI', 'Stable Diffusion', '中国风插画', 'LoRA训练'], desc: '基于开源大模型开发一款面向设计师的中国风插画AI辅助生成工具，包含模型微调、风格控制和交互界面设计。' },
-    { title: '博物馆文物AR导览交互体验设计', category: '跨媒介设计', difficulty: 'medium', teacherId: 't005', maxStudents: 2, tags: ['博物馆', 'AR增强现实', '导览', 'Unity'], desc: '选择山东某博物馆的3-5件核心藏品，设计并实现一套AR移动端导览交互体验原型。' },
-    { title: 'Z世代国潮美妆品牌视觉形象升级设计', category: '品牌形象设计', difficulty: 'easy', teacherId: 't001', maxStudents: 2, tags: ['Z世代', '国潮', '美妆品牌', '品牌升级'], desc: '针对虚拟国潮美妆品牌进行全面的视觉形象升级设计，包括Logo、色彩系统、包装系列和社交媒体视觉规范。' },
-    { title: '气候变化数据可视化动态短片创作', category: '动态视觉与动画', difficulty: 'medium', teacherId: 't002', maxStudents: 1, tags: ['数据可视化', '动态图形', 'After Effects', '环保'], desc: '选取近100年全球气候数据，创作一支3分钟的数据可视化动态信息短片，用于科普传播。' },
+    { title: '非遗蜀锦纹样在现代品牌VI中的创新应用研究', category: '品牌形象与VI设计', difficulty: 'hard', teacherId: 't001', maxStudents: 1, majorCode: '130502', major: '视觉传达设计', tags: ['非遗', '蜀锦', '品牌VI', '传统文化'], desc: '以四川成都蜀锦传统纹样为研究对象，探索其在现代品牌视觉识别系统中的创新转化路径。要求学生具备较强的图形设计能力和文化研究能力。' },
+    { title: '新式茶饮品牌"茶境"全案包装与空间视觉设计', category: '包装系统集成与产品设计', difficulty: 'medium', teacherId: 't001', maxStudents: 2, majorCode: '081702', major: '包装工程', tags: ['茶饮品牌', '包装设计', '空间设计'], desc: '为虚构新式茶饮品牌"茶境"进行完整的品牌包装体系及门店空间视觉设计。' },
+    { title: '适老化智能家居APP交互界面设计与可用性研究', category: '交互界面与系统设计', difficulty: 'hard', teacherId: 't002', maxStudents: 1, majorCode: '080906T', major: '智能交互（工科）', tags: ['适老化', '智能家居', '交互设计', '可用性'], desc: '针对65+老年用户群体，设计一套智能家居控制应用的交互方案，并进行可用性测试验证。需掌握Figma和用户研究方法。' },
+    { title: '城市记忆——济南泉水文化沉浸式动态视觉装置设计', category: '数字媒体叙事与创作', difficulty: 'hard', teacherId: 't002', maxStudents: 1, majorCode: '130508', major: '数字媒体艺术（交互方向）', tags: ['城市IP', '动态视觉', '装置艺术', 'TouchDesigner'], desc: '以济南泉水文化为主题，运用投影映射和交互技术创作一件大型公共空间沉浸式视觉装置作品。' },
+    { title: '《山海经》异兽主题原创儿童绘本创作', category: '书籍纸媒与插画绘本', difficulty: 'medium', teacherId: 't003', maxStudents: 2, majorCode: '130502', major: '视觉传达设计', tags: ['绘本', '山海经', '儿童插画', '故事创作'], desc: '选取《山海经》中3-5个经典异兽形象进行现代化改编，创作一套面向6-12岁儿童的原创绘本。' },
+    { title: '基于情感计算的可变字体实验设计', category: '概念设计与实验性视觉', difficulty: 'medium', teacherId: 't003', maxStudents: 1, majorCode: '130502', major: '视觉传达设计', tags: ['可变字体', '字体设计', '实验设计'], desc: '探索可变字体技术（Variable Fonts）在情感表达层面的可能性，完成一套具有情感响应能力的可变字体设计方案。' },
+    { title: '基于生物降解材料的绿色食品包装结构设计', category: '包装结构设计与优化', difficulty: 'hard', teacherId: 't004', maxStudents: 1, majorCode: '081702', major: '包装工程', tags: ['绿色包装', '生物降解', '结构设计', '可持续'], desc: '选用PLA或PHA等生物降解材料，设计一款新型绿色食品包装，需完成结构设计、打样测试和性能对比报告。' },
+    { title: '生鲜冷链智能温控包装系统设计研究', category: '智能包装与物联网应用', difficulty: 'hard', teacherId: 't004', maxStudents: 1, majorCode: '081702', major: '包装工程', tags: ['冷链物流', '温控', '智能包装', 'IoT'], desc: '设计一款集成温度传感和数据记录功能的智能温控包装系统原型，适用于高端生鲜产品运输。' },
+    { title: 'AI驱动的中国风插画生成工具设计与实现', category: '数字媒体叙事与创作', difficulty: 'hard', teacherId: 't005', maxStudents: 1, majorCode: '130508', major: '数字媒体艺术（交互方向）', tags: ['AI', 'Stable Diffusion', '中国风插画', 'LoRA训练'], desc: '基于开源大模型开发一款面向设计师的中国风插画AI辅助生成工具，包含模型微调、风格控制和交互界面设计。' },
+    { title: '博物馆文物AR导览交互体验设计', category: '数字媒体叙事与创作', difficulty: 'medium', teacherId: 't005', maxStudents: 2, majorCode: '080906T', major: '智能交互（工科）', tags: ['博物馆', 'AR增强现实', '导览', 'Unity'], desc: '选择山东某博物馆的3-5件核心藏品，设计并实现一套AR移动端导览交互体验原型。' },
+    { title: 'Z世代国潮美妆品牌视觉形象升级设计', category: '品牌形象与VI设计', difficulty: 'easy', teacherId: 't001', maxStudents: 2, majorCode: '130502', major: '视觉传达设计', tags: ['Z世代', '国潮', '美妆品牌', '品牌升级'], desc: '针对虚拟国潮美妆品牌进行全面的视觉形象升级设计，包括Logo、色彩系统、包装系列和社交媒体视觉规范。' },
+    { title: '气候变化数据可视化动态短片创作', category: '动态视觉与动效设计', difficulty: 'medium', teacherId: 't002', maxStudents: 1, majorCode: '130508', major: '数字媒体艺术（交互方向）', tags: ['数据可视化', '动态图形', 'After Effects', '环保'], desc: '选取近100年全球气候数据，创作一支3分钟的数据可视化动态信息短片，用于科普传播。' },
+    { title: '汉字之美——书法字体的活态再设计与文创应用', category: '概念设计与实验性视觉', difficulty: 'medium', teacherId: 't003', maxStudents: 1, majorCode: '130502', major: '视觉传达设计', tags: ['书法', '字体设计', '文创'], desc: '以传统书法为母本，探索其数字化转译与文创产品应用。' },
+    { title: '城市公共空间品牌形象与环境导视系统设计', category: '品牌形象与VI设计', difficulty: 'easy', teacherId: 't001', maxStudents: 2, majorCode: '130502', major: '视觉传达设计', tags: ['导视', '环境视觉'], desc: '面向城市公共空间完成一套品牌形象与环境导视系统设计。' },
+    { title: '情绪化动态海报的生成式设计研究', category: '动态视觉与动效设计', difficulty: 'medium', teacherId: 't002', maxStudents: 1, majorCode: '130508', major: '数字媒体艺术（交互方向）', tags: ['动态海报', '生成式'], desc: '结合生成式工具探索面向年轻用户的情绪化动态海报设计方法。' },
+    { title: '红色文化数字展馆的沉浸式交互体验设计', category: '数字媒体叙事与创作', difficulty: 'hard', teacherId: 't005', maxStudents: 2, majorCode: '130508', major: '数字媒体艺术（交互方向）', tags: ['数字展馆', '沉浸式'], desc: '为红色主题数字展馆设计沉浸式交互体验。' },
+    { title: 'XR赋能非遗戏曲的多人协同体验原型', category: '数字媒体叙事与创作', difficulty: 'hard', teacherId: 't005', maxStudents: 1, majorCode: '130508', major: '数字媒体艺术（交互方向）', tags: ['XR', '非遗'], desc: '设计并实现面向非遗戏曲的XR多人协同体验原型。' },
+    { title: '预制菜即食包装微波/水浴双适配结构设计', category: '包装结构设计与优化', difficulty: 'medium', teacherId: 't004', maxStudents: 1, majorCode: '081702', major: '包装工程', tags: ['预制菜包装', '结构设计'], desc: '设计可同时耐受微波与水浴加热的预制菜包装结构。' },
+    { title: '高阻隔轻量啤酒包装开发与货架期测试', category: '包装结构设计与优化', difficulty: 'hard', teacherId: 't004', maxStudents: 1, majorCode: '081702', major: '包装工程', tags: ['高阻隔', '货架期'], desc: '开发高阻隔轻量化啤酒包装并完成货架期性能测试。' },
+    { title: '循环快递包装箱可复用锁合结构设计', category: '智能包装与物联网应用', difficulty: 'medium', teacherId: 't004', maxStudents: 1, majorCode: '081702', major: '包装工程', tags: ['循环包装', '物流'], desc: '面向绿色物流设计可多次复用与回收的快递箱锁合结构。' },
+    { title: '肌电手势识别的无障碍交互系统原型', category: '交互界面与系统设计', difficulty: 'hard', teacherId: 't005', maxStudents: 1, majorCode: '080906T', major: '智能交互（工科）', tags: ['肌电', '无障碍'], desc: '基于肌电手势识别设计面向肢障用户的无障碍交互原型。' },
+    { title: '智能导盲随行避障装置交互设计', category: '交互界面与系统设计', difficulty: 'hard', teacherId: 't005', maxStudents: 1, majorCode: '080906T', major: '智能交互（工科）', tags: ['导盲', '避障'], desc: '设计可辅助视障人群出行的智能避障随行装置交互方案。' },
+    { title: '养老院无感跌倒监测与呼叫交互原型', category: '交互界面与系统设计', difficulty: 'medium', teacherId: 't002', maxStudents: 1, majorCode: '080906T', major: '智能交互（工科）', tags: ['养老', '跌倒监测'], desc: '设计养老场景下无感跌倒监测与一键呼叫的交互系统原型。' },
+    { title: '车载多模态语音驾驶助手交互原型', category: '交互界面与系统设计', difficulty: 'medium', teacherId: 't002', maxStudents: 1, majorCode: '080906T', major: '智能交互（工科）', tags: ['车载', '语音助手'], desc: '面向车载场景设计多模态语音助手的交互与可用性原型。' },
   ]
 
   const topicIds: string[] = []
@@ -135,9 +160,9 @@ async function seed() {
     const tid = uuidv4()
     topicIds.push(tid)
     await conn.query(`
-      INSERT INTO topics (id, title, description, category, difficulty, max_students, status, teacher_id, cycle_id, tags, requirements)
-      VALUES (?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?)
-    `, [tid, t.title, t.desc, t.category, t.difficulty, t.maxStudents, t.teacherId, cycleId, JSON.stringify(t.tags), '详见课题详情页'])
+      INSERT INTO topics (id, title, description, category, difficulty, max_students, status, teacher_id, cycle_id, major, major_code, tags, requirements)
+      VALUES (?, ?, ?, ?, ?, ?, 'published', ?, ?, ?, ?, ?, ?)
+    `, [tid, t.title, t.desc, t.category, t.difficulty, t.maxStudents, t.teacherId, cycleId, t.major, t.majorCode, JSON.stringify(t.tags), '详见课题详情页'])
   }
   console.log(`✅ ${topics.length} 个课题已创建`)
 
@@ -147,7 +172,7 @@ async function seed() {
     VALUES 
       (uuid(), 's001', ?, 1, 'accepted', '我对非遗文化非常感兴趣，希望能将传统与现代设计相结合。', NOW()),
       (uuid(), 's003', ?, 1, 'accepted', '我的毕设方向是交互设计，这个课题非常契合我的专业背景。', NOW()),
-      (uuid(), 's001', ?, 2, 'pending', '作为备选方向。', NOW()),
+      (uuid(), 's004', ?, 2, 'pending', '作为备选方向。', NOW()),
       (uuid(), 's002', ?, 1, 'pending', '我热爱绘本创作，希望能在毕业设计中完成自己的第一本绘本。', NOW())
   `, [topicIds[0], topicIds[2], topicIds[10], topicIds[4]])
   console.log('✅ 模拟申请数据已创建')

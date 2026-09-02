@@ -1,6 +1,27 @@
 import { v4 as uuidv4 } from 'uuid'
 import { query } from '../config/database.js'
 
+// 进行中周期的 status 值（active/selection/review/adjustment 均视为进行中）
+export const IN_PROGRESS_CYCLE_STATUSES = ['active', 'selection', 'review', 'adjustment'] as const
+
+export function isInProgressCycle(status?: string | null): boolean {
+  return IN_PROGRESS_CYCLE_STATUSES.some(s => s === status)
+}
+
+// 学生“填报/撤销志愿”允许的阶段（兼容新旧两套阶段命名）
+export const STUDENT_SELECTION_PHASES = ['student_selection', 'student_apply'] as const
+
+export function isStudentSelectionPhase(phase?: string | null): boolean {
+  return STUDENT_SELECTION_PHASES.some(p => p === phase)
+}
+
+// 教师“提交/确认本课题名单（落选自动进下一志愿）”允许的阶段：学生已能申报、教师进入遴选/录取
+export const TEACHER_REVIEW_PHASES = ['student_selection', 'student_apply', 'teacher_review'] as const
+
+export function isTeacherReviewPhase(phase?: string | null): boolean {
+  return TEACHER_REVIEW_PHASES.some(p => p === phase)
+}
+
 /**
  * 毕业全流程共享辅助函数：
  *  - 学生被录取的选题锚点（学生-课题-导师 三元关系）

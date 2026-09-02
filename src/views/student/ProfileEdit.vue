@@ -114,93 +114,6 @@
           />
         </el-form-item>
 
-        <!-- 作品集 -->
-        <el-divider content-position="left">
-          作品集
-          <el-tag size="small" style="margin-left: 8px;" type="info">{{ form.portfolio.length }} 项</el-tag>
-        </el-divider>
-
-        <div class="portfolio-section">
-          <!-- 添加作品表单 -->
-          <el-card shadow="never" v-if="showAddPortfolio" class="add-portfolio-card">
-            <el-form :model="newPortfolio" label-width="80px" size="default">
-              <el-row :gutter="16">
-                <el-col :span="10">
-                  <el-form-item label="作品名称">
-                    <el-input v-model="newPortfolio.title" placeholder="作品名称" />
-                  </el-form-item>
-                </el-col>
-                <el-col :span="8">
-                  <el-form-item label="类型">
-                    <el-select v-model="newPortfolio.type" placeholder="选择类型" @change="onPortfolioTypeChange">
-                      <el-option label="图片" value="image" />
-                      <el-option label="PDF文档" value="pdf" />
-                      <el-option label="链接" value="link" />
-                    </el-select>
-                  </el-form-item>
-                </el-col>
-                <el-col :span="16">
-                  <el-form-item :label="newPortfolio.type === 'link' ? '链接/URL' : '上传文件'">
-                    <!-- 链接类型：输入URL -->
-                    <template v-if="newPortfolio.type === 'link'">
-                      <el-input v-model="newPortfolio.url" placeholder="输入作品链接地址" />
-                    </template>
-                    <!-- 图片/PDF 类型：文件上传 -->
-                    <template v-else>
-                      <el-upload
-                        ref="portfolioUploadRef"
-                        :auto-upload="false"
-                        :limit="1"
-                        :accept="newPortfolio.type === 'image' ? 'image/*' : '.pdf'"
-                        :on-change="onPortfolioFileChange"
-                        :on-remove="onPortfolioFileRemove"
-                        :file-list="portfolioFileList"
-                      >
-                        <el-button type="primary" size="small">选择{{ newPortfolio.type === 'image' ? '图片' : 'PDF' }}文件</el-button>
-                        <template #tip>
-                          <div class="upload-tip">{{ newPortfolio.type === 'image' ? '支持 jpg/png/gif，不超过 5MB' : '支持 PDF 格式，不超过 10MB' }}</div>
-                        </template>
-                      </el-upload>
-                    </template>
-                  </el-form-item>
-                </el-col>
-              </el-row>
-              <el-form-item label="说明">
-                <el-input v-model="newPortfolio.description" placeholder="简要描述该作品" />
-              </el-form-item>
-              <el-button type="primary" size="small" @click="addPortfolioItem">添加</el-button>
-              <el-button size="small" @click="showAddPortfolio = false">取消</el-button>
-            </el-form>
-          </el-card>
-
-          <!-- 已有作品列表 -->
-          <div v-if="!showAddPortfolio" class="portfolio-actions">
-            <el-button type="primary" icon="Plus" @click="showAddPortfolio = true">添加作品</el-button>
-          </div>
-
-          <el-table v-if="form.portfolio.length > 0" :data="form.portfolio" stripe size="small" style="margin-top: 16px;">
-            <el-table-column prop="title" label="作品名称" min-width="150" />
-            <el-table-column prop="type" label="类型" width="100">
-              <template #default="{ row }">
-                <el-tag size="small">{{ portfolioTypeLabel[row.type] }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="url" label="链接/地址" show-overflow-tooltip min-width="180">
-              <template #default="{ row }">
-                <el-link v-if="row.url !== '#'" :href="row.url" target="_blank" type="primary" size="small">查看</el-link>
-                <span v-else>本地文件</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="description" label="说明" show-overflow-tooltip min-width="160" />
-            <el-table-column width="80" align="center">
-              <template #default="{ $index }">
-                <el-button link type="danger" icon="Delete" size="small" @click="removePortfolio($index)" />
-              </template>
-            </el-table-column>
-          </el-table>
-          <el-empty v-else description="暂未添加任何作品" :image-size="60" style="margin-top: 20px;" />
-        </div>
-
         <!-- 操作按钮 -->
         <div class="action-bar">
           <el-button type="primary" size="large" icon="Check" @click="handleSave" :loading="saving">
@@ -219,10 +132,7 @@ import { useUserStore } from '../../stores/user'
 import { useStudentStore } from '../../stores/student'
 import type { FormInstance, FormRules } from 'element-plus'
 import type { PortfolioItem } from '../../types'
-import type { UploadFile } from 'element-plus'
 import { ElMessage } from 'element-plus'
-import { uploadApi } from '../../api'
-import genId from '../../utils/id'
 
 const userStore = useUserStore()
 const studentStore = useStudentStore()
@@ -230,9 +140,9 @@ const studentStore = useStudentStore()
 const formRef = ref<FormInstance>()
 const saving = ref(false)
 const isComplete = ref(false)
-const portfolioUploadRef = ref()
-const portfolioFileList = ref<UploadFile[]>([])
-const portfolioUploadingFile = ref<File | null>(null)
+
+// 保留已存在作品集数据(仅去除上传/编辑入口,保存时原样回传避免清空)
+let existingPortfolio: PortfolioItem[] = []
 
 const form = reactive({
   studentId: '',
@@ -244,22 +154,13 @@ const form = reactive({
   interests: [] as string[],
   personalStatement: '',
   contactEmail: '',
-  contactPhone: '',
-  portfolio: [] as PortfolioItem[]
+  contactPhone: ''
 })
 
 const rules: FormRules = {
   skills: [{ required: true, type: 'array', min: 1, message: '请至少选择一项技能', trigger: 'change' }],
   personalStatement: [{ required: true, message: '请填写个人陈述', trigger: 'blur' }],
   contactEmail: [{ required: true, message: '请填写邮箱', trigger: 'blur' }, { type: 'email', message: '邮箱格式不正确', trigger: 'blur' }]
-}
-
-// 作品集操作
-const showAddPortfolio = ref(false)
-const newPortfolio = reactive<{ title: string; type: 'image' | 'pdf' | 'link'; url: string; description: string }>({ title: '', type: 'link', url: '', description: '' })
-
-const portfolioTypeLabel: Record<string, string> = {
-  image: '图片', pdf: 'PDF', link: '链接'
 }
 
 function toggleSkill(skill: string) {
@@ -284,79 +185,14 @@ function toggleInterest(interest: string) {
   }
 }
 
-// 作品集文件上传
-function onPortfolioTypeChange() {
-  portfolioFileList.value = []
-  portfolioUploadingFile.value = null
-  newPortfolio.url = ''
-}
-
-function onPortfolioFileChange(file: UploadFile) {
-  const rawFile = file.raw
-  if (!rawFile) return
-  const maxSize = newPortfolio.type === 'image' ? 5 * 1024 * 1024 : 10 * 1024 * 1024
-  if (rawFile.size > maxSize) {
-    ElMessage.error(newPortfolio.type === 'image' ? '图片大小不能超过 5MB' : 'PDF 大小不能超过 10MB')
-    portfolioFileList.value = []
-    return
-  }
-  portfolioUploadingFile.value = rawFile
-  portfolioFileList.value = [file]
-}
-
-function onPortfolioFileRemove() {
-  portfolioUploadingFile.value = null
-  newPortfolio.url = ''
-}
-
-async function addPortfolioItem() {
-  if (!newPortfolio.title) {
-    ElMessage.warning('请填写作品名称')
-    return
-  }
-  // 图片/PDF 类型需要上传文件
-  if (newPortfolio.type !== 'link' && !newPortfolio.url && portfolioUploadingFile.value) {
-    try {
-      const res: any = await uploadApi.file(portfolioUploadingFile.value, 'portfolio')
-      newPortfolio.url = res.data.url || res.data.path || `${import.meta.env.BASE_URL}uploads/${res.data.filename}`
-    } catch (e) {
-      console.error('上传失败:', e)
-      ElMessage.error('文件上传失败，请重试')
-      return
-    }
-  }
-  if (newPortfolio.type !== 'link' && !newPortfolio.url) {
-    ElMessage.warning(newPortfolio.type === 'image' ? '请选择要上传的图片' : '请选择要上传的 PDF 文件')
-    return
-  }
-  form.portfolio.push({ id: genId(), ...newPortfolio, uploadedAt: new Date().toISOString() })
-  // 重置表单
-  newPortfolio.title = ''
-  newPortfolio.url = ''
-  newPortfolio.description = ''
-  newPortfolio.type = 'link'
-  portfolioFileList.value = []
-  portfolioUploadingFile.value = null
-  showAddPortfolio.value = false
-}
-
-function removePortfolio(index: number) {
-  form.portfolio.splice(index, 1)
-}
-
 async function handleSave() {
   const valid = await formRef.value?.validate().catch(() => false)
   if (!valid || !userStore.currentUser) return
 
-  // 检查作品集
-  if (form.portfolio.length === 0) {
-    ElMessage.warning('请至少添加一个作品集项')
-    return
-  }
-
   saving.value = true
   try {
-    await studentStore.updateProfile(userStore.currentUser.id, { ...form })
+    // 原样回传已存在作品集,避免后端把 portfolio 清空
+    await studentStore.updateProfile(userStore.currentUser.id, { ...form, portfolio: existingPortfolio })
     ElMessage.success('档案保存成功！')
     isComplete.value = true
   } finally {
@@ -386,8 +222,7 @@ onMounted(async () => {
     form.skills.splice(0, form.skills.length, ...newSkills)
     const newInterests = Array.isArray(profile.interests) ? [...profile.interests] : []
     form.interests.splice(0, form.interests.length, ...newInterests)
-    const newPortfolio = Array.isArray(profile.portfolio) ? [...profile.portfolio] : []
-    form.portfolio.splice(0, form.portfolio.length, ...newPortfolio)
+    existingPortfolio = Array.isArray(profile.portfolio) ? [...profile.portfolio] : []
     isComplete.value = profile.isComplete || !!(profile.gpa && (profile.personalStatement || profile.selfIntro))
   } else {
     form.studentId = userStore.currentUser.studentId || ''
@@ -451,14 +286,6 @@ onMounted(async () => {
   pointer-events: none;
 }
 
-.add-portfolio-card {
-  margin-bottom: 16px;
-}
-
-.portfolio-actions {
-  margin-bottom: 8px;
-}
-
 .action-bar {
   margin-top: 32px;
   padding-top: 24px;
@@ -467,11 +294,5 @@ onMounted(async () => {
 }
 .action-bar .el-button {
   width: 140px;
-}
-
-.upload-tip {
-  font-size: 12px;
-  color: #909399;
-  margin-top: 4px;
 }
 </style>

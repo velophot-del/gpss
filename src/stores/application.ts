@@ -57,6 +57,13 @@ export const useApplicationStore = defineStore('application', () => {
     await fetchApplications()
   }
 
+  // 提交/确认本课题名单（未被选中的自动进入下一志愿）
+  async function finalizeTopic(topicId: string) {
+    const res: any = await api.finalizeTopic(topicId)
+    await fetchApplications()
+    return res
+  }
+
   // 审批申请（两参数版，供视图使用）
   async function review(id: string, status: string) {
     await api.review(id, { status })
@@ -112,6 +119,7 @@ export const useApplicationStore = defineStore('application', () => {
     withdrawApplication,
     reviewApplication,
     review,
+    finalizeTopic,
     submitAdjustment,
     adjustApplication,
     getApplicationsByTopic,

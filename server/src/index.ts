@@ -28,6 +28,7 @@ import announcementRoutes from './routes/announcements.js'
 import notificationRoutes from './routes/notifications.js'
 import documentTemplateRoutes from './routes/documentTemplates.js'
 import topicAccessRoutes from './routes/topicAccess.js'
+import cycleConfigRoutes from './routes/cycleConfig.js'
 import profileOptionsRoutes from './routes/profileOptions.js'
 
 // 导入认证中间件
@@ -99,6 +100,7 @@ app.use('/api/topics', topicRoutes)
 app.use('/api/applications', applicationRoutes)
 app.use('/api/cycles', cycleRoutes)
 app.use('/api/topic-access', topicAccessRoutes)
+app.use('/api/cycle-config', cycleConfigRoutes)
 app.use('/api/profile-options', profileOptionsRoutes)
 app.use('/api/statistics', statisticsRoutes)
 app.use('/api/students', studentRoutes)

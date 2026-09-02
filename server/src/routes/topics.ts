@@ -4,10 +4,32 @@ import { query, transaction } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error, paginated } from '../utils/response.js'
 import { getStudentMajorCode, getTopicAccessPolicy, isTopicVisible } from '../utils/topicAccess.js'
-import { getActiveCycle } from '../utils/processFlow.js'
+import { getAllowedMajorNames, getAllowedMajorOptions, getCycleMajors, getCycleResearchCategories, type MajorOption } from '../utils/majors.js'
+import { getActiveCycle, isInProgressCycle } from '../utils/processFlow.js'
 
 const router = Router()
 router.use(authMiddleware)
+
+// 校验课题的“专业代码/研究方向”是否属于目标周期配置（未配置周期回退默认）；
+// 返回错误文案或 null。category/majorCode 缺失时按“必填”对待。
+async function assertInCycleConfig(category: any, majorCode: any, cycleId?: any): Promise<string | null> {
+  const targetCycleId = cycleId ?? (await getActiveCycle())?.id ?? null
+  const [majors, cats] = await Promise.all([getCycleMajors(targetCycleId), getCycleResearchCategories(targetCycleId)])
+  const allowedCategories = new Set<string>()
+  for (const list of Object.values(cats)) list.forEach((c: string) => allowedCategories.add(c))
+  if (typeof category !== 'string' || !allowedCategories.has(category)) {
+    return category
+      ? `研究方向「${category}」不在当期允许的研究方向内`
+      : '请选择研究方向'
+  }
+  if (typeof majorCode !== 'string' || !majors.some(m => m.code === majorCode)) {
+    const allowed = majors.map(m => `${m.name}(${m.code})`).join('、')
+    return majorCode
+      ? `专业代码「${majorCode}」不在当期配置的毕业专业内（允许：${allowed}）`
+      : `请选择专业（当期配置：${allowed}）`
+  }
+  return null
+}
 
 // GET /api/topics - 课题列表（学生浏览用，只返回已发布的）
 router.get('/', async (req: AuthRequest, res) => {
@@ -20,19 +42,38 @@ router.get('/', async (req: AuthRequest, res) => {
     let whereSql = `WHERE t.status = 'published'`
     const params: any[] = []
 
+    // 学生专属：分页响应额外下发“该生允许浏览的专业”，前端下拉不再依赖课题是否携带专业码
+    let allowedMajors: MajorOption[] | undefined
     if (req.user!.role === 'student') {
       const majorCode = await getStudentMajorCode(req.user!.id)
       const active = await getActiveCycle()
+      // 无周期时回退到默认规则（默认仅限本专业），保证下拉仍有内容
       const policy = await getTopicAccessPolicy(active?.id)
-      if (policy.mode === 'all') {
-        // 管理员允许学生查看全部专业课题
-      } else if (policy.mode === 'matrix') {
-        const allowed = policy.matrix[majorCode] || []
-        if (!allowed.length) whereSql += ' AND 1 = 0'
-        else { whereSql += ` AND t.major_code IN (${allowed.map(() => '?').join(',')})`; params.push(...allowed) }
-      } else if (majorCode) {
-        whereSql += ' AND t.major_code = ?'; params.push(majorCode)
-      } else whereSql += ' AND 1 = 0'
+      // 周期“毕业专业列表”为可见专业过滤的权威来源（未配置回退默认 4 专业）
+      const cycleMajors = await getCycleMajors(active?.id)
+      allowedMajors = getAllowedMajorOptions(policy, cycleMajors, majorCode)
+      const allowedCodes = allowedMajors.map(m => m.code)
+      if (!active) {
+        whereSql += ' AND 1 = 0'
+      } else {
+        // 学生只能浏览当前进行中周期的课题，避免跨周期混看
+        whereSql += ' AND t.cycle_id = ?'
+        params.push(active.id)
+        // 可见专业范围以周期“查看选题规则”为准（默认仅限本专业）
+        if (policy.mode === 'all') {
+          // 允许查看全部专业课题
+        } else if (allowedCodes.length) {
+          // 允许专业按代码匹配；个别老课题没写 major_code 时按名称（含带方向后缀写法）兜底
+          const names = getAllowedMajorNames(allowedCodes, cycleMajors)
+          const conds = [`t.major_code IN (${allowedCodes.map(() => '?').join(',')})`]
+          params.push(...allowedCodes)
+          if (names.length) {
+            conds.push(`t.major IN (${names.map(() => '?').join(',')})`)
+            params.push(...names)
+          }
+          whereSql += ` AND (${conds.join(' OR ')})`
+        } else whereSql += ' AND 1 = 0'
+      }
     }
 
     if (keyword) {
@@ -95,7 +136,7 @@ router.get('/', async (req: AuthRequest, res) => {
       updatedAt: item.updated_at
     }))
 
-    paginated(res, formattedList, total, p, ps)
+    paginated(res, formattedList, total, p, ps, '查询成功', allowedMajors ? { allowedMajors } : undefined)
   } catch (err: any) {
     console.error('获取课题列表失败:', err)
     error(res, '服务器内部错误', 500)
@@ -107,7 +148,7 @@ router.get('/', async (req: AuthRequest, res) => {
 // GET /api/topics/teacher/mine - 我的课题（教师）
 router.get('/teacher/mine', requireRole(['teacher']), async (req: AuthRequest, res) => {
   try {
-    const { keyword, status } = req.query
+    const { keyword, status, cycleId } = req.query
     let sql = `
       SELECT t.*,
              u.real_name AS teacher_name,
@@ -130,6 +171,19 @@ router.get('/teacher/mine', requireRole(['teacher']), async (req: AuthRequest, r
       ) ac ON ac.topic_id = t.id
       WHERE t.teacher_id = ?`
     const params: any[] = [req.user!.id]
+
+    // 教师课题按周期查看：默认只列出当前进行中周期（兼容无周期的历史课题）；?cycleId= 可切换其它周期
+    let targetCycle: number | null = null
+    if (cycleId !== undefined && Number.isFinite(Number(cycleId))) {
+      targetCycle = Number(cycleId)
+    } else {
+      const active = await getActiveCycle()
+      targetCycle = active ? Number(active.id) : null
+    }
+    if (targetCycle != null) {
+      sql += ' AND (t.cycle_id = ? OR t.cycle_id IS NULL)'
+      params.push(targetCycle)
+    }
 
     if (status) {
       sql += ` AND status = ?`
@@ -254,6 +308,10 @@ router.post('/', requireRole(['teacher']), async (req: AuthRequest, res) => {
       return error(res, '标题和研究方向为必填项')
     }
 
+    // 专业/研究方向必须属于目标周期（配置）内；cycleId 缺失回退当前进行中周期
+    const cfgMsg = await assertInCycleConfig(category, majorCode, cycleId)
+    if (cfgMsg) return error(res, cfgMsg, 400)
+
     const id = uuidv4()
     console.log('[POST /api/topics] 创建课题 ID:', id)
 
@@ -282,6 +340,18 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
     if (!topic) return error(res, '课题不存在')
     if (topic.teacher_id !== req.user!.id && req.user!.role !== 'admin') {
       return error(res, '无权操作此课题')
+    }
+
+    // 仅对“被修改”的专业/研究方向做周期配置强校验；未改动（含历史自由文本课题）直接放行
+    const majorChanged = majorCode !== undefined && majorCode !== topic.major_code
+    const categoryChanged = category !== undefined && category !== topic.category
+    if (majorChanged || categoryChanged) {
+      const cfgMsg = await assertInCycleConfig(
+        category !== undefined ? category : topic.category,
+        majorCode !== undefined ? majorCode : topic.major_code,
+        topic.cycle_id,
+      )
+      if (cfgMsg) return error(res, cfgMsg, 400)
     }
 
     // 使用现有值作为缺省回退，避免部分更新覆盖为 NULL
@@ -334,6 +404,17 @@ router.put('/:id/status', requireRole(['teacher', 'admin']), async (req: AuthReq
     if (!topic2) return error(res, '课题不存在')
     if (topic2.teacher_id !== req.user!.id && req.user!.role !== 'admin') {
       return error(res, '无权操作此课题')
+    }
+
+    // 教师只能把课题发布到“进行中周期”；管理员可跨周期管理
+    if (status === 'published' && req.user!.role === 'teacher' && topic2.cycle_id != null) {
+      const cycleRows = await query<any>(
+        'SELECT status FROM cycles WHERE id = ?',
+        [topic2.cycle_id]
+      )
+      if (cycleRows.length === 0 || !isInProgressCycle(cycleRows[0].status)) {
+        return error(res, '课题所属周期不在进行中，不能发布', 400)
+      }
     }
 
     await query('UPDATE topics SET status = ? WHERE id = ?', [status, id])

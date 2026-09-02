@@ -221,7 +221,7 @@ async function initDatabase() {
   await conn.query(`
     INSERT IGNORE INTO system_configs (\`key\`, value, description) VALUES
     ('site_name', '视觉传达设计学院 · 毕业设计管理系统', '系统名称'),
-    ('max_applications_per_student', '3', '每个学生最多申请课题数'),
+    ('max_applications_per_student', '6', '每名学生最多填报志愿数（至少 3、至多 6，不重复）'),
     ('allow_cross_major', 'true', '是否允许跨专业选课'),
     ('auto_close_full_topics', 'true', '满员后自动关闭课题')
   `)

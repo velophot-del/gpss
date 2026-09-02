@@ -295,7 +295,7 @@ async function importTopics(conn, cycleId) {
 
 async function importSystemConfigs(conn) {
   const configs = [
-    { key: 'max_applications_per_student', value: '3', description: '每位学生最多申请课题数量' },
+    { key: 'max_applications_per_student', value: '6', description: '每位学生最多填报志愿数量（至少 3、至多 6）' },
     { key: 'allow_student_register', value: 'false', description: '是否允许学生自主注册' },
     { key: 'system_name', value: '视觉传达设计学院 · 毕业设计管理系统', description: '系统名称' },
     { key: 'academic_year', value: '2024-2025', description: '当前学年' }
