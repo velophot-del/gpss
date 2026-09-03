@@ -18,10 +18,13 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="研究方向" prop="category">
-              <el-select v-model="form.category" placeholder="选择研究方向" style="width: 100%;">
-                <el-option-group v-for="m in majors" :key="m.code" :label="`${m.name} (${m.code})`">
-                  <el-option v-for="c in (researchCategories[m.code] || [])" :key="c" :label="c" :value="c" />
-                </el-option-group>
+              <el-select
+                v-model="form.category"
+                :disabled="!form.major"
+                :placeholder="!form.major ? '请先选择专业' : (selectedMajorCategories.length ? '选择该专业的研究方向' : '该专业暂无研究方向配置')"
+                style="width: 100%;"
+              >
+                <el-option v-for="c in selectedMajorCategories" :key="c" :label="c" :value="c" />
               </el-select>
             </el-form-item>
           </el-col>
@@ -187,7 +190,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, nextTick, onMounted } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import { useTopicStore } from '../../stores/topic'
@@ -244,6 +247,16 @@ const form = reactive({
     { phase: '论文撰写', dateRange: [] as string[], description: '' }
   ],
   tags: [] as string[]
+})
+
+// 当前所选专业的研究方向（随专业联动，确保“方向与专业对应”）
+const selectedMajorCategories = computed<string[]>(() => researchCategories.value[form.major] || [])
+// 编辑回填期间暂停“切专业清空方向”，避免把历史值冲掉
+const suppressCategoryReset = ref(false)
+watch(() => form.major, (val) => {
+  if (suppressCategoryReset.value) return
+  const list = researchCategories.value[val] || []
+  if (form.category && !list.includes(form.category)) form.category = ''
 })
 
 const rules: FormRules = {
@@ -404,6 +417,7 @@ onMounted(async () => {
       const res: any = await topicApi.getDetail(route.params.id as string)
       const t = res.data
       if (t) {
+        suppressCategoryReset.value = true
         Object.assign(form, {
           title: t.title || '',
           category: t.category || '',
@@ -414,7 +428,9 @@ onMounted(async () => {
           maxStudents: t.maxStudents || t.max_students || 2,
           tags: Array.isArray(t.tags) ? [...t.tags] : []
         })
-        
+        await nextTick()
+        suppressCategoryReset.value = false
+
         if (Array.isArray(t.schedules) && t.schedules.length > 0) {
           form.schedules = t.schedules.map((s: any) => ({
             phase: s.phase || '',
