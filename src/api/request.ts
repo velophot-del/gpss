@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
+import { touchActivity } from '../utils/idleTimeout'
 
 const request = axios.create({
   baseURL: import.meta.env.BASE_URL + 'api',
@@ -10,6 +11,8 @@ const request = axios.create({
 // 请求拦截器 - 自动附加 Token
 request.interceptors.request.use(
   (config) => {
+    // 发起请求也算“有操作”，刷新空闲计时
+    touchActivity()
     const token = localStorage.getItem('gpss_token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`
