@@ -21,6 +21,7 @@ function parseSchedule(value: unknown): Array<{ phase: string; month: number | '
 function present(row: any) {
   return {
     ...presentSubmissionBase(row),
+    teacherTitle: row.teacher_title || '',
     mainContent: row.main_content,
     specificRequirements: row.specific_requirements,
     schedule: parseSchedule(row.schedule),
@@ -130,6 +131,7 @@ router.get('/:id/export', async (req: AuthRequest, res) => {
   try {
     const [row] = await query<any>(`
       SELECT tb.*, t.title AS topic_title, t.teacher_id, t.schedules AS topic_schedules, u.real_name AS teacher_name,
+        u.title AS teacher_title,
         st.real_name AS student_name, st.student_id AS student_code, st.class_name, st.major,
         c.phases_config, c.start_date AS cycle_start_date, c.end_date AS cycle_end_date
       FROM task_books tb JOIN topics t ON tb.topic_id = t.id

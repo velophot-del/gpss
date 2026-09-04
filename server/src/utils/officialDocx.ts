@@ -78,8 +78,26 @@ function blackenFirstTextRun(xml: string) {
   })
 }
 
+// 若 run 属性里没有下划线，则补上（模板“空白填写线”常用 w:u 实现，填充时需保留）
+function addUnderlineToFirstTextRun(xml: string) {
+  let done = false
+  return xml.replace(/<w:r(?: [^>]*)?>[\s\S]*?<\/w:r>/g, run => {
+    if (done || !/<w:t(?: [^>]*)?>/.test(run)) return run
+    done = true
+    const rPr = run.match(/<w:rPr(?: [^>]*)?>[\s\S]*?<\/w:rPr>/)?.[0] || ''
+    if (/<w:u\b/.test(rPr)) return run
+    const newRPr = rPr
+      ? rPr.replace('</w:rPr>', '<w:u w:val="single"/></w:rPr>')
+      : '<w:rPr><w:u w:val="single"/></w:rPr>'
+    if (rPr) return run.replace(rPr, newRPr)
+    const open = run.match(/^<w:r(?: [^>]*)?>/)?.[0] || '<w:r>'
+    return run.replace(open, `${open}${newRPr}`)
+  })
+}
+
 function replaceTextRuns(paragraph: string, value: unknown) {
   const replacement = valueOf(value)
+  const hadUnderline = /<w:u\b/.test(paragraph)
   let replaced = false
   const output = paragraph.replace(/<w:t( [^>]*)?>([\s\S]*?)<\/w:t>/g, (run, attrs = '') => {
     if (replaced) return `<w:t${attrs}></w:t>`
@@ -87,9 +105,14 @@ function replaceTextRuns(paragraph: string, value: unknown) {
     const textAttrs = attrs.includes('xml:space=') ? attrs : `${attrs} xml:space="preserve"`
     return `<w:t${textAttrs}>${replacement}</w:t>`
   })
-  return replaced
-    ? blackenFirstTextRun(output)
-    : output.replace('</w:p>', `<w:r><w:rPr><w:color w:val="000000"/></w:rPr><w:t xml:space="preserve">${replacement}</w:t></w:r></w:p>`)
+  if (replaced) {
+    const withUnderline = hadUnderline ? addUnderlineToFirstTextRun(output) : output
+    return blackenFirstTextRun(withUnderline)
+  }
+  const rPr = hadUnderline
+    ? '<w:rPr><w:color w:val="000000"/><w:u w:val="single"/></w:rPr>'
+    : '<w:rPr><w:color w:val="000000"/></w:rPr>'
+  return output.replace('</w:p>', `<w:r>${rPr}<w:t xml:space="preserve">${replacement}</w:t></w:r></w:p>`)
 }
 
 function appendValueToCell(cell: string, value: unknown) {
@@ -103,16 +126,40 @@ function appendValueToCell(cell: string, value: unknown) {
   return cell.replace('</w:tc>', `<w:p><w:r><w:rPr><w:color w:val="000000"/></w:rPr><w:t xml:space="preserve">${replacement}</w:t></w:r></w:p></w:tc>`)
 }
 
-function replaceCellAfterLabel(xml: string, label: string, value: unknown) {
+// 段落是否为模板预留的空占位：无文字且无换行/图形/制表符/书签/嵌套表
+function isBlankFillerParagraph(paragraph: string): boolean {
+  if (/<w:br\b/.test(paragraph)) return false
+  if (/<w:drawing\b/.test(paragraph)) return false
+  if (/<w:tab\b/.test(paragraph)) return false
+  if (/<w:tbl\b/.test(paragraph)) return false
+  if (/<w:bookmarkStart\b/.test(paragraph)) return false
+  return textOf(paragraph).trim() === ''
+}
+
+// 删除单元格内残留的空占位段落，避免导出文档里多出不必要的空行（回车）
+function removeBlankFillerParagraphs(cellXml: string): string {
+  const paragraphs = [...cellXml.matchAll(/<w:p(?: [^>]*)?>[\s\S]*?<\/w:p>/g)]
+  let output = cellXml
+  for (let index = paragraphs.length - 1; index >= 0; index -= 1) {
+    const para = paragraphs[index]
+    if (isBlankFillerParagraph(para[0])) {
+      output = output.slice(0, para.index) + output.slice((para.index || 0) + para[0].length)
+    }
+  }
+  return output
+}
+
+function replaceCellAfterLabel(xml: string, label: string, value: unknown, forceUnderline = false) {
   const cells = [...xml.matchAll(/<w:tc(?: [^>]*)?>[\s\S]*?<\/w:tc>/g)]
   const normalizedLabel = label.replace(/\s/g, '')
   const index = cells.findIndex(cell => textOf(cell[0]).replace(/\s/g, '') === normalizedLabel)
   const target = cells[index + 1]
   if (index < 0 || !target || !valueOf(value)) return xml
   const cell = target[0]
-  const filled = /<w:t(?: [^>]*)?>/.test(cell)
+  const filledRaw = /<w:t(?: [^>]*)?>/.test(cell)
     ? replaceTextRuns(cell, value)
     : cell.replace('</w:tc>', `<w:p><w:r><w:t xml:space="preserve">${valueOf(value)}</w:t></w:r></w:p></w:tc>`)
+  const filled = forceUnderline ? addUnderlineToFirstTextRun(removeBlankFillerParagraphs(filledRaw)) : removeBlankFillerParagraphs(filledRaw)
   return `${xml.slice(0, target.index)}${filled}${xml.slice((target.index || 0) + cell.length)}`
 }
 
@@ -122,7 +169,7 @@ function appendToCell(xml: string, label: string, value: unknown) {
   const target = cells.find(cell => textOf(cell[0]).replace(/\s/g, '').includes(label.replace(/\s/g, '')))
   if (!target) return xml
   const filled = appendValueToCell(target[0], value)
-  return `${xml.slice(0, target.index)}${filled}${xml.slice((target.index || 0) + target[0].length)}`
+  return `${xml.slice(0, target.index)}${removeBlankFillerParagraphs(filled)}${xml.slice((target.index || 0) + target[0].length)}`
 }
 
 function appendToParagraph(xml: string, label: string, value: unknown) {
@@ -135,39 +182,71 @@ function appendToParagraph(xml: string, label: string, value: unknown) {
 }
 
 /**
- * 封面字段与正文表格不同：标签、下划线和填写区在同一段落中。
- * 不能把值追加到段末，否则会继承标签样式并破坏封面版式。
+ * 封面字段与正文表格不同：标签、填写线和填写区在同一段落中，且“线”常由嵌入的
+ * 直线图形（w:drawing）或 run 下划线构成。因此不能整段重构（会丢掉线），只能
+ * 保留段落内所有 run，仅替换“值文字”所在 run 的文本。
  */
-function replaceCoverField(xml: string, label: string, value: unknown) {
+function replaceCoverField(xml: string, label: string, value: unknown, forceUnderline = false, gapChars = 2) {
   const replacement = valueOf(value)
   if (!replacement) return xml
   const normalizedLabel = label.replace(/\s/g, '')
   const paragraphs = [...xml.matchAll(/<w:p(?: [^>]*)?>[\s\S]*?<\/w:p>/g)]
-  const target = paragraphs.find(paragraph => textOf(paragraph[0]).replace(/\s/g, '').startsWith(normalizedLabel))
+  const target = paragraphs.find(p => textOf(p[0]).replace(/\s/g, '').startsWith(normalizedLabel))
   if (!target) return xml
 
   const paragraph = target[0]
-  const pPr = paragraph.match(/<w:pPr(?: [^>]*)?>[\s\S]*?<\/w:pPr>/)?.[0] || ''
-  const runs = [...paragraph.matchAll(/<w:r(?: [^>]*)?>[\s\S]*?<\/w:r>/g)].map(run => run[0])
-  const labelRun = runs[0] || '<w:r><w:rPr><w:sz w:val="30"/></w:rPr><w:t/></w:r>'
-  const valueRun = [...runs].reverse().find(run => /<w:u\b/.test(run)) || runs.at(-1) || labelRun
-  const rawText = textOf(paragraph)
+  const runs = [...paragraph.matchAll(/<w:r(?: [^>]*)?>[\s\S]*?<\/w:r>/g)].map(r => ({ index: r.index || 0, xml: r[0] }))
+  const runTextOf = (r: string) => [...r.matchAll(/<w:t(?: [^>]*)?>([\s\S]*?)<\/w:t>/g)].map(m => m[1]).join('')
+  const fullText = runs.map(r => runTextOf(r.xml)).join('')
+  const hasTextRun = (r: string) => /<w:t(?: [^>]*)?>[\s\S]*?<\/w:t>/.test(r)
+
+  // 标签结束位置：统计非空格字符数，到达标签字数即视为标签结束
   let significant = 0
-  let labelEnd = rawText.length
-  for (let index = 0; index < rawText.length; index += 1) {
-    if (!/\s/.test(rawText[index])) significant += 1
-    if (significant === normalizedLabel.length) { labelEnd = index + 1; break }
+  let labelEnd = fullText.length
+  for (let i = 0; i < fullText.length; i += 1) {
+    if (!/\s/.test(fullText[i])) significant += 1
+    if (significant === normalizedLabel.length) { labelEnd = i + 1; break }
   }
-  const labelText = rawText.slice(0, labelEnd).replace(/\s+$/, '')
-  const rewriteRun = (run: string, text: string) => {
-    const rPr = run.match(/<w:rPr(?: [^>]*)?>[\s\S]*?<\/w:rPr>/)?.[0] || ''
-    return `<w:r>${rPr}<w:t xml:space="preserve">${escapeXml(text)}</w:t></w:r>`
+  // 值部分起始 run：文本累计偏移越过标签结尾后的第一个 run
+  let valueStart = runs.length
+  let acc = 0
+  for (let i = 0; i < runs.length; i += 1) {
+    if (acc >= labelEnd) { valueStart = i; break }
+    acc += runTextOf(runs[i].xml).length
   }
-  const filled = paragraph.replace(/<w:p(?: [^>]*)?>[\s\S]*?<\/w:p>/, match => {
-    const open = match.match(/^<w:p(?: [^>]*)?>/)?.[0] || '<w:p>'
-    return `${open}${pPr}${rewriteRun(labelRun, `${labelText}  `)}${rewriteRun(valueRun, replacement)}</w:p>`
-  })
-  return `${xml.slice(0, target.index)}${filled}${xml.slice((target.index || 0) + paragraph.length)}`
+
+  let out = ''
+  let cursor = 0
+  let placed = false
+  // 模板若是用“直线图形(w:drawing)”画封面填写线（整份文档统一方式），值就不加 run 下划线，
+  // 并清掉值 run 残留的 w:u，避免与直线重复；无图形的模板才用 run 下划线兜底
+  const docUsesLineShapes = /<w:drawing\b/.test(xml)
+  const gap = '　'.repeat(Math.max(1, gapChars)) // 标签与值之间的汉字空格数（默认 2，可单行指定）
+  for (let i = 0; i < runs.length; i += 1) {
+    out += paragraph.slice(cursor, runs[i].index)
+    const piece = runs[i].xml
+    if (i >= valueStart && hasTextRun(piece)) {
+      if (!placed) {
+        const valueWithGap = `${gap}${replacement}`
+        let next = piece.replace(/(<w:t(?: [^>]*)?>)[\s\S]*?(<\/w:t>)/, (_m, open, close) => `${open}${valueWithGap}${close}`)
+        if (docUsesLineShapes) {
+          next = next.replace(/<w:u(?: [^>]*)?\/>/g, '')
+        } else {
+          const wantUnderline = forceUnderline || /<w:u\b/.test(paragraph)
+          if (wantUnderline && !/<w:u\b/.test(next)) next = addUnderlineToFirstTextRun(next)
+        }
+        out += next
+        placed = true
+      } else {
+        out += piece.replace(/<w:t(?: [^>]*)?>[\s\S]*?<\/w:t>/g, () => '<w:t xml:space="preserve"></w:t>')
+      }
+    } else {
+      out += piece
+    }
+    cursor = runs[i].index + piece.length
+  }
+  out += paragraph.slice(cursor)
+  return `${xml.slice(0, target.index)}${out}${xml.slice((target.index || 0) + paragraph.length)}`
 }
 
 function parseSchedules(value: unknown): Array<{ startDate?: string, endDate?: string, start?: string, end?: string, phase?: string, month?: number | string }> {
@@ -207,21 +286,29 @@ function fillTaskBookSchedule(xml: string, record: Record<string, any>) {
   return values.reduce((result, [label, value]) => value ? replaceCellAfterLabel(result, label, value) : result, xml)
 }
 
-function fillMetadata(xml: string, record: Record<string, any>) {
+function fillMetadata(xml: string, record: Record<string, any>, forceUnderline = false) {
   const cellFields = [
     ['学院名称', record.collegeName || '视觉传达设计学院'], ['学       院', record.collegeName || '视觉传达设计学院'], ['专业（方向）', record.major], ['班       级', record.className],
     ['年级专业班级', record.className], ['学生姓名', record.studentName], ['姓       名', record.studentName],
     ['学号', record.studentCode], ['指导教师', record.teacherName], ['指 导 教 师', record.teacherName]
   ]
-  return cellFields.reduce((result, [label, value]) => replaceCellAfterLabel(result, label, value), xml)
+  return cellFields.reduce((result, [label, value]) => replaceCellAfterLabel(result, label, value, forceUnderline), xml)
 }
 
 function taskBook(xml: string, record: Record<string, any>) {
-  let output = fillMetadata(xml, record)
+  // 指导教师展示为“姓名（职称）”，如：陈教授（教授）；无职称时仅姓名
+  const teacherBase = record.teacherName || ''
+  const teacherDisplay = record.teacherTitle ? `${teacherBase}（${record.teacherTitle}）` : teacherBase
+  const meta = teacherDisplay !== record.teacherName ? { ...record, teacherName: teacherDisplay } : record
+  let output = fillMetadata(xml, meta)
   output = [
-    ['学       院', record.collegeName || '视觉传达设计学院'], ['专 业（方向）', record.major], ['班       级', record.className], ['姓       名', record.studentName],
-    ['学       号', record.studentCode], ['指 导 教 师', record.teacherName]
-  ].reduce((result, [label, value]) => replaceCoverField(result, label, value), output)
+    ['学       院', record.collegeName || '视觉传达设计学院'],
+    ['专 业（方向）', record.major, 1],
+    ['班       级', record.className],
+    ['姓       名', record.studentName],
+    ['学       号', record.studentCode],
+    ['指 导 教 师', teacherDisplay]
+  ].reduce((result, [label, value, gapChars]) => replaceCoverField(result, label, value, true, gapChars ?? 2), output)
   output = replaceCellAfterLabel(output, '题目', record.title || record.topicTitle)
   output = replaceCoverField(output, '毕业设计题目', record.title || record.topicTitle)
   output = replaceCellAfterLabel(output, '设计目的和意义', record.content)
