@@ -147,6 +147,8 @@ import { useTopicStore } from '../../stores/topic'
 import { useApplicationStore } from '../../stores/application'
 import { useStudentStore } from '../../stores/student'
 import dayjs from 'dayjs'
+import * as XLSX from 'xlsx'
+import { saveAs } from 'file-saver'
 import { ElMessage } from 'element-plus'
 
 const userStore = useUserStore()
@@ -192,8 +194,43 @@ const totalApps = computed(() => {
   return myTopics.value.reduce((sum, t) => sum + t.applyCount, 0)
 })
 
+function fmtDateTime(d: any): string {
+  if (!d) return '-'
+  const day = dayjs(d)
+  return day.isValid() ? day.format('YYYY-MM-DD HH:mm') : String(d)
+}
+
 function handleExport() {
-  ElMessage.success('Excel导出功能演示 - 实际项目中会生成文件下载')
+  const rows: Record<string, any>[] = (allResults.value as any[]).map((r: any) => {
+    const profile: any = getStudentProfile(r.studentId)
+    return {
+      '学生姓名': r.studentName || r.student_name || '-',
+      '学号': profile?.studentId || r.student_no || '-',
+      '班级': profile?.className || profile?.class_name || '-',
+      '专业': profile?.major || r.major || '-',
+      '录取课题': r.topicTitle || r.topic_title || '-',
+      '指导教师': r.teacherName || r.teacher_name || '-',
+      '志愿': `第${r.priority || 1}志愿`,
+      '录取时间': fmtDateTime(r.confirmedAt || r.reviewedAt || r.confirmed_at || r.reviewed_at)
+    }
+  })
+  if (!rows.length) {
+    ElMessage.warning('暂无已录取学生，无法导出')
+    return
+  }
+  const ws = XLSX.utils.json_to_sheet(rows)
+  ws['!cols'] = [
+    { wch: 10 }, { wch: 14 }, { wch: 16 }, { wch: 22 },
+    { wch: 30 }, { wch: 12 }, { wch: 8 }, { wch: 18 }
+  ]
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, '选课结果')
+  const teacherName = userStore.currentUser?.realName || '教师'
+  const fileName = `${teacherName}_选课结果_${dayjs().format('YYYYMMDD_HHmm')}.xlsx`
+  const excelBuffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+  const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  saveAs(blob, fileName)
+  ElMessage.success(`已导出 ${rows.length} 条选课结果`)
 }
 
 function formatDateTime(dateStr: string): string {

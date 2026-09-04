@@ -83,7 +83,9 @@
       "Bash(bash scripts/export-upgrade-package.sh)",
       "Bash(bash \"/Users/tangwang/Desktop/27毕业设计课题系统/20260823_学生教师体验改版/scripts/export-upgrade-package.sh\")",
       "Bash(grep -iE '[g]it\\( |$\\)|git')",
-      "Bash(rm -f .git/index.lock)"
+      "Bash(rm -f .git/index.lock)",
+      "Bash(mv gpss-upgrade-20260903.tar.gz gpss-upgrade-20260903.tar.gz.bak-pre-cyclecfg)",
+      "Bash(mv gpss-upgrade-20260903.tar.gz.sha256 gpss-upgrade-20260903.tar.gz.sha256.bak-pre-cyclecfg)"
     ],
     "additionalDirectories": [
       "/tmp",
