@@ -3,6 +3,10 @@
     <div class="card-container">
       <h2 class="section-title">{{ isEdit ? '编辑课题' : '发布新课题' }}</h2>
 
+      <el-alert v-if="locked" type="warning" :closable="false" show-icon style="margin-bottom: 14px;">
+        该选题已正式发布并被锁定，不能编辑/提交；如需修改请先由管理员在“选题库管理”中撤回发布。
+      </el-alert>
+
       <el-form
         ref="formRef"
         :model="form"
@@ -173,10 +177,10 @@
 
         <!-- 操作按钮 -->
         <el-form-item style="margin-top: 32px;">
-          <el-button type="primary" icon="Upload" @click="handleSubmit('submit')" :loading="submitting">
+          <el-button type="primary" icon="Upload" @click="handleSubmit('submit')" :loading="submitting" :disabled="locked">
             提交至学院审核
           </el-button>
-          <el-button icon="Document" @click="handleSubmit('draft')" :loading="submitting">
+          <el-button icon="Document" @click="handleSubmit('draft')" :loading="submitting" :disabled="locked">
             存为草稿
           </el-button>
           <el-button @click="$router.back()">取消</el-button>
@@ -220,6 +224,8 @@ const formRef = ref<FormInstance>()
 const submitting = ref(false)
 const isEdit = !!route.params.id
 const loading = ref(false)
+// 已正式发布的选题锁定：只能查看，不能编辑/提交
+const locked = ref(false)
 
 // 当期“毕业专业 + 研究方向”选项（来自周期配置；缺失回退默认）
 const cycleCfg = ref<{ majors: MajorConfig[]; researchCategories: Record<string, string[]> } | null>(null)
@@ -343,6 +349,9 @@ function removeAttachment(index: number) {
 
 // 提交到后端
 async function handleSubmit(action: 'submit' | 'draft') {
+  if (locked.value) {
+    return ElMessage.warning('已正式发布的选题已锁定，不能编辑或提交；如需修改请管理员先撤回')
+  }
   if (action === 'submit') {
     const valid = await formRef.value?.validate().catch(() => false)
     if (!valid) return
@@ -430,6 +439,7 @@ onMounted(async () => {
         })
         await nextTick()
         suppressCategoryReset.value = false
+        locked.value = t.status === 'published'
 
         if (Array.isArray(t.schedules) && t.schedules.length > 0) {
           form.schedules = t.schedules.map((s: any) => ({

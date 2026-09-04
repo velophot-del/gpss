@@ -68,10 +68,22 @@
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" icon="View" @click="viewDetail(row)">查看</el-button>
-            <el-button link type="primary" icon="Edit" @click="editTopic(row)">编辑</el-button>
-            <el-popconfirm title="确定删除此课题？" @confirm="handleDelete(row.id)">
+            <el-tooltip :disabled="row.status !== 'published'" content="已发布选题已锁定，不能编辑；如需修改请管理员先撤回">
+              <span>
+                <el-button link type="primary" icon="Edit" :disabled="row.status === 'published'" @click="editTopic(row)">编辑</el-button>
+              </span>
+            </el-tooltip>
+            <el-popconfirm
+              title="确定删除此课题？"
+              @confirm="handleDelete(row.id)"
+            >
               <template #reference>
-                <el-button link type="danger" icon="Delete">删除</el-button>
+                <el-button
+                  link
+                  type="danger"
+                  icon="Delete"
+                  :disabled="row.status === 'published'"
+                >删除</el-button>
               </template>
             </el-popconfirm>
           </template>

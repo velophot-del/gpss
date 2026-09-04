@@ -97,11 +97,14 @@
         <el-table-column label="提交时间" width="110">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="160" fixed="right" align="center">
+        <el-table-column label="操作" width="220" fixed="right" align="center">
           <template #default="{ row }">
             <template v-if="row.status === 'pending'">
               <el-button link type="success" size="small" icon="Select" @click="approveOne(row)">发布</el-button>
               <el-button link type="danger" size="small" icon="Close" @click="rejectOne(row)">退回</el-button>
+            </template>
+            <template v-else-if="row.status === 'published' || row.status === 'full'">
+              <el-button link type="warning" size="small" icon="RefreshLeft" @click="withdrawOne(row)">撤回发布</el-button>
             </template>
           </template>
         </el-table-column>
@@ -196,6 +199,24 @@ async function rejectOne(topic: any) {
     await loadTopics()
   } catch {
     // 取消
+  }
+}
+
+// 撤回已发布选题（回到草稿，教师可编辑后重新提交；学生已选数据保留不删除）
+async function withdrawOne(topic: any) {
+  try {
+    await ElMessageBox.confirm(
+      `确定撤回「${topic.title}」的发布？撤回后回到草稿状态，学生将不可再浏览；若有学生已填报/录取该选题，数据会保留，不会删除。`,
+      '撤回发布',
+      { confirmButtonText: '确认撤回', cancelButtonText: '取消', type: 'warning' }
+    )
+  } catch { return }
+  try {
+    await topicApi.updateStatus(topic.id, 'draft')
+    ElMessage.success(`「${topic.title}」已撤回发布`)
+    await loadTopics()
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.message || '操作失败')
   }
 }
 

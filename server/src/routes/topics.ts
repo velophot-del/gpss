@@ -342,6 +342,11 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
       return error(res, '无权操作此课题')
     }
 
+    // 已正式发布的选题锁定：教师不可再编辑（如需修改由管理员“撤回发布”后编辑）
+    if (req.user!.role === 'teacher' && topic.status === 'published') {
+      return error(res, '已正式发布的选题已锁定，不能编辑；如需修改请先由管理员撤回', 400)
+    }
+
     // 仅对“被修改”的专业/研究方向做周期配置强校验；未改动（含历史自由文本课题）直接放行
     const majorChanged = majorCode !== undefined && majorCode !== topic.major_code
     const categoryChanged = category !== undefined && category !== topic.category
@@ -406,6 +411,11 @@ router.put('/:id/status', requireRole(['teacher', 'admin']), async (req: AuthReq
       return error(res, '无权操作此课题')
     }
 
+    // 已发布的选题锁定：教师不能改状态（发布/撤回均由管理员执行）
+    if (req.user!.role === 'teacher' && topic2.status === 'published' && status !== 'published') {
+      return error(res, '已正式发布的选题已锁定，不能修改状态；如需撤回请联系管理员', 400)
+    }
+
     // 教师只能把课题发布到“进行中周期”；管理员可跨周期管理
     if (status === 'published' && req.user!.role === 'teacher' && topic2.cycle_id != null) {
       const cycleRows = await query<any>(
@@ -433,6 +443,7 @@ router.delete('/:id', requireRole(['teacher']), async (req: AuthRequest, res) =>
     const topic3 = topicRows3[0]
     if (!topic3) return error(res, '课题不存在')
     if (topic3.teacher_id !== req.user!.id && req.user!.role !== 'admin') return error(res, '无权删除此课题')
+    if (topic3.status === 'published') return error(res, '已正式发布的选题已锁定，不能删除；如需处理请联系管理员', 400)
 
     await query('DELETE FROM topics WHERE id = ?', [id])
     success(res, null, '课题已删除')
