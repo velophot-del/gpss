@@ -204,7 +204,8 @@
         <el-table :data="hotTopics" stripe size="small">
           <el-table-column prop="title" label="课题名称" min-width="200">
             <template #default="{ row }">
-              <router-link :to="`/student/topic/${row.id}`" class="topic-link">{{ row.title }}</router-link>
+              <router-link v-if="userStore.userRole === 'student'" :to="`/student/browse?open=${row.id}`" class="topic-link">{{ row.title }}</router-link>
+              <router-link v-else :to="`/student/topic/${row.id}`" class="topic-link">{{ row.title }}</router-link>
             </template>
           </el-table-column>
           <el-table-column prop="teacherName" label="指导教师" width="100" />

@@ -274,6 +274,9 @@ router.beforeEach((to, _from, next) => {
     next('/login')
   } else if (to.path === '/login' && userStore.isLoggedIn) {
     next('/')
+  } else if (to.name === 'TopicDetail' && userStore.userRole === 'student') {
+    // 学生统一走“选题工作台”，旧 TopicDetail 只保留给管理员/教师只读预览
+    next({ path: `/student/browse?open=${to.params.id}` })
   } else if (to.meta.roles && userStore.userRole) {
     // admin 继承 teacher 的所有路由权限
     const effectiveRoles = [userStore.userRole]

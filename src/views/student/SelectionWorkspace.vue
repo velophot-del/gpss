@@ -377,9 +377,15 @@ async function confirmSubmit() {
   }
   finally { submitting.value = false }
 }
-onMounted(() => {
+onMounted(async () => {
   loadCycleConfig()
-  loadData()
+  await loadData()
+  // 支持从“热门课题”等入口 ?open=课题id 直达详情抽屉（统一到新工作台）
+  const openId = route.query.open
+  if (openId) {
+    const ok = await topicStore.fetchTopicDetail(String(openId))
+    if (ok) detailVisible.value = true
+  }
 })
 // 支持 ?panel=submitted 直达「已提交志愿」面板（合并入口后，原“我的志愿”跳转落点）
 watch(() => route.query.panel, (panel) => {
