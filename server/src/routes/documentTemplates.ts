@@ -16,6 +16,14 @@ router.use(authMiddleware)
 const templateRoot = privateTemplateRoot()
 const documentTypes = ['task_book', 'proposal', 'midterm', 'thesis', 'other']
 
+// multer/busboy 对不含 RFC5987 filename* 的 multipart 中文文件名常按 latin1 解码成乱码，
+// 需回转回 UTF-8；若名字已含真正的多字节字符(>0xFF)则说明已正确解码，保持原样。
+function decodeUploadFilename(name: string): string {
+  if (!name || /^[\x00-\x7F]*$/.test(name)) return name
+  if ([...name].some(ch => (ch.codePointAt(0) || 0) > 0xff)) return name
+  return Buffer.from(name, 'latin1').toString('utf8')
+}
+
 function ensureTemplateRoot() {
   if (!fs.existsSync(templateRoot)) fs.mkdirSync(templateRoot, { recursive: true })
 }
@@ -94,11 +102,12 @@ router.post('/', requireRole(['admin']), upload.single('file'), async (req: Auth
     const title = String(req.body.title || '').trim()
     const version = String(req.body.version || '').trim()
     const status = req.body.status === 'published' ? 'published' : 'draft'
+    const originalName = decodeUploadFilename(file?.originalname || '')
     if (!file || !Number.isInteger(cycleId) || cycleId < 1 || !documentTypes.includes(documentType) || !title || !version) {
       removeFile(file)
       return error(res, '请完整填写周期、资料类型、名称、版本并选择文件')
     }
-    const validation = validateUploadFile('document_template', file.originalname, file.size)
+    const validation = validateUploadFile('document_template', originalName, file.size)
     if (!validation.ok) {
       removeFile(file)
       return error(res, validation.message)
@@ -114,7 +123,7 @@ router.post('/', requireRole(['admin']), upload.single('file'), async (req: Auth
       (id, cycle_id, document_type, title, version, description, original_name, storage_key, mime_type, size, status, published_at, created_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${status === 'published' ? 'NOW()' : 'NULL'}, ?)
     `, [id, cycleId, documentType, title, version, req.body.description?.trim() || null,
-      file.originalname, file.filename, file.mimetype, file.size, status, req.user!.id])
+      originalName, file.filename, file.mimetype, file.size, status, req.user!.id])
     success(res, { id }, status === 'published' ? '模板已发布' : '模板草稿已保存')
   } catch (err: any) {
     removeFile(file)
@@ -152,6 +161,22 @@ router.get('/:id/download', async (req: AuthRequest, res) => {
     res.download(filePath, template.original_name)
   } catch (err) {
     console.error('下载毕业资料模板失败:', err)
+    error(res, '服务器内部错误', 500)
+  }
+})
+
+// DELETE /api/document-templates/:id - 删除资料模板（管理员；同时删除磁盘文件）
+router.delete('/:id', requireRole(['admin']), async (req: AuthRequest, res) => {
+  try {
+    const [template] = await query<any>('SELECT * FROM document_templates WHERE id = ?', [req.params.id])
+    if (!template) return error(res, '模板不存在', 404)
+    await query('DELETE FROM document_templates WHERE id = ?', [req.params.id])
+    // 磁盘文件尽力删除，缺失不影响结果
+    const filePath = path.join(templateRoot, path.basename(template.storage_key))
+    try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath) } catch { /* ignore */ }
+    success(res, null, '模板已删除')
+  } catch (err) {
+    console.error('删除毕业资料模板失败:', err)
     error(res, '服务器内部错误', 500)
   }
 })

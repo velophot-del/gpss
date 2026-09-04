@@ -159,7 +159,8 @@ export const documentTemplateApi = {
   }),
   updateStatus: (id: string, status: 'draft' | 'published' | 'archived') =>
     request.put(`/document-templates/${id}`, { status }),
-  download: (id: string) => request.get(`/document-templates/${id}/download`, { responseType: 'blob' })
+  download: (id: string) => request.get(`/document-templates/${id}/download`, { responseType: 'blob' }),
+  remove: (id: string) => request.delete(`/document-templates/${id}`)
 }
 
 // ===== 管理员数据管理 =====

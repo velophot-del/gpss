@@ -22,12 +22,22 @@
         <el-table-column prop="version" label="版本" width="110" />
         <el-table-column prop="originalName" label="文件" min-width="160" show-overflow-tooltip />
         <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType[row.status]">{{ statusLabel[row.status] }}</el-tag></template></el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="320" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="download(row)">下载</el-button>
             <el-button v-if="row.status !== 'published'" link type="success" @click="changeStatus(row, 'published')">发布</el-button>
             <el-button v-if="row.status === 'published'" link type="warning" @click="changeStatus(row, 'archived')">归档</el-button>
             <el-button v-if="row.status === 'archived'" link @click="changeStatus(row, 'draft')">恢复草稿</el-button>
+            <el-popconfirm
+              title="删除后不可恢复（含已上传文件），确认删除？"
+              confirm-button-text="删除"
+              cancel-button-text="取消"
+              @confirm="handleDelete(row)"
+            >
+              <template #reference>
+                <el-button link type="danger">删除</el-button>
+              </template>
+            </el-popconfirm>
           </template>
         </el-table-column>
       </el-table>
@@ -149,6 +159,16 @@ async function changeStatus(item: DocumentTemplate, status: DocumentTemplate['st
   await documentTemplateApi.updateStatus(item.id, status)
   ElMessage.success(status === 'published' ? '模板已发布' : status === 'archived' ? '模板已归档' : '模板已恢复为草稿')
   await loadAdminTemplates()
+}
+
+async function handleDelete(item: DocumentTemplate) {
+  try {
+    await documentTemplateApi.remove(item.id)
+    ElMessage.success(`「${item.title}」已删除`)
+    await loadAdminTemplates()
+  } catch (e: any) {
+    ElMessage.error(e.response?.data?.message || '删除失败')
+  }
 }
 
 async function download(item: DocumentTemplate) {
