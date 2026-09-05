@@ -28,6 +28,7 @@ EXCLUDES=(
   'uploads' 'uploads-private' 'seed-data'
   '*.log'
   '系统使用说明.pdf' '系统使用说明.html'
+  'docs/manuals'
 )
 
 EXCLUDE_ARGS=()
