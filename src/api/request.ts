@@ -37,6 +37,7 @@ request.interceptors.response.use(
     if (error.response?.status === 401) {
       localStorage.removeItem('gpss_token')
       localStorage.removeItem('gpss_user')
+      localStorage.removeItem('gpss_last_activity')
       ElMessage.error('登录已过期，请重新登录')
       window.location.href = import.meta.env.BASE_URL + 'login'
     } else if (error.response?.status === 403) {

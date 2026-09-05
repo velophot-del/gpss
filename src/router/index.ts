@@ -1,6 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import type { RouteRecordRaw } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import { useUserStore } from '../stores/user'
+import { hasExpiredSinceLastActivity } from '../utils/idleTimeout'
 import type { UserRole } from '../types/index'
 
 const isDev = import.meta.env.DEV || import.meta.env.VITE_ENABLE_DEMO === 'true'
@@ -268,6 +270,15 @@ router.beforeEach((to, _from, next) => {
   // 初始化：从 localStorage 恢复状态
   if (!userStore.isLoggedIn) {
     userStore.initFromStorage()
+  }
+
+  // 关闭浏览器/刷新期间已超过空闲阈值：登出并回登录页。
+  // 必须在组件挂载前判断（守卫早于请求拦截器），否则页面首屏请求会刷新活动时间、掩盖“已超时”。
+  if (userStore.isLoggedIn && hasExpiredSinceLastActivity()) {
+    userStore.logout()
+    ElMessage.warning('登录已超时，请重新登录')
+    next('/login')
+    return
   }
 
   if (to.meta.requiresAuth !== false && !userStore.isLoggedIn) {

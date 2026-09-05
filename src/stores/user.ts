@@ -24,6 +24,7 @@ export const useUserStore = defineStore('user', () => {
       localStorage.removeItem('gpss_token')
       localStorage.removeItem('gpss_user')
       localStorage.removeItem('gpss_demo_mode')
+      localStorage.removeItem('gpss_last_activity')
       token.value = ''
       currentUser.value = null
       isDemoMode.value = false
@@ -103,6 +104,7 @@ export const useUserStore = defineStore('user', () => {
     localStorage.removeItem('gpss_token')
     localStorage.removeItem('gpss_user')
     localStorage.removeItem('gpss_demo_mode')
+    localStorage.removeItem('gpss_last_activity')
   }
 
   // 退出演示模式（回到登录页）
