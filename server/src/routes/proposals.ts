@@ -14,5 +14,6 @@ export default createSubmissionRouter({
   ],
   initialStatus: 'not_started',
   submitStatus: 'submitted',
-  reviewStates: { pass: 'approved', reject: 'rejected', revision: 'need_revision' }
+  reviewStates: { pass: 'approved', reject: 'rejected', revision: 'need_revision' },
+  requiresPrevious: { table: 'task_books', statuses: ['confirmed', 'issued'], label: '任务书确认' }
 })

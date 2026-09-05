@@ -24,6 +24,12 @@ export interface SubmissionConfig {
   initialStatus: 'not_started' | 'draft'
   submitStatus: string        // 'submitted'
   reviewStates: ReviewStates
+  /** 提交本环节前需已完成的前置环节（如开题需任务书确认、中期需开题通过） */
+  requiresPrevious?: {
+    table: string             // 前置记录表名
+    statuses: string[]        // 视为“已完成”的状态
+    label: string             // 展示文案，如 '任务书确认'
+  }
 }
 
 // 学生提交记录的公共展示字段（各环节在此基础上补充各自字段）
@@ -52,6 +58,14 @@ function present(row: any) {
   }
 }
 
+// 审核状态 → 中文（站内通知用）
+function reviewResultLabel(cfg: SubmissionConfig, status: string): string {
+  if (status === cfg.reviewStates.pass) return '通过'
+  if (status === cfg.reviewStates.revision) return '退回修改'
+  if (status === cfg.reviewStates.reject) return cfg.stagePhase === 'midterm' ? '不通过' : '拒绝'
+  return status
+}
+
 export function createSubmissionRouter(cfg: SubmissionConfig): Router {
   const router = Router()
   router.use(authMiddleware)
@@ -71,6 +85,19 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
         if (cfg.titleField && !req.body.title) return error(res, '请填写标题')
         for (const f of cfg.textFields) {
           if (f.required && !req.body[f.key]) return error(res, `请填写${f.label || f.key}`)
+        }
+      }
+
+      // 前置依赖：同学生同课题须已完成前一环节（如任务书确认、开题通过）才可提交
+      if (submit && cfg.requiresPrevious) {
+        const dep = cfg.requiresPrevious
+        const placeholders = dep.statuses.map(() => '?').join(', ')
+        const depRows = await query<any>(
+          `SELECT id FROM ${dep.table} WHERE student_id = ? AND topic_id = ? AND status IN (${placeholders}) LIMIT 1`,
+          [req.user!.id, sel.topic_id, ...dep.statuses]
+        )
+        if (!depRows.length) {
+          return error(res, `请先完成「${dep.label}」，再提交${cfg.label}`)
         }
       }
 
@@ -138,6 +165,11 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
       if (!row) return error(res, '记录不存在')
       if (row.teacher_id !== req.user!.id && req.user!.role !== 'admin') return error(res, '无权审核此记录')
 
+      // 通过不可逆：已通过的环节不能再退回/拒绝
+      if (row.status === cfg.reviewStates.pass && status !== cfg.reviewStates.pass) {
+        return error(res, `${cfg.label}已通过，过程不可逆，不能再退回或拒绝`)
+      }
+
       if (cfg.hasScore && score !== undefined) {
         await query(
           `UPDATE ${table} SET status = ?, teacher_comment = ?, score = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?`,
@@ -152,7 +184,7 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
 
       await notify(
         [row.student_id], `${table}_reviewed`, `${cfg.label}审核结果`,
-        `您的${cfg.label}审核结果为「${status}」${comment ? '：' + comment : ''}`, table, id
+        `您的${cfg.label}审核结果为「${reviewResultLabel(cfg, status)}」${comment ? '：' + comment : ''}`, table, id
       )
 
       success(res, null, '审核完成')

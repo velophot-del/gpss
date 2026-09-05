@@ -13,5 +13,6 @@ export default createSubmissionRouter({
   hasScore: true,
   initialStatus: 'not_started',
   submitStatus: 'submitted',
-  reviewStates: { pass: 'passed', reject: 'failed', revision: 'need_revision' }
+  reviewStates: { pass: 'passed', reject: 'failed', revision: 'need_revision' },
+  requiresPrevious: { table: 'proposals', statuses: ['approved'], label: '开题审核' }
 })
