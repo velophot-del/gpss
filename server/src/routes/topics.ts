@@ -157,10 +157,12 @@ router.get('/teacher/mine', requireRole(['teacher']), async (req: AuthRequest, r
              u.email AS teacher_email,
              u.phone AS teacher_phone,
              u.avatar AS teacher_avatar,
+             c.name AS cycle_name,
              COALESCE(ac.apply_count, 0) AS apply_count,
              COALESCE(ac.accepted_count, 0) AS accepted_count
       FROM topics t
       LEFT JOIN users u ON t.teacher_id = u.id
+      LEFT JOIN cycles c ON t.cycle_id = c.id
       LEFT JOIN (
         SELECT topic_id,
                COUNT(*) AS apply_count,
@@ -172,17 +174,20 @@ router.get('/teacher/mine', requireRole(['teacher']), async (req: AuthRequest, r
       WHERE t.teacher_id = ?`
     const params: any[] = [req.user!.id]
 
-    // 教师课题按周期查看：默认只列出当前进行中周期（兼容无周期的历史课题）；?cycleId= 可切换其它周期
+    // 教师课题按周期查看：默认只列出当前进行中周期（兼容无周期的历史课题）；
+    // ?cycleId=<数字> 切换其它周期；?cycleId=all 返回全部（含往期），供前端分组。
     let targetCycle: number | null = null
-    if (cycleId !== undefined && Number.isFinite(Number(cycleId))) {
-      targetCycle = Number(cycleId)
-    } else {
-      const active = await getActiveCycle()
-      targetCycle = active ? Number(active.id) : null
-    }
-    if (targetCycle != null) {
-      sql += ' AND (t.cycle_id = ? OR t.cycle_id IS NULL)'
-      params.push(targetCycle)
+    if (cycleId !== 'all') {
+      if (cycleId !== undefined && Number.isFinite(Number(cycleId))) {
+        targetCycle = Number(cycleId)
+      } else {
+        const active = await getActiveCycle()
+        targetCycle = active ? Number(active.id) : null
+      }
+      if (targetCycle != null) {
+        sql += ' AND (t.cycle_id = ? OR t.cycle_id IS NULL)'
+        params.push(targetCycle)
+      }
     }
 
     if (status) {
@@ -215,6 +220,7 @@ router.get('/teacher/mine', requireRole(['teacher']), async (req: AuthRequest, r
       createdAt: item.created_at,
       updatedAt: item.updated_at,
       cycleId: item.cycle_id,
+      cycleName: item.cycle_name,
       major: item.major,
       majorCode: item.major_code
     }))
@@ -315,15 +321,45 @@ router.post('/', requireRole(['teacher']), async (req: AuthRequest, res) => {
     const id = uuidv4()
     console.log('[POST /api/topics] 创建课题 ID:', id)
 
+    // 草稿也归属当前周期：cycleId 缺省时回退当前进行中周期，避免产生无归属的草稿
+    const finalCycleId = cycleId ?? (await getActiveCycle())?.id ?? null
+
     await query(`
       INSERT INTO topics (id, title, description, category, difficulty, max_students, status, teacher_id, tags, requirements, schedules, attachments, cycle_id, major, major_code)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, title, description, category, difficulty || 'medium', maxStudents || 1, status || 'draft', req.user!.id, JSON.stringify(tags || []), requirements, JSON.stringify(schedules || []), JSON.stringify(attachments || []), cycleId || null, major || null, majorCode || null])
+    `, [id, title, description, category, difficulty || 'medium', maxStudents || 1, status || 'draft', req.user!.id, JSON.stringify(tags || []), requirements, JSON.stringify(schedules || []), JSON.stringify(attachments || []), finalCycleId, major || null, majorCode || null])
 
     console.log('[POST /api/topics] 课题创建成功')
     success(res, { id }, '课题创建成功')
   } catch (err: any) {
     console.error('[POST /api/topics] 创建课题失败:', err)
+    error(res, '服务器内部错误', 500)
+  }
+})
+
+// POST /api/topics/:id/republish - 教师把往期课题复制为本周期新课题（草稿）
+router.post('/:id/republish', requireRole(['teacher']), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const [source] = await query<any>('SELECT * FROM topics WHERE id = ? AND teacher_id = ?', [id, req.user!.id])
+    if (!source) return error(res, '课题不存在或非本人发布', 404)
+
+    const active = await getActiveCycle()
+    if (!active) return error(res, '当前没有进行中的选题周期，无法重新发布', 400)
+
+    const newId = uuidv4()
+    // tags/schedules/attachments 为 JSON 列，mysql2 读出是数组，需重新序列化回字符串
+    const toJson = (v: any) => (typeof v === 'string' ? v : JSON.stringify(v ?? []))
+    await query(`
+      INSERT INTO topics (id, title, description, category, difficulty, max_students, status, teacher_id, tags, requirements, schedules, attachments, cycle_id, major, major_code)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [newId, source.title, source.description, source.category, source.difficulty, source.max_students, 'draft', req.user!.id,
+      toJson(source.tags), source.requirements ?? '', toJson(source.schedules), toJson(source.attachments),
+      active.id, source.major ?? null, source.major_code ?? null])
+
+    success(res, { id: newId }, '已复制为本周期课题（草稿）')
+  } catch (err: any) {
+    console.error('重新发布课题失败:', err)
     error(res, '服务器内部错误', 500)
   }
 })

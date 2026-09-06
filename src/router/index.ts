@@ -160,12 +160,6 @@ const router = createRouter({
           component: () => import('../views/student/MyResult.vue'),
           meta: { roles: ['student'] }
         },
-        {
-          path: 'student/adjustment',
-          name: 'Adjustment',
-          component: () => import('../views/student/Adjustment.vue'),
-          meta: { roles: ['student'] }
-        },
         { path: 'student/shortlist', redirect: '/student/browse' },
         {
           path: 'student/document-templates',

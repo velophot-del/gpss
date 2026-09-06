@@ -54,9 +54,11 @@ export const topicApi = {
   updateStatus: (id: string, status: string) =>
     request.put(`/topics/${id}/status`, { status }),
 
-  // 教师我的课题
-  getMyTopics: (params?: { keyword?: string; status?: string }) =>
-    request.get('/topics/teacher/mine', { params })
+  // 教师我的课题（cycleId=all 返回全部含往期，供分组/复用）
+  getMyTopics: (params?: { keyword?: string; status?: string; cycleId?: string }) =>
+    request.get('/topics/teacher/mine', { params }),
+  // 教师把往期课题复制为本周期新课题（草稿）
+  republish: (id: string) => request.post(`/topics/${id}/republish`)
 }
 
 // ===== 申请相关 =====
@@ -75,14 +77,7 @@ export const applicationApi = {
   finalizeTopic: (topicId: string) => request.post('/applications/finalize-topic', { topicId }),
   // 学生整批提交志愿（原子，全部成功或全部失败）
   submitVolunteers: (volunteers: { topicId: string; priority: number; motivation?: string }[]) =>
-    request.post('/applications/volunteers/submit', { volunteers }),
-
-  // 调整相关
-  submitAdjustment: (data: { fromTopicId?: string; toTopicId?: string; reason: string }) =>
-    request.post('/applications/adjustments', data),
-  getAdjustments: () => request.get('/applications/adjustments'),
-  reviewAdjustment: (id: string, data: { status: string; adminComment?: string }) =>
-    request.put(`/applications/adjustments/${id}`, data)
+    request.post('/applications/volunteers/submit', { volunteers })
 }
 
 // ===== 周期管理 =====

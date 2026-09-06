@@ -21,20 +21,17 @@
         </div>
       </template>
 
-      <template v-else-if="cycleStore.currentPhase === 'adjustment' || hasRejectedApps">
-        <!-- 未录取/调剂中 -->
+      <template v-else-if="hasRejectedApps">
+        <!-- 未录取 -->
         <div class="result-card warning">
           <div class="result-icon">
             <el-icon :size="64" color="#e6a23c"><WarningFilled /></el-icon>
           </div>
           <h3 class="result-status">暂未匹配成功</h3>
           <p class="result-desc">
-            您的志愿申请未能被录取。当前处于调剂阶段，您可以查看仍有名额的课题并提交调剂申请。
+            很遗憾，您的志愿申请未能被录取。如有疑问请联系管理员。
           </p>
           <div class="result-actions">
-            <el-button type="warning" size="large" @click="$router.push('/student/adjustment')">
-              参与调剂
-            </el-button>
             <el-button size="large" @click="$router.push('/student/browse')">重新浏览课题</el-button>
           </div>
         </div>
@@ -57,7 +54,7 @@
             <el-timeline-item
               timestamp="教师遴选"
               :color="cycleStore.currentPhase === 'teacher_review' ? '#409eff' : '#c0c4cc'"
-              :done="['teacher_review', 'adjustment', 'completed'].includes(cycleStore.currentPhase)"
+              :done="['teacher_review', 'completed'].includes(cycleStore.currentPhase)"
             >
               教师正在遴选学生
             </el-timeline-item>

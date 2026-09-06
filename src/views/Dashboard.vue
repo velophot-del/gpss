@@ -94,7 +94,6 @@
             <el-step title="志愿填报" />
             <el-step title="教师遴选" />
             <el-step title="结果公示" />
-            <el-step title="调剂补录" />
           </el-steps>
 
           <div class="timeline-detail" v-if="cycleStore.currentCycle">
@@ -114,10 +113,6 @@
               <div class="time-item">
                 <span class="time-label">结果公布</span>
                 <span class="time-value">{{ formatDate(cycleStore.currentCycle.resultAnnounceTime) }}</span>
-              </div>
-              <div class="time-item">
-                <span class="time-label">调剂时间</span>
-                <span class="time-value">{{ formatDate(cycleStore.currentCycle.adjustmentStart) }} ~ {{ formatDate(cycleStore.currentCycle.adjustmentEnd) }}</span>
               </div>
               <div class="time-item">
                 <span class="time-label">当前状态</span>
@@ -270,7 +265,6 @@ const currentStep = computed(() => {
     teacher_review: 2,
     result_announce: 3,
     completed: 4,
-    adjustment: 4,
     none: -1
   }
   return phaseMap[cycleStore.currentPhase] ?? -1
@@ -283,7 +277,6 @@ const statusTypeMap: Record<string, any> = {
   student_selection: 'success',
   teacher_review: 'warning',
   result_announce: 'success',
-  adjustment: 'danger',
   completed: 'info',
   none: 'info'
 }

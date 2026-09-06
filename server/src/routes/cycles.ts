@@ -18,12 +18,12 @@ router.get('/', async (req: AuthRequest, res) => {
   }
 })
 
-// GET /api/cycles/active - 获取当前进行中的周期（active/selection/review/adjustment 均视为进行中）
+// GET /api/cycles/active - 获取当前进行中的周期（active/selection/review 均视为进行中）
 router.get('/active', async (req: AuthRequest, res) => {
   try {
     const [cycle] = await query<any>(`
-      SELECT * FROM cycles 
-      WHERE status IN ('active', 'selection', 'review', 'adjustment') 
+      SELECT * FROM cycles
+      WHERE status IN ('active', 'selection', 'review')
       ORDER BY created_at DESC LIMIT 1
     `)
     success(res, cycle || null)
@@ -41,7 +41,7 @@ router.post('/', requireRole(['admin']), async (req: AuthRequest, res) => {
     // 同一时刻只允许一个进行中周期：直接以进行中状态创建前需先结束旧周期
     if (isInProgressCycle(newStatus)) {
       const rivalRows = await query<any>(
-        "SELECT id, name FROM cycles WHERE status IN ('active','selection','review','adjustment') LIMIT 1"
+        "SELECT id, name FROM cycles WHERE status IN ('active','selection','review') LIMIT 1"
       )
       if (rivalRows.length > 0) {
         return error(res, `已有进行中的周期「${rivalRows[0].name}」，请先将其结束再开启新周期`, 400)
@@ -72,7 +72,7 @@ router.put('/:id', requireRole(['admin']), async (req: AuthRequest, res) => {
     const nextStatus = status ?? existing.status
     if (isInProgressCycle(nextStatus)) {
       const rivalRows = await query<any>(
-        "SELECT id, name FROM cycles WHERE status IN ('active','selection','review','adjustment') AND id != ? LIMIT 1",
+        "SELECT id, name FROM cycles WHERE status IN ('active','selection','review') AND id != ? LIMIT 1",
         [id]
       )
       if (rivalRows.length > 0) {
@@ -122,7 +122,7 @@ router.delete('/:id', requireRole(['admin']), async (req: AuthRequest, res) => {
       return error(res, '周期不存在', 404)
     }
     // 不允许删除正在进行中的周期（有关联数据）
-    if (['active', 'selection', 'review', 'adjustment'].includes(cycle.status)) {
+    if (['active', 'selection', 'review'].includes(cycle.status)) {
       return error(res, '不能删除正在进行中的选题周期，请先将其状态改为"已结束"', 400)
     }
     await query('DELETE FROM cycles WHERE id = ?', [id])

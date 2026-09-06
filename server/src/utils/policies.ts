@@ -146,35 +146,6 @@ export function computeWeightedGrade(
   return { total, level: gradeLevel(total) }
 }
 
-export function validateAdjustmentTarget(input: {
-  currentTopicId: string
-  targetTopicId: string
-  targetStatus: string
-  acceptedCount: number
-  maxStudents: number
-}): string | null {
-  if (input.currentTopicId === input.targetTopicId) return '不能调整到同一课题'
-  if (!['published', 'full'].includes(input.targetStatus)) return '目标课题未开放调整'
-  if (!Number.isFinite(input.maxStudents) || input.maxStudents < 1) return '目标课题名额配置无效'
-  if (input.acceptedCount >= input.maxStudents) return '目标课题名额已满'
-  return null
-}
-
-export function validateAdjustmentCycle(input: {
-  currentCycleId: number | null
-  targetCycleId: number | null
-  cycleStatus: string | null
-  cyclePhase: string | null
-}): string | null {
-  if (input.currentCycleId == null || input.targetCycleId == null || input.currentCycleId !== input.targetCycleId) {
-    return '原课题与目标课题必须属于同一选题周期'
-  }
-  if (!['active', 'adjustment'].includes(input.cycleStatus || '') || input.cyclePhase !== 'adjustment') {
-    return '当前周期未处于调整阶段'
-  }
-  return null
-}
-
 export function getTeacherStudentLimit(config: unknown): number {
   if (!config || typeof config !== 'object' || Array.isArray(config)) return 0
   const record = config as Record<string, unknown>
@@ -199,20 +170,6 @@ export function getReviewDeadline(config: unknown): Date | null {
     }
   }
   return null
-}
-
-export function resolveAdjustmentSource(
-  acceptedTopicIds: string[],
-  requestedSourceTopicId?: string | null,
-): { sourceTopicId: string | null; error: string | null } {
-  if (acceptedTopicIds.length > 1) {
-    return { sourceTopicId: null, error: '学生当前录取结果异常，请先核对后再处理' }
-  }
-  const currentTopicId = acceptedTopicIds[0] || null
-  if (requestedSourceTopicId && requestedSourceTopicId !== currentTopicId) {
-    return { sourceTopicId: null, error: '原课题与学生当前录取结果不一致' }
-  }
-  return { sourceTopicId: currentTopicId, error: null }
 }
 
 export function getUploadedFilePaths(files: unknown): string[] {

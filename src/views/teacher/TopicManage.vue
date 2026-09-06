@@ -24,6 +24,11 @@
           <el-option label="已满员" value="full" />
           <el-option label="已关闭" value="closed" />
         </el-select>
+        <el-select v-model="cycleFilter" placeholder="周期筛选" clearable style="width: 140px;">
+          <el-option label="本周期" value="current" />
+          <el-option label="往期" value="past" />
+          <el-option label="未归属" value="none" />
+        </el-select>
       </div>
 
       <!-- 课题列表 -->
@@ -35,6 +40,11 @@
         </el-table-column>
         <el-table-column prop="category" label="研究方向" width="120" />
         <el-table-column prop="major" label="专业" width="130" />
+        <el-table-column label="周期" width="130">
+          <template #default="{ row }">
+            <el-tag :type="isCurrentCycleTopic(row) ? 'success' : 'info'" size="small">{{ cycleLabel(row) }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="难度" width="80" align="center">
           <template #default="{ row }">
             <el-tag :type="difficultyType[row.difficulty]" size="small">{{ difficultyLabel[row.difficulty] }}</el-tag>
@@ -65,7 +75,7 @@
         <el-table-column prop="createdAt" label="创建时间" width="120">
           <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="340" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" icon="View" @click="viewDetail(row)">查看</el-button>
             <el-tooltip :disabled="row.status !== 'published'" content="已发布选题已锁定，不能编辑；如需修改请管理员先撤回">
@@ -73,6 +83,17 @@
                 <el-button link type="primary" icon="Edit" :disabled="row.status === 'published'" @click="editTopic(row)">编辑</el-button>
               </span>
             </el-tooltip>
+            <el-popconfirm
+              v-if="currentCycleId && !isCurrentCycleTopic(row)"
+              title="将复制为本周期新课题（草稿），确定？"
+              confirm-button-text="确定"
+              cancel-button-text="取消"
+              @confirm="republish(row)"
+            >
+              <template #reference>
+                <el-button link type="success" icon="RefreshRight">重新发布</el-button>
+              </template>
+            </el-popconfirm>
             <el-popconfirm
               title="确定删除此课题？"
               @confirm="handleDelete(row.id)"
@@ -142,6 +163,7 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '../../stores/user'
 import { useTopicStore } from '../../stores/topic'
 import { useApplicationStore } from '../../stores/application'
+import { useCycleStore } from '../../stores/cycle'
 import type { Topic } from '../../types'
 import dayjs from 'dayjs'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -149,11 +171,13 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 const userStore = useUserStore()
 const topicStore = useTopicStore()
 const applicationStore = useApplicationStore()
+const cycleStore = useCycleStore()
 const router = useRouter()
 
 const loading = ref(false)
 const searchText = ref('')
 const statusFilter = ref('')
+const cycleFilter = ref('')
 const detailVisible = ref(false)
 const currentDetail = ref<Topic | null>(null)
 
@@ -162,9 +186,23 @@ const myTopics = computed(() => {
   return topicStore.getTopicsByTeacher(userStore.currentUser.id)
 })
 
+const currentCycleId = computed(() => cycleStore.currentCycle?.id ?? null)
+
 onMounted(() => {
-  topicStore.fetchMyTopics()
+  cycleStore.fetchCurrentCycle()
+  topicStore.fetchMyTopics({ cycleId: 'all' })
 })
+
+// 周期归属：本周期 / 往期 / 未归属
+function cycleLabel(row: Topic): string {
+  if (row.cycleId == null) return '未归属'
+  if (String(row.cycleId) === String(currentCycleId.value)) return '本周期'
+  return row.cycleName || '往期'
+}
+
+function isCurrentCycleTopic(row: Topic): boolean {
+  return row.cycleId != null && String(row.cycleId) === String(currentCycleId.value)
+}
 
 const filteredTopics = computed(() => {
   let result = myTopics.value
@@ -174,6 +212,13 @@ const filteredTopics = computed(() => {
   }
   if (statusFilter.value) {
     result = result.filter(t => t.status === statusFilter.value)
+  }
+  if (cycleFilter.value === 'current') {
+    result = result.filter(t => isCurrentCycleTopic(t))
+  } else if (cycleFilter.value === 'past') {
+    result = result.filter(t => t.cycleId != null && String(t.cycleId) !== String(currentCycleId.value))
+  } else if (cycleFilter.value === 'none') {
+    result = result.filter(t => t.cycleId == null)
   }
   return result
 })
@@ -204,6 +249,16 @@ async function handleDelete(id: string) {
     ElMessage.success('删除成功')
   } catch (e: any) {
     ElMessage.error(e?.message || '删除失败')
+  }
+}
+
+async function republish(topic: Topic) {
+  try {
+    await topicStore.republishTopic(topic.id)
+    ElMessage.success('已复制为本周期课题（草稿）')
+    await topicStore.fetchMyTopics({ cycleId: 'all' })
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '重新发布失败')
   }
 }
 

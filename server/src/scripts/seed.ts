@@ -5,6 +5,7 @@ import dotenv from 'dotenv'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { resolveDatabaseConfig } from '../config/runtime.js'
+import { defaultCycleSchedule } from '../utils/cycleSchedule.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -104,28 +105,24 @@ async function seed() {
   }
   console.log(`✅ ${students.length} 名学生及档案已创建`)
 
-  // ===== 选题周期 =====
+  // ===== 选题周期（时间节点按 6 月第 N 周规则生成，无调剂环节） =====
+  const cycleYear = String(new Date().getFullYear())
+  const schedule = defaultCycleSchedule(cycleYear)
   const cycleResult = await conn.query(`
     INSERT INTO cycles (name, description, year, status, phase, start_date, end_date, phases_config)
     VALUES (
-      '2025届山东工艺美术学院视觉传达设计学院本科毕业设计选题',
-      '涵盖视觉传达设计、数字媒体艺术、包装工程、智能交互等专业方向',
-      '2025',
-      'active',
-      'student_selection',
-      '2025-01-10',
-      '2025-06-30',
-      ?
+      ?, ?, ?, 'active', 'student_apply', ?, ?, ?
     )
-  `, [JSON.stringify({
-    topic_submission: { start: '2025-01-10', end: '2025-02-28', label: '课题申报阶段' },
-    student_selection: { start: '2025-03-01', end: '2025-03-31', label: '学生选课阶段' },
-    adjustment: { start: '2025-04-01', end: '2025-04-15', label: '调整阶段' },
-    result: { start: '2025-04-16', end: '2025-04-30', label: '结果公示' },
-    ended: { start: '2025-05-01', end: '2025-06-30', label: '结束' }
-  })])
+  `, [
+    `${cycleYear}届山东工艺美术学院视觉传达设计学院本科毕业设计选题`,
+    '涵盖视觉传达设计、数字媒体艺术、包装工程、智能交互等专业方向',
+    cycleYear,
+    schedule.topic_publish.start,
+    schedule.teacher_review.end,
+    JSON.stringify(schedule),
+  ])
   const cycleId = (cycleResult[0] as any).insertId
-  console.log('✅ 选题周期已创建')
+  console.log('✅ 选题周期已创建（6 月周规则默认时间节点）')
 
   // ===== 课题 =====
   const topics = [

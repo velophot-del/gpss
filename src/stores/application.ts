@@ -70,16 +70,6 @@ export const useApplicationStore = defineStore('application', () => {
     await fetchApplications()
   }
 
-  // 提交调整申请
-  async function submitAdjustment(data: { fromTopicId?: string; toTopicId?: string; reason: string }) {
-    await api.submitAdjustment(data)
-  }
-
-  // 调整申请（供视图使用）
-  async function adjustApplication(data: { fromTopicId?: string; toTopicId?: string; reason: string }) {
-    await api.submitAdjustment(data)
-  }
-
   // 按课题筛选申请
   function getApplicationsByTopic(topicId: string): Application[] {
     return applications.value.filter(a => a.topicId === topicId)
@@ -120,8 +110,6 @@ export const useApplicationStore = defineStore('application', () => {
     reviewApplication,
     review,
     finalizeTopic,
-    submitAdjustment,
-    adjustApplication,
     getApplicationsByTopic,
     getApplicationsByStudent,
     getStudentResult,

@@ -24,7 +24,7 @@
       你仍可以查看已收藏和已提交的记录；开放后再回来继续即可。
     </el-alert>
     <el-alert v-if="hasSubmittedVolunteers" :title="'已提交志愿：已锁定，仅可浏览课题与查看结果'" type="success" :closable="false" show-icon class="phase-alert">
-      如需调整请到调剂阶段或联系管理员。
+      如需调整请联系管理员。
     </el-alert>
     <el-alert v-if="loadError" title="课题暂时加载失败" type="error" show-icon class="phase-alert" :closable="false">
       <template #default><el-button link type="danger" @click="loadData">重新加载</el-button></template>
@@ -258,7 +258,7 @@ const hasSubmittedVolunteers = computed(() =>
 )
 function assertNotSubmitted(): boolean {
   if (!hasSubmittedVolunteers.value) return true
-  ElMessage.info('已提交志愿，仅可浏览；其他操作已锁定（如需调整请到调剂阶段或联系管理员）')
+  ElMessage.info('已提交志愿，仅可浏览；其他操作已锁定（如需调整请联系管理员）')
   return false
 }
 const shortlistedIds = computed(() => shortlist.value.map(item => item.topic_id))
