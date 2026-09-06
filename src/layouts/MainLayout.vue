@@ -72,13 +72,13 @@
 
         <!-- 教师菜单 -->
         <template v-if="userStore.userRole === 'teacher'">
+          <el-menu-item index="/teacher/library">
+            <el-icon><FolderOpened /></el-icon>
+            <template #title>我的选题库</template>
+          </el-menu-item>
           <el-menu-item index="/teacher/topics">
             <el-icon><Document /></el-icon>
-            <template #title>我的课题</template>
-          </el-menu-item>
-          <el-menu-item index="/teacher/topics/create">
-            <el-icon><Plus /></el-icon>
-            <template #title>发布课题</template>
+            <template #title>选题记录</template>
           </el-menu-item>
           <el-menu-item index="/teacher/review">
             <el-icon><UserFilled /></el-icon>

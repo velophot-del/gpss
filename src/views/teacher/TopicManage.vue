@@ -2,9 +2,9 @@
   <div class="topic-manage page-container">
     <div class="card-container">
       <div class="page-header">
-        <h2 class="section-title">我的课题</h2>
-        <el-button type="primary" icon="Plus" @click="$router.push('/teacher/topics/create')">
-          发布新课题
+        <h2 class="section-title">选题记录</h2>
+        <el-button type="primary" icon="FolderOpened" @click="$router.push('/teacher/library')">
+          从选题库发布
         </el-button>
       </div>
 
@@ -75,7 +75,7 @@
         <el-table-column prop="createdAt" label="创建时间" width="120">
           <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="340" fixed="right">
+        <el-table-column label="操作" width="430" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" icon="View" @click="viewDetail(row)">查看</el-button>
             <el-tooltip :disabled="row.status !== 'published'" content="已发布选题已锁定，不能编辑；如需修改请管理员先撤回">
@@ -84,16 +84,19 @@
               </span>
             </el-tooltip>
             <el-popconfirm
-              v-if="currentCycleId && !isCurrentCycleTopic(row)"
-              title="将复制为本周期新课题（草稿），确定？"
-              confirm-button-text="确定"
-              cancel-button-text="取消"
-              @confirm="republish(row)"
+              v-if="row.status === 'pending'"
+              title="撤回后将回到草稿，可重新编辑后再提交，确定？"
+              @confirm="withdrawPending(row)"
             >
               <template #reference>
-                <el-button link type="success" icon="RefreshRight">重新发布</el-button>
+                <el-button link type="warning" icon="Close">撤回提交</el-button>
               </template>
             </el-popconfirm>
+            <el-tooltip v-if="row.status === 'full'" :disabled="Number(row.currentCount) === 0" content="已有录取学生，不能重新开放">
+              <span>
+                <el-button link type="success" icon="RefreshRight" :disabled="Number(row.currentCount) > 0" @click="reopenFull(row)">重新开放</el-button>
+              </span>
+            </el-tooltip>
             <el-popconfirm
               title="确定删除此课题？"
               @confirm="handleDelete(row.id)"
@@ -259,6 +262,26 @@ async function republish(topic: Topic) {
     await topicStore.fetchMyTopics({ cycleId: 'all' })
   } catch (e: any) {
     ElMessage.error(e?.response?.data?.message || e?.message || '重新发布失败')
+  }
+}
+
+async function withdrawPending(row: Topic) {
+  try {
+    await topicStore.updateTopicStatus(row.id, 'draft')
+    ElMessage.success('已撤回为草稿')
+    await topicStore.fetchMyTopics({ cycleId: 'all' })
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '撤回失败')
+  }
+}
+
+async function reopenFull(row: Topic) {
+  try {
+    await topicStore.updateTopicStatus(row.id, 'published')
+    ElMessage.success('已重新开放该选题')
+    await topicStore.fetchMyTopics({ cycleId: 'all' })
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.message || e?.message || '重新开放失败')
   }
 }
 
