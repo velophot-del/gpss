@@ -126,6 +126,33 @@ async function initDatabase() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `)
 
+  // 创建个人选题库表（选题两段式：模板库 + 发布记录）
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS topic_templates (
+      id                  VARCHAR(36) PRIMARY KEY,
+      teacher_id          VARCHAR(36) NOT NULL,
+      title               VARCHAR(200) NOT NULL,
+      description         TEXT,
+      category            VARCHAR(50) NOT NULL,
+      major               VARCHAR(100),
+      major_code          VARCHAR(20),
+      difficulty          ENUM('easy','medium','hard') NOT NULL DEFAULT 'medium',
+      max_students_default TINYINT UNSIGNED NOT NULL DEFAULT 1,
+      tags                JSON,
+      requirements        TEXT,
+      schedules           JSON,
+      attachments         JSON,
+      group_name          VARCHAR(50),
+      status              ENUM('active','disabled','archived') NOT NULL DEFAULT 'active',
+      created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      FOREIGN KEY (teacher_id) REFERENCES users(id),
+      INDEX idx_tpl_teacher (teacher_id),
+      INDEX idx_tpl_status (status),
+      INDEX idx_tpl_major (major_code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `)
+
   // 创建选题申请表
   await conn.query(`
     CREATE TABLE IF NOT EXISTS applications (

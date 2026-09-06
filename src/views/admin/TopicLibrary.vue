@@ -49,6 +49,10 @@
 
       <!-- 搜索与筛选 -->
       <div class="filter-bar">
+        <el-select v-model="cycleFilter" placeholder="全部周期" style="width: 190px;" @change="loadTopics">
+          <el-option label="全部周期" value="all" />
+          <el-option v-for="c in cycles" :key="c.id" :label="c.name" :value="String(c.id)" />
+        </el-select>
         <el-input v-model="searchText" placeholder="搜索课题名称/教师姓名" prefix-icon="Search" clearable style="width: 280px;" />
         <el-select v-model="filterStatus" placeholder="全部状态" style="width: 120px;">
           <el-option label="全部" value="" />
@@ -94,6 +98,14 @@
             <el-tag :type="statusType[row.status]" size="small">{{ statusLabel[row.status] || row.status }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="周期" width="130" show-overflow-tooltip>
+          <template #default="{ row }">
+            {{ row.cycle_name || '未归属' }}
+            <el-tooltip v-if="row.template_title" :content="`个人题库模板：${row.template_title}`">
+              <el-tag size="small" type="info" effect="plain" style="margin-left:4px;">模板</el-tag>
+            </el-tooltip>
+          </template>
+        </el-table-column>
         <el-table-column label="提交时间" width="110">
           <template #default="{ row }">{{ formatDate(row.created_at) }}</template>
         </el-table-column>
@@ -115,7 +127,7 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
-import { adminApi, topicApi } from '@/api'
+import { adminApi, cycleApi, topicApi } from '@/api'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import dayjs from 'dayjs'
 import * as XLSX from 'xlsx'
@@ -127,6 +139,8 @@ const topics = ref<any[]>([])
 const searchText = ref('')
 const filterStatus = ref('pending')
 const selectedTopics = ref<any[]>([])
+const cycles = ref<any[]>([])
+const cycleFilter = ref('all')
 
 const stats = computed(() => ({
   total: topics.value.length,
@@ -168,10 +182,20 @@ function handleSelectionChange(rows: any[]) {
 const loadTopics = async () => {
   loading.value = true
   try {
-    const res = await adminApi.getAllTopics()
+    const params = cycleFilter.value === 'all' ? undefined : { cycle_id: cycleFilter.value }
+    const res = await adminApi.getAllTopics(params)
     topics.value = res.data
   } finally {
     loading.value = false
+  }
+}
+
+const loadCycles = async () => {
+  try {
+    const res = await cycleApi.getAll()
+    cycles.value = res.data || []
+  } catch (e) {
+    console.error('获取周期列表失败:', e)
   }
 }
 
@@ -287,6 +311,7 @@ function formatSchedules(schedules: any): string {
 }
 
 onMounted(() => {
+  loadCycles()
   loadTopics()
 })
 </script>

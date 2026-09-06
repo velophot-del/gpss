@@ -7,19 +7,30 @@ const router = Router()
 router.use(authMiddleware)
 router.use(requireRole(['admin']))
 
-// GET /api/admin/topics - 管理员查看所有选题
-router.get('/topics', async (_req: AuthRequest, res) => {
+// GET /api/admin/topics - 管理员查看所有选题（支持 ?cycle_id= 按周期过滤；'all'/缺省为全部）
+router.get('/topics', async (req: AuthRequest, res) => {
   try {
+    const cycleId = req.query.cycle_id
+    const whereSql = cycleId !== undefined && cycleId !== '' && cycleId !== 'all'
+      ? 'WHERE t.cycle_id = ?'
+      : ''
+    const params: any[] = cycleId !== undefined && cycleId !== '' && cycleId !== 'all' ? [Number(cycleId)] : []
+
     const topics = await query<any>(`
       SELECT t.*, u.real_name as teacher_name, u.title as teacher_title, u.department as teacher_dept,
              u.email as teacher_email, u.phone as teacher_phone,
+             cyc.name AS cycle_name,
+             tp.title AS template_title,
              (SELECT COUNT(*) FROM applications a WHERE a.topic_id = t.id AND a.status != 'withdrawn') as apply_count,
              (SELECT COUNT(*) FROM applications a WHERE a.topic_id = t.id AND a.status = 'pending') as pending_count,
              (SELECT COUNT(*) FROM applications a WHERE a.topic_id = t.id AND a.status = 'accepted') as accepted_count
       FROM topics t
       LEFT JOIN users u ON t.teacher_id = u.id
+      LEFT JOIN cycles cyc ON t.cycle_id = cyc.id
+      LEFT JOIN topic_templates tp ON t.template_id = tp.id
+      ${whereSql}
       ORDER BY t.created_at DESC
-    `)
+    `, params)
 
     const result = topics.map(t => ({
       ...t,

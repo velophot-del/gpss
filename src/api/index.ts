@@ -61,6 +61,16 @@ export const topicApi = {
   republish: (id: string) => request.post(`/topics/${id}/republish`)
 }
 
+// ===== 个人选题库（模板层，M2） =====
+export const templateApi = {
+  list: (params?: any) => request.get('/templates', { params }),
+  create: (data: any) => request.post('/templates', data),
+  update: (id: string, data: any) => request.put(`/templates/${id}`, data),
+  remove: (id: string) => request.delete(`/templates/${id}`),
+  duplicate: (id: string) => request.post(`/templates/${id}/duplicate`),
+  offer: (id: string, data?: any) => request.post(`/templates/${id}/offer`, data || {})
+}
+
 // ===== 申请相关 =====
 export const applicationApi = {
   // 学生提交申请
@@ -160,7 +170,7 @@ export const documentTemplateApi = {
 
 // ===== 管理员数据管理 =====
 export const adminApi = {
-  getAllTopics: () => request.get('/admin/topics'),
+  getAllTopics: (params?: any) => request.get('/admin/topics', { params }),
   getTeachers: () => request.get('/admin/teachers'),
   getStudents: () => request.get('/admin/students'),
   getAllApplications: () => request.get('/admin/applications'),
