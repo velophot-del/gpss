@@ -1,8 +1,8 @@
 import { v4 as uuidv4 } from 'uuid'
 import { query } from '../config/database.js'
 
-// 进行中周期的 status 值（active/selection/review 视为进行中；调剂环节已下线）
-export const IN_PROGRESS_CYCLE_STATUSES = ['active', 'selection', 'review'] as const
+// 进行中周期的 status 值（active/selection/review/adjustment 均视为进行中）
+export const IN_PROGRESS_CYCLE_STATUSES = ['active', 'selection', 'review', 'adjustment'] as const
 
 export function isInProgressCycle(status?: string | null): boolean {
   return IN_PROGRESS_CYCLE_STATUSES.some(s => s === status)
@@ -43,11 +43,11 @@ export async function getAcceptedSelection(studentId: string) {
   return rows[0] || null
 }
 
-// 获取当前进行中的周期（active/selection/review 任一状态）
+// 获取当前进行中的周期（active/selection/review/adjustment 任一状态）
 export async function getActiveCycle() {
   const rows = await query<any>(`
     SELECT * FROM cycles
-    WHERE status IN ('active', 'selection', 'review')
+    WHERE status IN ('active', 'selection', 'review', 'adjustment')
     ORDER BY created_at DESC LIMIT 1
   `)
   return rows[0] || null

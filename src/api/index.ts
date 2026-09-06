@@ -54,21 +54,9 @@ export const topicApi = {
   updateStatus: (id: string, status: string) =>
     request.put(`/topics/${id}/status`, { status }),
 
-  // 教师我的课题（cycleId=all 返回全部含往期，供分组/复用）
-  getMyTopics: (params?: { keyword?: string; status?: string; cycleId?: string }) =>
-    request.get('/topics/teacher/mine', { params }),
-  // 教师把往期课题复制为本周期新课题（草稿）
-  republish: (id: string) => request.post(`/topics/${id}/republish`)
-}
-
-// ===== 个人选题库（模板层，M2） =====
-export const templateApi = {
-  list: (params?: any) => request.get('/templates', { params }),
-  create: (data: any) => request.post('/templates', data),
-  update: (id: string, data: any) => request.put(`/templates/${id}`, data),
-  remove: (id: string) => request.delete(`/templates/${id}`),
-  duplicate: (id: string) => request.post(`/templates/${id}/duplicate`),
-  offer: (id: string, data?: any) => request.post(`/templates/${id}/offer`, data || {})
+  // 教师我的课题
+  getMyTopics: (params?: { keyword?: string; status?: string }) =>
+    request.get('/topics/teacher/mine', { params })
 }
 
 // ===== 申请相关 =====
@@ -87,7 +75,14 @@ export const applicationApi = {
   finalizeTopic: (topicId: string) => request.post('/applications/finalize-topic', { topicId }),
   // 学生整批提交志愿（原子，全部成功或全部失败）
   submitVolunteers: (volunteers: { topicId: string; priority: number; motivation?: string }[]) =>
-    request.post('/applications/volunteers/submit', { volunteers })
+    request.post('/applications/volunteers/submit', { volunteers }),
+
+  // 调整相关
+  submitAdjustment: (data: { fromTopicId?: string; toTopicId?: string; reason: string }) =>
+    request.post('/applications/adjustments', data),
+  getAdjustments: () => request.get('/applications/adjustments'),
+  reviewAdjustment: (id: string, data: { status: string; adminComment?: string }) =>
+    request.put(`/applications/adjustments/${id}`, data)
 }
 
 // ===== 周期管理 =====
@@ -170,7 +165,7 @@ export const documentTemplateApi = {
 
 // ===== 管理员数据管理 =====
 export const adminApi = {
-  getAllTopics: (params?: any) => request.get('/admin/topics', { params }),
+  getAllTopics: () => request.get('/admin/topics'),
   getTeachers: () => request.get('/admin/teachers'),
   getStudents: () => request.get('/admin/students'),
   getAllApplications: () => request.get('/admin/applications'),

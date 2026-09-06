@@ -4,7 +4,7 @@ import type { Connection } from 'mysql2/promise'
 import { query, transaction } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
-import { getTeacherStudentLimit, getReviewDeadline } from '../utils/policies.js'
+import { getTeacherStudentLimit, getReviewDeadline, resolveAdjustmentSource, validateAdjustmentCycle, validateAdjustmentTarget } from '../utils/policies.js'
 import { getStudentMajorCode, getTopicAccessPolicy, isTopicVisible } from '../utils/topicAccess.js'
 import { getActiveCycle, isInProgressCycle, isStudentSelectionPhase, isTeacherReviewPhase, notify } from '../utils/processFlow.js'
 import { safeParseJson } from '../utils/json.js'
@@ -291,7 +291,7 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
           return { error: '该学生本周期已被其他课题录取，不能重复录取' }
         }
 
-        // 志愿审核截止：超过截止时间不再允许普通录取，过期在途志愿自动转候补并释放。未配置截止时间则跳过。
+        // 志愿审核截止：超过截止时间不再允许普通录取，过期在途志愿自动转候补并释放（学生走调剂/补录）。未配置截止时间则跳过。
         let reviewDeadline: Date | null = null
         if (topic.cycle_id != null) {
           const [cfgRows] = await conn.query<any[]>(
@@ -302,7 +302,7 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
         }
         if (reviewDeadline && Date.now() > reviewDeadline.getTime()) {
           const rolled = await autoFinalizeOverdueCycle(conn, topic.cycle_id)
-          return { error: `志愿审核已于 ${reviewDeadline.toISOString().slice(0, 10)} 截止，系统已自动提交名单（${rolled} 名未录取学生进入下一志愿），无法再录取` }
+          return { error: `志愿审核已于 ${reviewDeadline.toISOString().slice(0, 10)} 截止，系统已自动提交名单（${rolled} 名未录取学生进入下一志愿/调剂），无法再录取` }
         }
 
         // 志愿序录取：若该学生本周期仍有更高优先级（第N志愿，N < 当前志愿号）的志愿未被处理，不得先录取当前志愿
@@ -401,7 +401,7 @@ router.delete('/:id', requireRole(['student']), async (req: AuthRequest, res) =>
 
     // 检查当前是否在志愿填报阶段
     const [activeCycle] = await query<any>(
-      "SELECT phase FROM cycles WHERE status IN ('active','selection','review') ORDER BY created_at DESC LIMIT 1"
+      "SELECT phase FROM cycles WHERE status IN ('active','selection','review','adjustment') ORDER BY created_at DESC LIMIT 1"
     )
     if (!activeCycle || !isStudentSelectionPhase(activeCycle.phase)) {
       return error(res, '当前不在志愿填报阶段，无法撤销申请')
@@ -427,7 +427,7 @@ router.delete('/:id', requireRole(['student']), async (req: AuthRequest, res) =>
         [req.user!.id, appCycleId]
       )
       if (Number(lockRows[0]?.cnt || 0) >= 3) {
-        return error(res, '已提交志愿（≥3 个），不可单独撤销；如需调整请联系管理员')
+        return error(res, '已提交志愿（≥3 个），不可单独撤销；如需调整请到调剂阶段或联系管理员')
       }
     }
 
@@ -436,6 +436,247 @@ router.delete('/:id', requireRole(['student']), async (req: AuthRequest, res) =>
     success(res, null, '申请已撤销')
   } catch (err: any) {
     console.error('撤销申请失败:', err)
+    error(res, '服务器内部错误', 500)
+  }
+})
+
+// ===== 调整申请 =====
+
+// POST /api/adjustments - 提交调整申请
+router.post('/adjustments', requireRole(['student']), async (req: AuthRequest, res) => {
+  try {
+    const { fromTopicId, toTopicId, reason } = req.body
+    if (!reason) return error(res, '请填写调整原因')
+    if (!toTopicId) return error(res, '请选择目标课题')
+
+    const acceptedApplications = await query<any>(
+      "SELECT topic_id FROM applications WHERE student_id = ? AND status = 'accepted'",
+      [req.user!.id],
+    )
+    const source = resolveAdjustmentSource(acceptedApplications.map(item => item.topic_id), fromTopicId)
+    if (source.error) return error(res, source.error)
+
+    const [pendingAdjustment] = await query<any>(
+      "SELECT id FROM adjustments WHERE student_id = ? AND status = 'pending' LIMIT 1",
+      [req.user!.id],
+    )
+    if (pendingAdjustment) return error(res, '已有待处理的调整申请，请勿重复提交')
+
+    await query(`
+      INSERT INTO adjustments (id, student_id, from_topic_id, to_topic_id, reason)
+      VALUES (?, ?, ?, ?, ?)
+    `, [uuidv4(), req.user!.id, source.sourceTopicId, toTopicId, reason])
+
+    success(res, null, '调整申请已提交，等待管理员审核')
+  } catch (err: any) {
+    console.error('提交调整申请失败:', err)
+    error(res, '服务器内部错误', 500)
+  }
+})
+
+// GET /api/adjustments - 获取调整列表
+router.get('/adjustments', async (req: AuthRequest, res) => {
+  try {
+    let sql: string
+    const params: any[] = []
+
+    if (req.user!.role === 'admin' || req.user!.role === 'teacher') {
+      sql = `
+        SELECT adj.*, s.real_name AS student_name, s.student_id, sp.gpa AS gpa,
+               ft.title AS from_topic_title, tt.title AS to_topic_title
+        FROM adjustments adj
+        JOIN users s ON adj.student_id = s.id
+        LEFT JOIN student_profiles sp ON sp.user_id = s.id
+        LEFT JOIN topics ft ON adj.from_topic_id = ft.id
+        LEFT JOIN topics tt ON adj.to_topic_id = tt.id
+        ORDER BY (adj.status = 'pending') DESC, tt.title, sp.gpa DESC, adj.created_at DESC
+      `
+    } else {
+      sql = `
+        SELECT adj.*,
+               ft.title AS from_topic_title, tt.title AS to_topic_title
+        FROM adjustments adj
+        LEFT JOIN topics ft ON adj.from_topic_id = ft.id
+        LEFT JOIN topics tt ON adj.to_topic_id = tt.id
+        WHERE adj.student_id = ?
+        ORDER BY adj.created_at DESC
+      `
+      params.push(req.user!.id)
+    }
+
+    const list = await query<any>(sql, params)
+    success(res, list)
+  } catch (err: any) {
+    error(res, '服务器内部错误', 500)
+  }
+})
+
+// PUT /api/adjustments/:id - 管理员审批调整
+router.put('/adjustments/:id', requireRole(['admin']), async (req: AuthRequest, res) => {
+  try {
+    const { id } = req.params
+    const { status, adminComment } = req.body
+    if (!['approved', 'rejected'].includes(status)) return error(res, '无效状态')
+
+    const result = await transaction(async (conn) => {
+      const [adjustments] = await conn.query<any[]>('SELECT * FROM adjustments WHERE id = ? FOR UPDATE', [id])
+      const adj = adjustments[0]
+      if (!adj) return { error: '记录不存在' }
+      if (adj.status !== 'pending') return { error: '该调整申请已处理，不能重复审批' }
+
+      if (status === 'rejected') {
+        await conn.query(
+          `UPDATE adjustments SET status = 'rejected', admin_comment = ?, processed_by = ?, processed_at = NOW() WHERE id = ?`,
+          [adminComment, req.user!.id, id],
+        )
+        return { error: null }
+      }
+
+      if (!adj.to_topic_id) return { error: '调整申请未指定目标课题' }
+
+      const [currentApplications] = await conn.query<any[]>(`
+        SELECT id, topic_id
+        FROM applications
+        WHERE student_id = ? AND status = 'accepted'
+        FOR UPDATE
+      `, [adj.student_id])
+      const source = resolveAdjustmentSource(currentApplications.map(item => item.topic_id), adj.from_topic_id)
+      if (source.error) return { error: source.error }
+      const currentApplication = source.sourceTopicId
+        ? currentApplications.find(item => item.topic_id === source.sourceTopicId)
+        : null
+
+      const topicIds = [source.sourceTopicId || adj.to_topic_id, adj.to_topic_id].sort()
+      const [lockedTopics] = await conn.query<any[]>(
+        'SELECT id, status, max_students, teacher_id, cycle_id FROM topics WHERE id IN (?, ?) ORDER BY id FOR UPDATE',
+        topicIds,
+      )
+      const currentTopic = source.sourceTopicId
+        ? lockedTopics.find(topic => topic.id === source.sourceTopicId)
+        : null
+      const targetTopic = lockedTopics.find(topic => topic.id === adj.to_topic_id)
+      if (source.sourceTopicId && !currentTopic) return { error: '学生当前录取课题不存在' }
+      if (!targetTopic) return { error: '目标课题不存在' }
+
+      const [cycles] = await conn.query<any[]>(
+        'SELECT id, status, phase, phases_config FROM cycles WHERE id = ? FOR UPDATE',
+        [targetTopic.cycle_id],
+      )
+      const cycle = cycles[0]
+      const cycleError = validateAdjustmentCycle({
+        currentCycleId: currentTopic?.cycle_id ?? targetTopic.cycle_id,
+        targetCycleId: targetTopic.cycle_id,
+        cycleStatus: cycle?.status ?? null,
+        cyclePhase: cycle?.phase ?? null,
+      })
+      if (cycleError) return { error: cycleError }
+
+      const [capacityRows] = await conn.query<any[]>(
+        "SELECT COUNT(DISTINCT student_id) AS cnt FROM applications WHERE topic_id = ? AND status = 'accepted' AND student_id != ?",
+        [targetTopic.id, adj.student_id],
+      )
+      const acceptedCount = Number(capacityRows[0]?.cnt || 0)
+      const targetError = validateAdjustmentTarget({
+        currentTopicId: currentTopic?.id ?? '',
+        targetTopicId: targetTopic.id,
+        targetStatus: targetTopic.status,
+        acceptedCount,
+        maxStudents: Number(targetTopic.max_students),
+      })
+      if (targetError) return { error: targetError }
+
+      if (targetTopic.cycle_id) {
+        const rawConfig = cycle?.phases_config
+        const phasesConfig = safeParseJson<Record<string, any>>(rawConfig, {})
+        const teacherStudentLimit = getTeacherStudentLimit(phasesConfig)
+        if (teacherStudentLimit > 0) {
+          const [teacherRows] = await conn.query<any[]>(`
+            SELECT COUNT(DISTINCT a.student_id) AS cnt
+            FROM applications a
+            JOIN topics t ON t.id = a.topic_id
+            WHERE t.teacher_id = ? AND t.cycle_id = ? AND a.status = 'accepted' AND a.student_id != ?
+          `, [targetTopic.teacher_id, targetTopic.cycle_id, adj.student_id])
+          if (Number(teacherRows[0]?.cnt || 0) >= teacherStudentLimit) {
+            return { error: `目标课题教师本周期指导学生已达上限（${teacherStudentLimit}人）` }
+          }
+        }
+      }
+
+      // 征集补录（未录取学生直接补入目标课题）：
+      // 1) 释放该生残留在途志愿，避免“未处理志愿”与补录结果矛盾（补录不绕过志愿序收口）；
+      // 2) 同课题剩余名额有限时按 GPA 高者优先放行，低绩点不能先于仍在排队的高绩点学生占位。
+      if (!currentApplication) {
+        const [spRows] = await conn.query<any[]>(
+          'SELECT gpa FROM student_profiles WHERE user_id = ?',
+          [adj.student_id]
+        )
+        const studentGpa = Number(spRows[0]?.gpa) || 0
+        const [hiPending] = await conn.query<any[]>(`
+          SELECT COUNT(DISTINCT adj2.student_id) AS cnt
+          FROM adjustments adj2
+          LEFT JOIN users u2 ON u2.id = adj2.student_id
+          LEFT JOIN student_profiles sp2 ON sp2.user_id = u2.id
+          WHERE adj2.to_topic_id = ? AND adj2.status = 'pending' AND adj2.student_id != ?
+            AND COALESCE(sp2.gpa, 0) > ?
+        `, [targetTopic.id, adj.student_id, studentGpa])
+        const seatsFree = Number(targetTopic.max_students) - acceptedCount
+        if (Number(hiPending[0]?.cnt || 0) >= seatsFree) {
+          return { error: '该课题补录名额有限，有更高绩点的学生在排队，请先处理其补录申请' }
+        }
+        await conn.query(`
+          UPDATE applications a
+          JOIN topics t ON a.topic_id = t.id
+          SET a.status = 'withdrawn'
+          WHERE a.student_id = ? AND t.cycle_id = ? AND a.topic_id <> ?
+            AND a.status IN ('pending', 'submitted', 'pending_review', 'waitlisted')
+        `, [adj.student_id, targetTopic.cycle_id, targetTopic.id])
+      }
+
+      if (currentApplication) {
+        await conn.query("UPDATE applications SET status = 'withdrawn' WHERE id = ?", [currentApplication.id])
+      }
+
+      const [targetApplications] = await conn.query<any[]>(
+        'SELECT id FROM applications WHERE student_id = ? AND topic_id = ? FOR UPDATE',
+        [adj.student_id, targetTopic.id],
+      )
+      if (targetApplications[0]) {
+        await conn.query(`
+          UPDATE applications
+          SET status = 'accepted', priority = 1, reviewed_by = ?, reviewed_at = NOW(), motivation = '来自调整申请'
+          WHERE id = ?
+        `, [req.user!.id, targetApplications[0].id])
+      } else {
+        await conn.query(`
+          INSERT INTO applications (id, student_id, topic_id, priority, status, reviewed_by, reviewed_at, motivation)
+          VALUES (?, ?, ?, 1, 'accepted', ?, NOW(), '来自调整申请')
+        `, [uuidv4(), adj.student_id, targetTopic.id, req.user!.id])
+      }
+
+      if (currentTopic && ['published', 'full'].includes(currentTopic.status)) {
+        const [oldTopicRows] = await conn.query<any[]>(
+          "SELECT COUNT(DISTINCT student_id) AS cnt FROM applications WHERE topic_id = ? AND status = 'accepted'",
+          [currentTopic.id],
+        )
+        const oldTopicStatus = Number(oldTopicRows[0]?.cnt || 0) >= Number(currentTopic.max_students) ? 'full' : 'published'
+        await conn.query('UPDATE topics SET status = ? WHERE id = ?', [oldTopicStatus, currentTopic.id])
+      }
+
+      const nextTargetStatus = acceptedCount + 1 >= Number(targetTopic.max_students) ? 'full' : 'published'
+      await conn.query('UPDATE topics SET status = ? WHERE id = ?', [nextTargetStatus, targetTopic.id])
+      await conn.query(
+        `UPDATE adjustments SET status = 'approved', admin_comment = ?, processed_by = ?, processed_at = NOW() WHERE id = ?`,
+        [adminComment, req.user!.id, id],
+      )
+
+      return { error: null }
+    })
+
+    if (result.error) return error(res, result.error)
+
+    success(res, null, `调整申请已${status === 'approved' ? '批准' : '拒绝'}`)
+  } catch (err: any) {
+    console.error('审批调整失败:', err)
     error(res, '服务器内部错误', 500)
   }
 })
@@ -536,7 +777,7 @@ async function finalizePendingForTopic(conn: Connection, topicId: string, cycleI
   return rejectApplications(conn, actionable.map((a: any) => a.id))
 }
 
-// 全周期“自动提交”：逐级把未被录取的在途申请落选，直到没有可落选的（学生逐级进入下一志愿）
+// 全周期“自动提交”：逐级把未被录取的在途申请落选，直到没有可落选的（学生逐级进入下一志愿，直至落入调剂）
 async function autoFinalizeOverdueCycle(conn: Connection, cycleId: number | null): Promise<number> {
   if (cycleId == null) return 0
   let total = 0

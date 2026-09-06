@@ -33,7 +33,7 @@
               {{ topic.currentCount >= topic.maxStudents ? '已满员' : '还可选' + (topic.maxStudents - topic.currentCount) + '人' }}
             </el-tag>
             <el-tooltip
-              content="确认本课题名单：未被选中的申请将自动落选，学生进入下一志愿"
+              content="确认本课题名单：未被选中的申请将自动落选，学生进入下一志愿/调剂"
               placement="top"
             >
               <el-button

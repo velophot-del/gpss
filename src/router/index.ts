@@ -105,12 +105,6 @@ const router = createRouter({
         { path: 'admin/topic-access', name: 'AdminTopicAccess', component: () => import('../views/admin/TopicAccess.vue'), meta: { roles: ['admin'] } },
         // 教师端路由
         {
-          path: 'teacher/library',
-          name: 'TeacherLibrary',
-          component: () => import('../views/teacher/TemplateLibrary.vue'),
-          meta: { roles: ['teacher'] }
-        },
-        {
           path: 'teacher/topics',
           name: 'TeacherTopics',
           component: () => import('../views/teacher/TopicManage.vue'),
@@ -164,6 +158,12 @@ const router = createRouter({
           path: 'student/result',
           name: 'MyResult',
           component: () => import('../views/student/MyResult.vue'),
+          meta: { roles: ['student'] }
+        },
+        {
+          path: 'student/adjustment',
+          name: 'Adjustment',
+          component: () => import('../views/student/Adjustment.vue'),
           meta: { roles: ['student'] }
         },
         { path: 'student/shortlist', redirect: '/student/browse' },

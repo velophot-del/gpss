@@ -392,7 +392,7 @@ async function handleSubmit(action: 'submit' | 'draft') {
       schedules: scheduleJson.length > 0 ? scheduleJson : undefined,
       attachments: attachments.value.length > 0 ? attachments.value : undefined,
       tags: form.tags.length > 0 ? form.tags : undefined,
-      cycleId: cycleStore.currentCycle.id
+      cycleId: action === 'submit' ? cycleStore.currentCycle.id : undefined
     }
 
     if (isEdit) {

@@ -24,7 +24,7 @@ export interface User {
 }
 
 // ========== 选题周期 ==========
-export type CycleStatus = 'upcoming' | 'active' | 'selection' | 'review' | 'completed'
+export type CycleStatus = 'upcoming' | 'active' | 'selection' | 'review' | 'adjustment' | 'completed'
 
 export interface SelectionCycle {
   id: string
@@ -39,6 +39,8 @@ export interface SelectionCycle {
   teacherReviewStart: string  // 教师遴选开始
   teacherReviewEnd: string    // 教师遴选截止
   resultAnnounceTime: string  // 结果公布时间
+  adjustmentStart: string     // 调剂开始
+  adjustmentEnd: string       // 调剂截止
   teacherStudentLimit?: number // 每位教师指导学生人数上限
   status: CycleStatus
   createdAt: string
@@ -283,7 +285,7 @@ export interface FinalResult {
   topicId: string
   topicTitle: string
   teacherName: string
-  status: 'confirmed' | 'dropped'
+  status: 'confirmed' | 'adjusting' | 'dropped'
   confirmedAt: string
 }
 
@@ -525,6 +527,7 @@ export interface AppNotification {
 export const PROCESS_PHASES: { value: string; label: string }[] = [
   { value: 'topic_submission', label: '课题发布' },
   { value: 'student_selection', label: '学生选课' },
+  { value: 'adjustment', label: '调剂' },
   { value: 'result', label: '选题结果' },
   { value: 'task_book', label: '任务书下达' },
   { value: 'proposal', label: '开题' },

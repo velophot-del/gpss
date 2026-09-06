@@ -3,7 +3,6 @@ import { v4 as uuidv4 } from 'uuid'
 import { query } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
-import { getActiveCycle } from '../utils/processFlow.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -32,8 +31,6 @@ router.post('/', requireRole(['student']), async (req: AuthRequest, res) => {
 // GET /api/shortlist - 获取学生的预选列表
 router.get('/', requireRole(['student']), async (req: AuthRequest, res) => {
   try {
-    // 预选列表只展示当前进行中周期的课题，避免残留往期课题
-    const active = await getActiveCycle()
     const list = await query<any>(`
       SELECT s.*, t.title, t.description, t.category, t.difficulty, t.max_students,
              (SELECT COUNT(*) FROM applications a WHERE a.topic_id = t.id AND a.status != 'withdrawn') AS apply_count,
@@ -41,9 +38,9 @@ router.get('/', requireRole(['student']), async (req: AuthRequest, res) => {
       FROM topic_shortlist s
       JOIN topics t ON s.topic_id = t.id
       JOIN users u ON t.teacher_id = u.id
-      WHERE s.student_id = ?${active ? ' AND t.cycle_id = ?' : ' AND 1 = 0'}
+      WHERE s.student_id = ?
       ORDER BY s.added_at DESC
-    `, active ? [req.user!.id, active.id] : [req.user!.id])
+    `, [req.user!.id])
 
     success(res, list)
   } catch (err: any) {

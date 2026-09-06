@@ -11,7 +11,6 @@ dotenv.config()
 import authRoutes from './routes/auth.js'
 import userRoutes from './routes/users.js'
 import topicRoutes from './routes/topics.js'
-import templateRoutes from './routes/templates.js'
 import applicationRoutes from './routes/applications.js'
 import cycleRoutes from './routes/cycles.js'
 import statisticsRoutes from './routes/statistics.js'
@@ -98,7 +97,6 @@ app.use('/api/auth', authRoutes)
 // 需要登录的路由
 app.use('/api/users', userRoutes)
 app.use('/api/topics', topicRoutes)
-app.use('/api/templates', templateRoutes)
 app.use('/api/applications', applicationRoutes)
 app.use('/api/cycles', cycleRoutes)
 app.use('/api/topic-access', topicAccessRoutes)

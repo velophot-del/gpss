@@ -67,6 +67,7 @@
             <el-table-column label="状态" width="100" align="center">
               <template #default="{ row }">
                 <el-tag type="success" v-if="row.status === 'confirmed'">已确认</el-tag>
+                <el-tag type="warning" v-else-if="row.status === 'adjusting'">调剂中</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="confirmedAt" label="确认时间" width="170">

@@ -87,7 +87,7 @@ async function createTables(conn) {
     name VARCHAR(200) NOT NULL,
     description TEXT,
     year VARCHAR(10),
-    status ENUM('draft','upcoming','active','selection','review','adjustment','completed') DEFAULT 'draft',
+    status ENUM('draft','active','closed') DEFAULT 'draft',
     phase ENUM('topic_submission','topic_publish','student_apply','student_selection','teacher_review','result_announce','adjustment','result','task_book','proposal','midterm','thesis_design','defense','grading','archive','ended') DEFAULT 'topic_submission',
     topic_publish_start DATE,
     topic_publish_end DATE,
@@ -250,31 +250,22 @@ async function importCycle(conn) {
     return existing[0].id;
   }
 
-  // 时间节点按「6 月第 N 周」规则生成，无调剂环节
-  const y = String(new Date().getFullYear());
-  const schedule = {
-    topic_publish: { start: `${y}-06-01`, end: `${y}-06-14` },
-    student_apply: { start: `${y}-06-15`, end: `${y}-06-28` },
-    teacher_review: { start: `${y}-06-29`, end: `${y}-07-05` },
-    result_announce: `${y}-07-06`,
-  };
-
   const [result] = await conn.query(
     `INSERT INTO cycles (name, description, year, status, phase, start_date, end_date,
                          topic_publish_start, topic_publish_end,
                          student_apply_start, student_apply_end,
                          teacher_review_start, teacher_review_end,
-                         result_announce_time)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+                         result_announce_time, adjustment_start, adjustment_end)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
-      `${y}届山东工艺美术学院视觉传达设计学院本科毕业设计选题系统`,
+      '2025届山东工艺美术学院视觉传达设计学院本科毕业设计选题系统',
       '涵盖视觉传达设计、数字媒体艺术、包装工程、智能交互等专业方向',
-      y, 'active', 'student_apply',
-      schedule.topic_publish.start, schedule.teacher_review.end,
-      schedule.topic_publish.start, schedule.topic_publish.end,
-      schedule.student_apply.start, schedule.student_apply.end,
-      schedule.teacher_review.start, schedule.teacher_review.end,
-      schedule.result_announce,
+      '2025', 'active', 'student_apply',
+      '2025-01-10', '2025-06-30',
+      '2025-01-10', '2025-02-28',
+      '2025-03-01', '2025-03-31',
+      '2025-04-01', '2025-04-30',
+      '2025-05-10', '2025-05-15', '2025-05-31'
     ]
   );
 

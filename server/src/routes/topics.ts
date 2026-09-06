@@ -157,12 +157,10 @@ router.get('/teacher/mine', requireRole(['teacher']), async (req: AuthRequest, r
              u.email AS teacher_email,
              u.phone AS teacher_phone,
              u.avatar AS teacher_avatar,
-             c.name AS cycle_name,
              COALESCE(ac.apply_count, 0) AS apply_count,
              COALESCE(ac.accepted_count, 0) AS accepted_count
       FROM topics t
       LEFT JOIN users u ON t.teacher_id = u.id
-      LEFT JOIN cycles c ON t.cycle_id = c.id
       LEFT JOIN (
         SELECT topic_id,
                COUNT(*) AS apply_count,
@@ -174,20 +172,17 @@ router.get('/teacher/mine', requireRole(['teacher']), async (req: AuthRequest, r
       WHERE t.teacher_id = ?`
     const params: any[] = [req.user!.id]
 
-    // 教师课题按周期查看：默认只列出当前进行中周期（兼容无周期的历史课题）；
-    // ?cycleId=<数字> 切换其它周期；?cycleId=all 返回全部（含往期），供前端分组。
+    // 教师课题按周期查看：默认只列出当前进行中周期（兼容无周期的历史课题）；?cycleId= 可切换其它周期
     let targetCycle: number | null = null
-    if (cycleId !== 'all') {
-      if (cycleId !== undefined && Number.isFinite(Number(cycleId))) {
-        targetCycle = Number(cycleId)
-      } else {
-        const active = await getActiveCycle()
-        targetCycle = active ? Number(active.id) : null
-      }
-      if (targetCycle != null) {
-        sql += ' AND (t.cycle_id = ? OR t.cycle_id IS NULL)'
-        params.push(targetCycle)
-      }
+    if (cycleId !== undefined && Number.isFinite(Number(cycleId))) {
+      targetCycle = Number(cycleId)
+    } else {
+      const active = await getActiveCycle()
+      targetCycle = active ? Number(active.id) : null
+    }
+    if (targetCycle != null) {
+      sql += ' AND (t.cycle_id = ? OR t.cycle_id IS NULL)'
+      params.push(targetCycle)
     }
 
     if (status) {
@@ -220,7 +215,6 @@ router.get('/teacher/mine', requireRole(['teacher']), async (req: AuthRequest, r
       createdAt: item.created_at,
       updatedAt: item.updated_at,
       cycleId: item.cycle_id,
-      cycleName: item.cycle_name,
       major: item.major,
       majorCode: item.major_code
     }))
@@ -321,49 +315,15 @@ router.post('/', requireRole(['teacher']), async (req: AuthRequest, res) => {
     const id = uuidv4()
     console.log('[POST /api/topics] 创建课题 ID:', id)
 
-    // 草稿也归属当前周期：cycleId 缺省时回退当前进行中周期，避免产生无归属的草稿
-    const finalCycleId = cycleId ?? (await getActiveCycle())?.id ?? null
-
-    // 选题发布须经管理员审核：教师创建即便传 published 也按“待审核”落库，由管理员在选题库审核发布
-    let createStatus = status || 'draft'
-    if (req.user!.role === 'teacher' && createStatus === 'published') createStatus = 'pending'
-
     await query(`
       INSERT INTO topics (id, title, description, category, difficulty, max_students, status, teacher_id, tags, requirements, schedules, attachments, cycle_id, major, major_code)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, title, description, category, difficulty || 'medium', maxStudents || 1, createStatus, req.user!.id, JSON.stringify(tags || []), requirements, JSON.stringify(schedules || []), JSON.stringify(attachments || []), finalCycleId, major || null, majorCode || null])
+    `, [id, title, description, category, difficulty || 'medium', maxStudents || 1, status || 'draft', req.user!.id, JSON.stringify(tags || []), requirements, JSON.stringify(schedules || []), JSON.stringify(attachments || []), cycleId || null, major || null, majorCode || null])
 
     console.log('[POST /api/topics] 课题创建成功')
     success(res, { id }, '课题创建成功')
   } catch (err: any) {
     console.error('[POST /api/topics] 创建课题失败:', err)
-    error(res, '服务器内部错误', 500)
-  }
-})
-
-// POST /api/topics/:id/republish - 教师把往期课题复制为本周期新课题（草稿）
-router.post('/:id/republish', requireRole(['teacher']), async (req: AuthRequest, res) => {
-  try {
-    const { id } = req.params
-    const [source] = await query<any>('SELECT * FROM topics WHERE id = ? AND teacher_id = ?', [id, req.user!.id])
-    if (!source) return error(res, '课题不存在或非本人发布', 404)
-
-    const active = await getActiveCycle()
-    if (!active) return error(res, '当前没有进行中的选题周期，无法重新发布', 400)
-
-    const newId = uuidv4()
-    // tags/schedules/attachments 为 JSON 列，mysql2 读出是数组，需重新序列化回字符串
-    const toJson = (v: any) => (typeof v === 'string' ? v : JSON.stringify(v ?? []))
-    await query(`
-      INSERT INTO topics (id, title, description, category, difficulty, max_students, status, teacher_id, tags, requirements, schedules, attachments, cycle_id, major, major_code)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [newId, source.title, source.description, source.category, source.difficulty, source.max_students, 'draft', req.user!.id,
-      toJson(source.tags), source.requirements ?? '', toJson(source.schedules), toJson(source.attachments),
-      active.id, source.major ?? null, source.major_code ?? null])
-
-    success(res, { id: newId }, '已复制为本周期课题（草稿）')
-  } catch (err: any) {
-    console.error('重新发布课题失败:', err)
     error(res, '服务器内部错误', 500)
   }
 })
@@ -451,43 +411,24 @@ router.put('/:id/status', requireRole(['teacher', 'admin']), async (req: AuthReq
       return error(res, '无权操作此课题')
     }
 
-    const from = topic2.status
-    if (status === from) return success(res, null, '状态未变化')
-
-    if (req.user!.role === 'admin') {
-      // 管理员可跨周期自由管理（审核发布/撤回/关闭/重开）
-      await query('UPDATE topics SET status = ? WHERE id = ?', [status, id])
-      return success(res, null, `课题已${status === 'published' ? '发布' : status === 'closed' ? '关闭' : '更新'}`)
+    // 已发布的选题锁定：教师不能改状态（发布/撤回均由管理员执行）
+    if (req.user!.role === 'teacher' && topic2.status === 'published' && status !== 'published') {
+      return error(res, '已正式发布的选题已锁定，不能修改状态；如需撤回请联系管理员', 400)
     }
 
-    // 教师：发布须走「提交审核」，由管理员发布；教师仅可在下列白名单内自持状态
-    const teacherAllowed: Record<string, string[]> = {
-      draft: ['pending'],
-      pending: ['draft'],
-      published: ['draft'], // 仅当无任何申请时可撤回（见下）
-      full: ['published'],  // 仅当无录取学生时可重新开放（见下）
-      closed: []
-    }
-    const targets = teacherAllowed[from] || []
-    if (!targets.includes(status)) {
-      if (status === 'published') return error(res, '发布由管理员审核执行，请提交后等待审核', 400)
-      return error(res, '无权将该选题从当前状态变更为所选状态', 400)
-    }
-    if (from === 'published' && status === 'draft') {
-      const [app] = await query<any>(`SELECT COUNT(*) AS n FROM applications WHERE topic_id = ? AND status != 'withdrawn'`, [id])
-      if (Number(app.n) > 0) {
-        return error(res, '该题已有学生志愿，撤回会中断选课流程，请由管理员处理', 400)
-      }
-    }
-    if (from === 'full' && status === 'published') {
-      const [ac] = await query<any>(`SELECT COUNT(*) AS n FROM applications WHERE topic_id = ? AND status = 'accepted'`, [id])
-      if (Number(ac.n) > 0) {
-        return error(res, '该题已有录取学生，不能重新开放', 400)
+    // 教师只能把课题发布到“进行中周期”；管理员可跨周期管理
+    if (status === 'published' && req.user!.role === 'teacher' && topic2.cycle_id != null) {
+      const cycleRows = await query<any>(
+        'SELECT status FROM cycles WHERE id = ?',
+        [topic2.cycle_id]
+      )
+      if (cycleRows.length === 0 || !isInProgressCycle(cycleRows[0].status)) {
+        return error(res, '课题所属周期不在进行中，不能发布', 400)
       }
     }
 
     await query('UPDATE topics SET status = ? WHERE id = ?', [status, id])
-    success(res, null, status === 'published' ? '课题已发布' : status === 'draft' ? '已撤回为草稿' : '课题状态已更新')
+    success(res, null, `课题已${status === 'published' ? '发布' : status === 'closed' ? '关闭' : '更新'}`)
   } catch (err: any) {
     console.error('更新课题状态失败:', err)
     error(res, '服务器内部错误', 500)

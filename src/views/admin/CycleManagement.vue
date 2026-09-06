@@ -38,6 +38,7 @@
                   <el-dropdown-item @click="changeStatus(row.id, 'active')">设为当前</el-dropdown-item>
                   <el-dropdown-item @click="changeStatus(row.id, 'selection')">进入选课</el-dropdown-item>
                   <el-dropdown-item @click="changeStatus(row.id, 'review')">进入审核</el-dropdown-item>
+                  <el-dropdown-item @click="changeStatus(row.id, 'adjustment')">进入调剂</el-dropdown-item>
                   <el-dropdown-item @click="changeStatus(row.id, 'completed')">结束</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
@@ -50,7 +51,7 @@
             >
               <template #reference>
                 <el-tooltip
-                  v-if="['active','selection','review'].includes(row.status)"
+                  v-if="['active','selection','review','adjustment'].includes(row.status)"
                   content="进行中的周期不可删除，请先将状态切换为「已结束」"
                   placement="top"
                 >
@@ -85,7 +86,6 @@
           <el-form-item label="描述">
             <el-input v-model="form.description" type="textarea" :rows="2" />
           </el-form-item>
-          <el-button size="small" type="primary" plain @click="fillDefaultSchedule">按 6 月周规则填充默认时间</el-button>
           <el-divider content-position="left">阶段时间安排</el-divider>
           <el-row :gutter="16">
             <el-col :span="12">
@@ -129,6 +129,18 @@
                 <el-date-picker v-model="form.resultAnnounceTime" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
+            <el-col :span="12">
+              <el-form-item label="调剂开始">
+                <el-date-picker v-model="form.adjustmentStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="调剂结束">
+                <el-date-picker v-model="form.adjustmentEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
           </el-row>
         </el-form>
         <template #footer>
@@ -152,6 +164,7 @@
               <el-radio value="active">进行中</el-radio>
               <el-radio value="selection">选课中</el-radio>
               <el-radio value="review">审核中</el-radio>
+              <el-radio value="adjustment">调剂中</el-radio>
               <el-radio value="completed">已结束</el-radio>
             </el-radio-group>
           </el-form-item>
@@ -186,7 +199,6 @@
             </template>
           </div>
 
-          <el-button size="small" type="primary" plain @click="fillDefaultSchedule">按 6 月周规则填充默认时间</el-button>
           <el-divider content-position="left">阶段时间安排</el-divider>
           <el-row :gutter="16">
             <el-col :span="12">
@@ -230,6 +242,18 @@
                 <el-date-picker v-model="form.resultAnnounceTime" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
+            <el-col :span="12">
+              <el-form-item label="调剂开始">
+                <el-date-picker v-model="form.adjustmentStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
+          </el-row>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item label="调剂结束">
+                <el-date-picker v-model="form.adjustmentEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+              </el-form-item>
+            </el-col>
           </el-row>
         </el-form>
         <template #footer>
@@ -245,7 +269,6 @@
 import { ref, reactive, onMounted } from 'vue'
 import { useCycleStore } from '../../stores/cycle'
 import { cycleApi, cycleConfigApi } from '../../api'
-import { defaultCycleSchedule } from '../../utils/cycleSchedule'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
 
@@ -269,16 +292,18 @@ const form = reactive({
   studentApplyEnd: '',
   teacherReviewStart: '',
   teacherReviewEnd: '',
-  resultAnnounceTime: ''
+  resultAnnounceTime: '',
+  adjustmentStart: '',
+  adjustmentEnd: ''
 })
 
 const cycleStatusType: Record<string, string> = {
   upcoming: 'info', active: 'success', selection: 'primary',
-  review: 'warning', completed: 'success', draft: 'info'
+  review: 'warning', adjustment: 'danger', completed: 'success', draft: 'info'
 }
 const cycleStatusLabel: Record<string, string> = {
   upcoming: '未开始', active: '进行中', selection: '选课中',
-  review: '审核中', completed: '已结束', draft: '草稿'
+  review: '审核中', adjustment: '调剂中', completed: '已结束', draft: '草稿'
 }
 
 // ===== 周期级「毕业专业 + 研究方向」配置编辑 =====
@@ -343,25 +368,9 @@ function showCreateDialog() {
     topicPublishStart: '', topicPublishEnd: '',
     studentApplyStart: '', studentApplyEnd: '',
     teacherReviewStart: '', teacherReviewEnd: '',
-    resultAnnounceTime: ''
+    resultAnnounceTime: '', adjustmentStart: '', adjustmentEnd: ''
   })
   dialogVisible.value = true
-}
-
-// 按「6 月第 N 周」规则，依据年度填充各阶段默认时间（可再手动改）
-function fillDefaultSchedule() {
-  if (!form.year) return ElMessage.warning('请先填写年度')
-  const y = Number(form.year)
-  if (!Number.isFinite(y) || y < 2000 || y > 2100) return ElMessage.warning('请填写有效的年度（如 2026）')
-  const s = defaultCycleSchedule(y)
-  form.topicPublishStart = s.topic_publish.start
-  form.topicPublishEnd = s.topic_publish.end
-  form.studentApplyStart = s.student_apply.start
-  form.studentApplyEnd = s.student_apply.end
-  form.teacherReviewStart = s.teacher_review.start
-  form.teacherReviewEnd = s.teacher_review.end
-  form.resultAnnounceTime = s.result_announce
-  ElMessage.success('已按 6 月周规则填充默认时间，可再手动修改')
 }
 
 async function showEditDialog(row: any) {
@@ -392,7 +401,9 @@ async function showEditDialog(row: any) {
     studentApplyEnd: phases.student_apply?.end || row.studentApplyEnd || '',
     teacherReviewStart: phases.teacher_review?.start || row.teacherReviewStart || '',
     teacherReviewEnd: phases.teacher_review?.end || row.teacherReviewEnd || '',
-    resultAnnounceTime: phases.result_announce || row.resultAnnounceTime || ''
+    resultAnnounceTime: phases.result_announce || row.resultAnnounceTime || '',
+    adjustmentStart: phases.adjustment?.start || row.adjustmentStart || '',
+    adjustmentEnd: phases.adjustment?.end || row.adjustmentEnd || ''
   })
   editDialogVisible.value = true
 }
@@ -415,12 +426,13 @@ async function handleCreate() {
       status: form.status,
       description: form.description || null,
       startDate: form.topicPublishStart || null,
-      endDate: form.teacherReviewEnd || null,
+      endDate: form.adjustmentEnd || null,
       phasesConfig: {
         topic_publish: { start: form.topicPublishStart, end: form.topicPublishEnd },
         student_apply: { start: form.studentApplyStart, end: form.studentApplyEnd },
         teacher_review: { start: form.teacherReviewStart, end: form.teacherReviewEnd },
         result_announce: form.resultAnnounceTime,
+        adjustment: { start: form.adjustmentStart, end: form.adjustmentEnd },
         teacher_student_limit: Number(form.teacherStudentLimit) || 0
       }
     })
@@ -444,6 +456,7 @@ async function changeStatus(id: string, status: any) {
         active: 'topic_publish',
         selection: 'student_apply',
         review: 'teacher_review',
+        adjustment: 'adjustment',
         completed: 'ended'
       }
       await cycleApi.update(id, {
@@ -475,6 +488,7 @@ async function handleEdit() {
       active: 'topic_publish',
       selection: 'student_apply',
       review: 'teacher_review',
+      adjustment: 'adjustment',
       completed: 'ended'
     }
     // 阶段时间与专业/研究方向分两次保存（后端对 phases_config 深合并，互不覆盖）
@@ -485,12 +499,13 @@ async function handleEdit() {
       phase: statusToPhaseMap[form.status] || 'topic_publish',
       description: form.description || null,
       startDate: form.topicPublishStart || null,
-      endDate: form.teacherReviewEnd || null,
+      endDate: form.adjustmentEnd || null,
       phasesConfig: {
         topic_publish: { start: form.topicPublishStart, end: form.topicPublishEnd },
         student_apply: { start: form.studentApplyStart, end: form.studentApplyEnd },
         teacher_review: { start: form.teacherReviewStart, end: form.teacherReviewEnd },
         result_announce: form.resultAnnounceTime,
+        adjustment: { start: form.adjustmentStart, end: form.adjustmentEnd },
         teacher_student_limit: Number(form.teacherStudentLimit) || 0
       }
     })

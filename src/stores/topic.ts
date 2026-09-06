@@ -76,26 +76,18 @@ export const useTopicStore = defineStore('topic', () => {
     }
   }
 
-  // 教师获取自己的课题（cycleId 可选；传 'all' 返回全部含往期，供分组/复用）
-  async function fetchMyTopics(params?: { keyword?: string; status?: string; cycleId?: string }) {
+  // 教师获取自己的课题
+  async function fetchMyTopics() {
     loading.value = true
     allowedMajors.value = null
     try {
       const res: any = await api.getMyTopics({
-        keyword: params?.keyword ?? searchKeyword.value,
-        status: params?.status,
-        cycleId: params?.cycleId
+        keyword: searchKeyword.value
       })
       topics.value = res.data || []
     } finally {
       loading.value = false
     }
-  }
-
-  // 教师把往期课题复制为本周期新课题（草稿）
-  async function republishTopic(topicId: string) {
-    const res: any = await api.republish(topicId)
-    return res.data
   }
 
   // 创建课题
@@ -176,7 +168,6 @@ export const useTopicStore = defineStore('topic', () => {
     fetchTopics,
     fetchTopicDetail,
     fetchMyTopics,
-    republishTopic,
     addTopic,
     updateTopic,
     updateTopicStatus,

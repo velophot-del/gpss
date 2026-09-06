@@ -72,13 +72,13 @@
 
         <!-- 教师菜单 -->
         <template v-if="userStore.userRole === 'teacher'">
-          <el-menu-item index="/teacher/library">
-            <el-icon><FolderOpened /></el-icon>
-            <template #title>我的选题库</template>
-          </el-menu-item>
           <el-menu-item index="/teacher/topics">
             <el-icon><Document /></el-icon>
-            <template #title>选题记录</template>
+            <template #title>我的课题</template>
+          </el-menu-item>
+          <el-menu-item index="/teacher/topics/create">
+            <el-icon><Plus /></el-icon>
+            <template #title>发布课题</template>
           </el-menu-item>
           <el-menu-item index="/teacher/review">
             <el-icon><UserFilled /></el-icon>
@@ -116,6 +116,10 @@
           <el-menu-item index="/student/result">
             <el-icon><CircleCheck /></el-icon>
             <template #title>选课结果</template>
+          </el-menu-item>
+          <el-menu-item index="/student/adjustment" v-if="cycleStore.currentPhase === 'adjustment'">
+            <el-icon><RefreshRight /></el-icon>
+            <template #title>调剂申请</template>
           </el-menu-item>
           <el-sub-menu index="student-process">
             <template #title>
@@ -218,7 +222,7 @@ import { useCycleStore } from '../stores/cycle'
 import { userApi, notificationApi } from '../api'
 import {
   HomeFilled, Setting, Document, Plus, UserFilled, TrendCharts,
-  Search, User, CircleCheck,
+  Search, User, CircleCheck, RefreshRight,
   Fold, Expand, DataAnalysis, InfoFilled, Menu,
   FolderOpened, Notebook, Reading, Calendar, Picture, ChatDotRound,
   Medal, Trophy, Bell, Tickets

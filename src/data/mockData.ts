@@ -185,6 +185,8 @@ export const mockCycles: SelectionCycle[] = [
     teacherReviewStart: '2025-01-11T00:00:00Z',
     teacherReviewEnd: '2025-01-20T23:59:59Z',
     resultAnnounceTime: '2025-01-22T10:00:00Z',
+    adjustmentStart: '2025-01-22T14:00:00Z',
+    adjustmentEnd: '2025-01-25T23:59:59Z',
     status: 'active',
     createdAt: '2024-11-15T00:00:00Z'
   }
