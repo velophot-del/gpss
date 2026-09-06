@@ -31,7 +31,7 @@ async function init() {
 
   await c.query(`CREATE TABLE IF NOT EXISTS cycles (
     id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100) NOT NULL, description TEXT, year VARCHAR(10),
-    status ENUM('draft','active','closed') DEFAULT 'draft',
+    status ENUM('draft','upcoming','active','selection','review','adjustment','completed') DEFAULT 'draft',
     phase ENUM('topic_submission','topic_publish','student_apply','student_selection','teacher_review','result_announce','adjustment','result','task_book','proposal','midterm','thesis_design','defense','grading','archive','ended') DEFAULT 'topic_submission',
     start_date DATE, end_date DATE, phases_config JSON, created_by VARCHAR(36),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP

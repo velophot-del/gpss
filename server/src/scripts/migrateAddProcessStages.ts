@@ -42,6 +42,15 @@ async function migrate() {
     `)
     console.log('✅ cycles.phase 已扩展为全流程阶段')
 
+    // 1.5 同步 cycles.status 枚举（曾为 draft/active/closed，前端已用完整生命周期状态）。
+    //     顺序：先把存量 closed 映射为 completed，再缩列，避免枚举缺成员导致数据被截断。
+    await conn.query(`UPDATE cycles SET status = 'completed' WHERE status = 'closed'`)
+    await conn.query(`
+      ALTER TABLE cycles
+      MODIFY COLUMN status ENUM('draft','upcoming','active','selection','review','adjustment','completed') NOT NULL DEFAULT 'draft'
+    `)
+    console.log('✅ cycles.status 已扩展为完整生命周期（draft/upcoming/active/selection/review/adjustment/completed）')
+
     // 2. 创建全流程数据表
     await createProcessTables(conn)
     console.log('✅ 全流程数据表已创建（任务书/开题/中期/论文/作品/答辩/成绩/指导/公告/通知）')
