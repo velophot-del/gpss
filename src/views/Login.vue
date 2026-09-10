@@ -34,6 +34,7 @@
 
     <div class="footer">
       <p>毕业设计管理系统 V2 @视觉传达设计学院</p>
+      <a class="icp-link" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">鲁ICP备2026052694号-1</a>
     </div>
   </div>
 </template>
@@ -224,5 +225,22 @@ async function handleFormalLogin() {
   bottom: 24px;
   color: #909399;
   font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.footer p {
+  margin: 0;
+}
+
+.icp-link {
+  color: #909399;
+  transition: color 0.2s ease;
+}
+
+.icp-link:hover {
+  color: #409eff;
 }
 </style>

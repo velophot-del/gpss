@@ -7,7 +7,8 @@
       <el-button type="primary" @click="$router.push('/')">返回首页</el-button>
     </div>
     <footer class="app-footer">
-      毕业设计管理系统 V2 @视觉传达设计学院
+      <span>毕业设计管理系统 V2 @视觉传达设计学院</span>
+      <a class="icp-link" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">鲁ICP备2026052694号-1</a>
     </footer>
   </main>
 </template>
@@ -31,6 +32,16 @@
   text-align: center;
   color: #909399;
   font-size: 12px;
+}
+
+.icp-link {
+  margin-left: 12px;
+  color: #909399;
+  transition: color 0.2s ease;
+}
+
+.icp-link:hover {
+  color: #409eff;
 }
 
 .not-found__content {
