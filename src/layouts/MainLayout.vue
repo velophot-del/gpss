@@ -15,8 +15,8 @@
     <!-- 侧边栏 -->
     <el-aside :width="isCollapse ? '64px' : '220px'" :class="{ 'sidebar-mobile': isMobile && showMobileMenu }" class="sidebar">
       <div class="logo">
-        <img :src="logoUrl" alt="山东工艺美术学院" v-show="!isCollapse" style="height: 36px; object-fit: contain;" />
-        <span v-show="!isCollapse">视觉传达设计学院</span>
+        <img :src="logoUrl" alt="山东工艺美术学院" v-show="!isCollapse" />
+        <span v-show="!isCollapse">GPSS系统</span>
         <el-icon v-show="isCollapse"><DataAnalysis /></el-icon>
       </div>
 
@@ -187,7 +187,7 @@
       </el-main>
 
       <el-footer class="app-footer">
-        <span>毕业设计管理系统 V2 @视觉传达设计学院</span>
+        <span>毕业设计管理系统 V3.0 @视觉传达</span>
         <a class="icp-link" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">鲁ICP备2026052694号-1</a>
       </el-footer>
     </el-container>
@@ -407,8 +407,9 @@ async function handleChangePassword() {
 }
 
 .logo img {
-  width: 32px;
-  height: 32px;
+  width: auto;
+  height: 28px;
+  flex-shrink: 0;
 }
 
 .sidebar :deep(.el-menu) {

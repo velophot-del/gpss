@@ -216,6 +216,7 @@
             <span class="step-num">1</span>
             <div class="step-body">
               <p>下载导入模板，按格式填写用户信息</p>
+              <p style="color: #909399; font-size: 12px; margin: -8px 0 8px;">学生的「用户名」可留空，将自动使用「学号」作为用户名</p>
               <el-button size="small" type="primary" plain icon="Download" @click="downloadTemplate">下载模板</el-button>
             </div>
           </div>

@@ -2,9 +2,9 @@
   <div class="login-page">
     <div class="login-container">
       <div class="login-header">
-        <img :src="logoUrl" alt="山东工艺美术学院" class="logo" style="max-width: 280px;" />
-        <h1 class="title-first">视觉传达设计学院</h1>
-        <h1 class="title-second">毕业设计管理系统 <span class="version-tag">v2</span></h1>
+        <img :src="logoUrl" alt="山东工艺美术学院" class="logo" />
+        <h1 class="title-first">GPSS系统</h1>
+        <h1 class="title-second">毕业设计管理系统 <span class="version-tag">V3.0</span></h1>
       </div>
 
     <el-form ref="formRef" :model="form" :rules="rules" class="login-form">
@@ -33,7 +33,7 @@
     </div>
 
     <div class="footer">
-      <p>毕业设计管理系统 V2 @视觉传达设计学院</p>
+      <p>毕业设计管理系统 V3.0 @视觉传达</p>
       <a class="icp-link" href="https://beian.miit.gov.cn/" target="_blank" rel="noopener">鲁ICP备2026052694号-1</a>
     </div>
   </div>
@@ -131,9 +131,10 @@ async function handleFormalLogin() {
 }
 
 .logo {
-  width: 64px;
+  display: block;
+  width: auto;
   height: 64px;
-  margin-bottom: 16px;
+  margin: 0 auto 16px;
 }
 
 .title-first {
@@ -170,9 +171,8 @@ async function handleFormalLogin() {
 
 @media (max-width: 480px) {
   .logo {
-    width: 48px;
     height: 48px;
-    margin-bottom: 12px;
+    margin: 0 auto 12px;
   }
   
   .login-header h1 {

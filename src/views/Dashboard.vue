@@ -288,9 +288,10 @@ const statusTypeMap: Record<string, any> = {
   none: 'info'
 }
 
-// 热门课题
+// 热门课题（只统计学院已发布的；store 全局共享，可能残留教师自己的草稿）
 const hotTopics = computed(() => {
-  return [...topicStore.topics]
+  return topicStore.topics
+    .filter(t => t.status === 'published')
     .sort((a, b) => b.applyCount - a.applyCount)
     .slice(0, 5)
 })

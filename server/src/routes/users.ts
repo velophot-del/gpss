@@ -460,14 +460,13 @@ router.post('/batch-import', requireRole(['admin']), upload.single('file'), asyn
     // 验证必填列：username, realName(或 姓名), role(或 角色)
     const firstRow = rows[0]
     const cleanKey = (key: string) => String(key).replace(/^\uFEFF/, '').replace(/\s/g, '').toLowerCase()
-    const hasColumns = Object.keys(firstRow).some(k =>
-      ['username', '用户名', '账号'].includes(cleanKey(k))
-    ) && Object.keys(firstRow).some(k =>
-      ['realname', 'real_name', '姓名', 'name'].includes(cleanKey(k))
-    )
+    const keys = Object.keys(firstRow).map(cleanKey)
+    const hasRealName = keys.some(k => ['realname', 'real_name', '姓名', 'name'].includes(k))
+    const hasUsername = keys.some(k => ['username', '用户名', '账号'].includes(k))
+    const hasStudentId = keys.some(k => ['studentid', 'student_id', '学号'].includes(k))
 
-    if (!hasColumns) {
-      return error(res, '文件格式不正确，必须包含「用户名」和「姓名」列。请参考模板格式：用户名、密码、姓名、角色、邮箱、学号、班级、专业、职称、院系、手机号（角色可选，默认为学生）')
+    if (!hasRealName || (!hasUsername && !hasStudentId)) {
+      return error(res, '文件格式不正确，必须包含「姓名」列，以及「用户名」或「学号」中的至少一列。请参考模板格式：用户名、密码、姓名、角色、邮箱、学号、班级、专业、职称、院系、手机号（角色可选，默认为学生；学生可只填学号，将自动作为用户名）')
     }
 
     // 标准化字段名映射
@@ -523,10 +522,15 @@ router.post('/batch-import', requireRole(['admin']), upload.single('file'), asyn
       const raw = rows[i]
       const item = normalizeRow(raw)
 
-      // 必填校验
-      if (!item.username || !item.realName) {
+      // 未填用户名时自动使用学号：学号天然唯一，避免姓名全拼重名时第二条被跳过
+      if (!item.username && item.studentId) {
+        item.username = item.studentId
+      }
+
+      // 必填校验：姓名必填，用户名与学号至少填一个
+      if (!item.realName || !item.username) {
         results.failed++
-        results.errors.push(`第${i + 2}行：用户名或姓名为空`)
+        results.errors.push(`第${i + 2}行：姓名为空，或用户名与学号都未填`)
         continue
       }
 

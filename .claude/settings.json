@@ -102,7 +102,18 @@
       "Bash(node gpss-check.mjs http://127.0.0.1:5173/gpss/login \".footer\")",
       "Bash(node gpss-check.mjs http://127.0.0.1:5173/gpss/no-such-page-xyz \".app-footer\")",
       "Bash(node gpss-check.mjs http://127.0.0.1:5174/ \".footer-bottom\")",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(grep -vEi '^[[:space:]]*(#|export[[:space:]]|[A-Za-z_][A-Za-z0-9_]*([_.#]?(PASSWORD|PASSWD|SECRET|TOKEN|SALT|CREDENTIAL|APIKEY|PRIVATE|KEY)[_.#]?)[[:space:]]*=)' server/.env | grep -vE '^[[:space:]]*[$;@#%&*+?<>|!~^-]')",
+      "Bash(mysql.server start)",
+      "Bash(npm -v)",
+      "Bash(lsof -iTCP:5173 -sTCP:LISTEN)",
+      "Bash(lsof -iTCP:3011 -sTCP:LISTEN)",
+      "Bash(lsof -iTCP:3001 -sTCP:LISTEN)",
+      "Bash(lsof -iTCP:3012 -sTCP:LISTEN)",
+      "Bash(lsof -iTCP:5174 -sTCP:LISTEN)",
+      "Bash(mysql --protocol=socket --socket=/tmp/mysql.sock -uroot -e \"USE banshan; SHOW TABLES; SELECT '--- categories ---' AS x; SELECT COUNT\\(*\\) AS n FROM categories; SELECT '--- articles ---' AS x; SELECT COUNT\\(*\\) AS n FROM articles; SELECT '--- users/admin ---' AS x; SELECT COUNT\\(*\\) AS n FROM users;\")",
+      "Bash(node -e ' *)",
+      "Bash(node -e 'try{const j5=require\\(\"json5\"\\);const fs=require\\(\"fs\"\\);const j=j5.parse\\(fs.readFileSync\\(\".claude/settings.json\",\"utf8\"\\)\\);console.log\\(\"json5 sed entry:\", JSON.stringify\\(j.permissions.allow[106]\\)\\);}catch\\(e\\){console.log\\(\"json5 not avail:\",e.message\\)}')"
     ],
     "additionalDirectories": [
       "/tmp",

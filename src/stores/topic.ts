@@ -126,8 +126,10 @@ export const useTopicStore = defineStore('topic', () => {
   const categories = computed(() => [...new Set(topics.value.map(t => t.category).filter(Boolean))])
 
   // 过滤后的课题列表（根据搜索条件）
+  // 只展示学院已发布的课题：草稿/待审/已满/已关闭一律不出现
+  // （topics 是全局共享数组，可能被教师端的「我的课题」覆盖，故此处再兜一层）
   const filteredTopics = computed(() => {
-    let result = topics.value
+    let result = topics.value.filter(t => t.status === 'published')
     if (searchKeyword.value) {
       const kw = searchKeyword.value.toLowerCase()
       result = result.filter(t =>
