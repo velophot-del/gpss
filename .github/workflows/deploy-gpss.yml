@@ -1,6 +1,11 @@
 name: Deploy GPSS
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '.github/workflows/deploy-gpss.yml'
+      - 'docs/**'
   workflow_dispatch:
 
 permissions:
