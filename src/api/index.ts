@@ -165,6 +165,7 @@ export const documentTemplateApi = {
 
 // ===== 管理员数据管理 =====
 export const adminApi = {
+  getSelectionOverview: () => request.get('/admin/selection-overview'),
   getAllTopics: () => request.get('/admin/topics'),
   getTeachers: () => request.get('/admin/teachers'),
   getStudents: () => request.get('/admin/students'),

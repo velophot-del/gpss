@@ -9,6 +9,7 @@ server/uploads-private/
 uploads/
 uploads-private/
 test-results/
+.playwright-cli/
 *.log
 .DS_Store
 

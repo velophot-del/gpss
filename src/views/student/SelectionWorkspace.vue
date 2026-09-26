@@ -29,6 +29,12 @@
     <el-alert v-if="loadError" title="课题暂时加载失败" type="error" show-icon class="phase-alert" :closable="false">
       <template #default><el-button link type="danger" @click="loadData">重新加载</el-button></template>
     </el-alert>
+    <el-alert v-if="!hasSubmittedVolunteers && crowdedChoices" title="志愿竞争提醒" type="warning" show-icon class="phase-alert" :closable="false">
+      所选志愿中有 {{ crowdedChoices }} 个课题或导师的第一志愿人数已达到名额上限。可查看其他适合的课题作为备选；人数会变化，提示不代表录取结果。
+    </el-alert>
+    <el-alert v-if="!hasSubmittedVolunteers && oneTeacherSelected" title="志愿集中在同一位导师" type="warning" show-icon class="phase-alert" :closable="false">
+      正式提交须覆盖至少两位不同指导教师。请再选择其他老师的课题。
+    </el-alert>
 
     <div class="workspace-tabs" role="tablist" aria-label="选题内容">
       <el-button :type="activePanel === 'catalog' ? 'primary' : 'default'" @click="activePanel = 'catalog'">浏览课题</el-button>
@@ -40,7 +46,7 @@
         <div class="panel-heading">
           <div>
             <h2>浏览课题</h2>
-            <p>把感兴趣的方向加入清单，再从中选择至少 3 个、至多 6 个不重复的课题作为志愿。</p>
+            <p>把感兴趣的方向加入清单，再选择 3–6 个不重复的课题，且至少覆盖两位不同指导教师。</p>
           </div>
           <span class="result-count">{{ topicStore.filteredTopics.length }} 个结果</span>
         </div>
@@ -60,6 +66,9 @@
         <div v-loading="topicStore.loading" class="topic-grid" aria-live="polite">
           <article v-for="topic in topicStore.filteredTopics" :key="topic.id" class="topic-card" :class="{ shortlisted: shortlistedIds.includes(topic.id) }">
             <div class="topic-topline"><el-tag :type="difficultyType[topic.difficulty]" size="small">{{ difficultyLabel[topic.difficulty] }}</el-tag><span class="quota">剩余 {{ Math.max(0, topic.maxStudents - topic.currentCount) }} 个名额</span></div>
+            <p class="topic-demand">课题第一志愿 {{ topic.firstChoiceCount || 0 }} 人 / 招收 {{ topic.maxStudents }} 人<el-tag v-if="isCrowdedTopic(topic)" type="warning" size="small">竞争较多</el-tag></p>
+            <p class="topic-demand">课题全部志愿 {{ topic.applyCount || 0 }} 人</p>
+            <p v-if="topic.teacherStudentLimit" class="topic-demand">导师第一志愿 {{ topic.teacherFirstChoiceCount || 0 }} 人 / 指导上限 {{ topic.teacherStudentLimit }} 人</p>
             <h3>{{ topic.title }}</h3>
             <p class="topic-summary">{{ topic.description?.slice(0, 92) || '暂无简介' }}{{ topic.description?.length > 92 ? '…' : '' }}</p>
             <div class="topic-meta"><span>{{ topic.teacherName || '指导教师待定' }}</span><span>{{ topic.category }}</span></div>
@@ -86,7 +95,10 @@
         <div class="submit-summary">
           <p v-if="selectedList.length < VOLUNTEER_MIN">至少还需选择 {{ VOLUNTEER_MIN - selectedList.length }} 个志愿（至多可填 {{ VOLUNTEER_LIMIT }} 个）。</p>
           <p v-else>已满足至少 {{ VOLUNTEER_MIN }} 个志愿，还可补至 {{ VOLUNTEER_LIMIT }} 个提高命中；拖动可调整志愿顺序，提交前请确认。</p>
+          <p v-if="selectedList.length && !hasEnoughTeachers" class="rank-hint">当前覆盖 {{ selectedTeacherIds.length }} 位指导教师；提交前须选择至少两位不同老师的课题。</p>
+          <p v-else-if="hasEnoughTeachers" class="rank-hint">已覆盖 {{ selectedTeacherIds.length }} 位指导教师。</p>
           <p v-if="selectedList.length >= VOLUNTEER_MIN" class="rank-hint">按下面顺序录取：第 1 行为「第一志愿」（最优先），越靠上越优先。</p>
+          <p class="rank-hint">竞争提示按当前第一志愿人数计算；剩余名额只扣除已录取人数。后续志愿也可能形成竞争。</p>
           <div v-if="selectedList.length" class="priority-list">
             <div
               v-for="(item, index) in selectedList"
@@ -103,9 +115,10 @@
               <el-icon class="drag-handle"><Rank /></el-icon>
               <span class="vol-rank" :class="{ first: index === 0 }">第{{ index + 1 }}志愿</span>
               <span class="priority-title">{{ item.title }}</span>
+              <span v-if="topicStore.getTopicById(item.topic_id)" class="topic-demand">第一志愿 {{ topicStore.getTopicById(item.topic_id)?.firstChoiceCount || 0 }} / 名额 {{ topicStore.getTopicById(item.topic_id)?.maxStudents }}</span>
             </div>
           </div>
-          <el-button type="primary" class="submit-button" :loading="submitting" :disabled="selectedList.length < VOLUNTEER_MIN" @click="confirmSubmit">确认并提交志愿</el-button>
+          <el-button type="primary" class="submit-button" :loading="submitting" :disabled="selectedList.length < VOLUNTEER_MIN || !hasEnoughTeachers" @click="confirmSubmit">确认并提交志愿</el-button>
           <el-button text class="full-width" @click="activePanel = 'submitted'">查看提交记录</el-button>
         </div>
       </aside>
@@ -222,6 +235,19 @@ const VOLUNTEER_MIN = 3
 const VOLUNTEER_LIMIT = 6
 const shortlist = ref<any[]>([])
 const selectedList = ref<any[]>([])
+function isCrowdedTopic(topic: { firstChoiceCount?: number; maxStudents: number; teacherFirstChoiceCount?: number; teacherStudentLimit?: number }) {
+  return Number(topic.firstChoiceCount) >= Number(topic.maxStudents) ||
+    (Number(topic.teacherStudentLimit) > 0 && Number(topic.teacherFirstChoiceCount) >= Number(topic.teacherStudentLimit))
+}
+const crowdedChoices = computed(() => selectedList.value.filter(item => {
+  const topic = topicStore.getTopicById(item.topic_id)
+  return topic && isCrowdedTopic(topic)
+}).length)
+const selectedTeacherIds = computed(() => [...new Set(selectedList.value
+  .map(item => item.teacher_id || topicStore.getTopicById(item.topic_id)?.teacherId)
+  .filter(Boolean))])
+const hasEnoughTeachers = computed(() => selectedTeacherIds.value.length >= 2)
+const oneTeacherSelected = computed(() => selectedList.value.length >= VOLUNTEER_MIN && selectedTeacherIds.value.length === 1)
 const submittedApplications = ref<any[]>([])
 const submitting = ref(false)
 const loadError = ref(false)
@@ -360,7 +386,14 @@ async function confirmSubmit() {
     return
   }
   if (!assertNotSubmitted()) return
-  await ElMessageBox.confirm(`提交后将按当前顺序生成 ${selectedList.value.length} 个志愿（要求不少于 ${VOLUNTEER_MIN} 个、至多 ${VOLUNTEER_LIMIT} 个），确认顺序无误后再提交。`, '确认志愿顺序', { confirmButtonText: '确认提交', cancelButtonText: '再检查一下', type: 'info' })
+  if (selectedList.value.length < VOLUNTEER_MIN || !hasEnoughTeachers.value) {
+    ElMessage.warning('请选择 3–6 个课题，且至少覆盖两位不同指导教师')
+    return
+  }
+  const riskMessage = [
+    crowdedChoices.value ? `${crowdedChoices.value} 个课题或导师的第一志愿人数已达到名额上限。` : '',
+  ].filter(Boolean).join('')
+  await ElMessageBox.confirm(`提交后将按当前顺序生成 ${selectedList.value.length} 个志愿。${riskMessage}请确认志愿顺序和录取风险。`, '确认志愿顺序', { confirmButtonText: '确认提交', cancelButtonText: '再检查一下', type: riskMessage ? 'warning' : 'info' })
   submitting.value = true
   try {
     // 原子整批提交：全部成功才算提交成功；任一失败则整批不写入，保留清单可重试
@@ -423,6 +456,7 @@ watch([() => topicStore.selectedCategory, () => topicStore.selectedDifficulty, (
 .topic-card:hover, .topic-card.shortlisted { border-color: #c4d5e2; box-shadow: 0 8px 22px rgba(23, 50, 77, .08); }
 .topic-topline, .topic-meta, .topic-actions { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .quota { color: var(--success-color); font-size: 12px; }
+.topic-demand { display: inline-flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; margin: 4px 0; }
 .topic-card h3 { color: var(--text-primary); line-height: 1.45; font-size: 16px; margin: 12px 0 8px; }
 .topic-summary { color: var(--text-secondary); font-size: 13px; line-height: 1.6; min-height: 42px; }
 .topic-meta { color: var(--text-secondary); font-size: 12px; margin: 12px 0; }

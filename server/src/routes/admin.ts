@@ -2,10 +2,62 @@ import { Router } from 'express'
 import { query } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
+import { getActiveCycle } from '../utils/processFlow.js'
+import { getTeacherStudentLimit } from '../utils/policies.js'
+import { safeParseJson } from '../utils/json.js'
 
 const router = Router()
 router.use(authMiddleware)
 router.use(requireRole(['admin']))
+
+// 当前周期选题监控：学生状态和课题空位使用同一周期口径。
+router.get('/selection-overview', async (_req: AuthRequest, res) => {
+  try {
+    const cycle = await getActiveCycle()
+    if (!cycle) return success(res, { cycle: null, students: [], topics: [], teacherLimit: 0 })
+    const students = await query<any>(`
+      SELECT u.id, u.student_id, u.real_name, u.class_name, u.major,
+             COUNT(a.id) AS application_count,
+             SUM(a.status = 'accepted') AS accepted_count,
+             SUM(a.status IN ('pending', 'submitted', 'pending_review', 'waitlisted')) AS pending_count,
+             GROUP_CONCAT(DISTINCT at.category SEPARATOR '、') AS preferred_categories,
+             GROUP_CONCAT(DISTINCT a.topic_id) AS applied_topic_ids
+      FROM users u
+      LEFT JOIN applications a ON a.student_id = u.id AND a.status != 'withdrawn'
+        AND a.topic_id IN (SELECT id FROM topics WHERE cycle_id = ?)
+      LEFT JOIN topics at ON at.id = a.topic_id
+      WHERE u.role = 'student' AND u.status = 'active'
+      GROUP BY u.id, u.student_id, u.real_name, u.class_name, u.major
+      ORDER BY u.student_id
+    `, [cycle.id])
+    const topics = await query<any>(`
+      SELECT t.id, t.title, t.category, t.major, t.teacher_id, u.real_name AS teacher_name,
+             t.max_students, t.status,
+             COUNT(a.id) AS application_count,
+             SUM(a.priority = 1) AS first_choice_count,
+             SUM(a.status = 'accepted') AS accepted_count,
+             (SELECT COUNT(DISTINCT ta.student_id) FROM applications ta
+              JOIN topics tt ON tt.id = ta.topic_id
+              WHERE tt.teacher_id = t.teacher_id AND tt.cycle_id = ? AND ta.status = 'accepted') AS teacher_accepted_count,
+             (SELECT COUNT(DISTINCT ta.student_id) FROM applications ta
+               JOIN topics tt ON tt.id = ta.topic_id
+               WHERE tt.teacher_id = t.teacher_id AND tt.cycle_id = ? AND ta.priority = 1
+                 AND ta.status IN ('pending', 'submitted', 'pending_review', 'waitlisted', 'accepted')) AS teacher_first_choice_count
+      FROM topics t
+      LEFT JOIN users u ON u.id = t.teacher_id
+      LEFT JOIN applications a ON a.topic_id = t.id
+        AND a.status IN ('pending', 'submitted', 'pending_review', 'waitlisted', 'accepted')
+      WHERE t.cycle_id = ? AND t.status IN ('published', 'full')
+      GROUP BY t.id, t.title, t.category, t.major, t.teacher_id, u.real_name, t.max_students, t.status
+      ORDER BY t.title
+    `, [cycle.id, cycle.id, cycle.id])
+    const teacherLimit = getTeacherStudentLimit(safeParseJson(cycle.phases_config, {}))
+    success(res, { cycle: { id: cycle.id, name: cycle.name, phase: cycle.phase }, students, topics, teacherLimit })
+  } catch (err) {
+    console.error('获取当前周期选题监控失败:', err)
+    error(res, '服务器内部错误', 500)
+  }
+})
 
 // GET /api/admin/topics - 管理员查看所有选题
 router.get('/topics', async (_req: AuthRequest, res) => {

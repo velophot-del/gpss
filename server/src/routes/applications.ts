@@ -18,79 +18,9 @@ router.use(authMiddleware)
 
 // ===== 选题申请 =====
 
-// POST /api/applications - 学生提交选课申请
-router.post('/', requireRole(['student']), async (req: AuthRequest, res) => {
-  try {
-    const { topicId, priority = 1, motivation } = req.body
-    if (!topicId) return error(res, '请选择课题')
-    const volunteerPriority = Number(priority)
-    if (!Number.isInteger(volunteerPriority) || volunteerPriority < 1 || volunteerPriority > 6) {
-      return error(res, '志愿序号须为 1-6 的整数')
-    }
-
-    // 检查当前是否在志愿填报阶段
-    const activeCycle = await getActiveCycle()
-    if (!activeCycle || !isStudentSelectionPhase(activeCycle.phase)) {
-      return error(res, '当前不在志愿填报阶段，无法提交申请')
-    }
-
-    // 检查课题是否存在且已发布
-    const [topic] = await query<any>('SELECT * FROM topics WHERE id = ? AND status = ?', [topicId, 'published'])
-    if (!topic) return error(res, '课题不存在或未开放选课')
-
-    // 只能申请当前进行中周期的课题，避免跨周期混投
-    if (topic.cycle_id == null || Number(topic.cycle_id) !== Number(activeCycle.id)) {
-      return error(res, '课题不属于当前选题周期，无法申请')
-    }
-    const studentMajor = await getStudentMajorCode(req.user!.id)
-    const accessPolicy = await getTopicAccessPolicy(topic.cycle_id)
-    if (!isTopicVisible(accessPolicy, studentMajor, topic.major_code)) return error(res, '只能申请允许查看范围内的专业课题', 403)
-
-    // 已被本周期录取的学生不能再提交志愿（保证“一周期一录取”）
-    const placedRows = await query<any>(
-      `SELECT a.id FROM applications a
-       JOIN topics t ON a.topic_id = t.id
-       WHERE a.student_id = ? AND a.status = 'accepted' AND t.cycle_id = ? LIMIT 1`,
-      [req.user!.id, topic.cycle_id]
-    )
-    if (placedRows.length > 0) return error(res, '您已被本周期课题录取，无需再提交申请')
-
-    // 检查是否已申请过该课题
-    const [existing] = await query<any>(
-      "SELECT * FROM applications WHERE student_id = ? AND topic_id = ? AND status != 'withdrawn'",
-      [req.user!.id, topicId]
-    )
-    if (existing) return error(res, '您已申请过此课题')
-
-    // 志愿序号须唯一：同一学生在同周期内不能有两个申请使用同一志愿序号（否则志愿序失效）
-    const rankRows = await query<any>(
-      `SELECT a.id FROM applications a
-       JOIN topics t ON a.topic_id = t.id
-       WHERE a.student_id = ? AND t.cycle_id = ? AND a.status IN ('pending', 'submitted', 'pending_review') AND a.priority = ?
-       LIMIT 1`,
-      [req.user!.id, topic.cycle_id, volunteerPriority]
-    )
-    if (rankRows.length > 0) return error(res, `志愿序号 ${volunteerPriority} 已被占用，请改用其它序号`)
-
-    // 检查最大志愿数（与前端 VOLUNTEER_MAX 一致，避免读旧配置导致前后端不一致）
-    const countResult = await query<{ cnt: number }>(
-      "SELECT COUNT(*) as cnt FROM applications WHERE student_id = ? AND status IN ('pending', 'accepted')",
-      [req.user!.id]
-    )
-    if (countResult[0].cnt >= VOLUNTEER_MAX) {
-      return error(res, `每名学生最多填报 ${VOLUNTEER_MAX} 个志愿`)
-    }
-
-    await query(`
-      INSERT INTO applications (id, student_id, topic_id, priority, motivation)
-      VALUES (?, ?, ?, ?, ?)
-    `, [uuidv4(), req.user!.id, topicId, volunteerPriority, motivation])
-
-    success(res, null, '申请提交成功')
-  } catch (err: any) {
-    console.error('提交申请失败:', err)
-    error(res, '服务器内部错误', 500)
-  }
+// 旧版单课题入口无法校验完整志愿的导师覆盖，统一通过整批提交。
+router.post('/', requireRole(['student']), (_req: AuthRequest, res) => {
+  return error(res, '请在选题工作台整批提交 3–6 个课题，且至少覆盖两位不同指导教师')
 })
 
 // POST /api/applications/volunteers/submit - 整批提交志愿（原子：全部成功或全部失败，避免“部分提交成功却丢数据”）
@@ -122,16 +52,20 @@ router.post('/volunteers/submit', requireRole(['student']), async (req: AuthRequ
       items.push({ topicId: tid, priority: p, motivation: v?.motivation })
     }
 
-    // 可见性与课题校验
+    // 可见性、课题及导师覆盖校验
     const studentMajor = await getStudentMajorCode(req.user!.id)
     const policy = await getTopicAccessPolicy(activeCycle.id)
+    const teacherIds = new Set<string>()
     for (const it of items) {
-      const topicRows = await query<any>('SELECT id, status, cycle_id, major_code FROM topics WHERE id = ?', [it.topicId])
+      const topicRows = await query<any>('SELECT id, status, cycle_id, major_code, teacher_id FROM topics WHERE id = ?', [it.topicId])
       const topic = topicRows[0]
       if (!topic || topic.status !== 'published') return error(res, '课题不存在或未开放选课')
       if (Number(topic.cycle_id) !== Number(activeCycle.id)) return error(res, '课题不属于当前选题周期')
       if (!isTopicVisible(policy, studentMajor, topic.major_code)) return error(res, '只能申请允许查看范围内的专业课题')
+      if (!topic.teacher_id) return error(res, '所选课题未分配指导教师，请更换课题')
+      teacherIds.add(String(topic.teacher_id))
     }
+    if (teacherIds.size < 2) return error(res, '志愿须覆盖至少两位不同指导教师的课题')
 
     const result: any = await transaction(async (conn: Connection): Promise<any> => {
       // 锁学生行，串行化“同一学生的并发整批提交”
@@ -143,11 +77,15 @@ router.post('/volunteers/submit', requireRole(['student']), async (req: AuthRequ
       )
       if (placedRows.length) return { error: '您已被本周期课题录取，不能再提交志愿' }
       const [existingRows] = await conn.query<any[]>(
-        `SELECT a.topic_id FROM applications a JOIN topics t ON a.topic_id = t.id
+        `SELECT a.id FROM applications a JOIN topics t ON a.topic_id = t.id
          WHERE a.student_id = ? AND t.cycle_id = ? AND a.status IN ('pending', 'submitted', 'pending_review')`,
         [req.user!.id, activeCycle.id]
       )
-      if (existingRows.length) return { error: '已有在途志愿，请勿重复提交（如需调整请先全部撤回后再整批提交）' }
+      if (existingRows.length >= VOLUNTEER_MIN) return { error: '本周期志愿已提交，请勿重复提交' }
+      // 兼容旧入口留下的 1–2 条未完成志愿：保留撤回记录，再以整批志愿替换。
+      if (existingRows.length) {
+        await conn.query("UPDATE applications SET status = 'withdrawn' WHERE id IN (?)", [existingRows.map(row => row.id)])
+      }
       for (const it of items) {
         await conn.query(
           `INSERT INTO applications (id, student_id, topic_id, priority, status, motivation)
@@ -177,7 +115,7 @@ router.get('/', async (req: AuthRequest, res) => {
 
     if (req.user!.role === 'student') {
       sql = `
-        SELECT a.*, t.title AS topic_title, t.major, t.category,
+        SELECT a.*, t.title AS topic_title, t.major, t.category, t.cycle_id,
                u.real_name AS teacher_name, t.difficulty, t.status AS topic_status
         FROM applications a
         LEFT JOIN topics t ON a.topic_id = t.id
@@ -216,6 +154,7 @@ router.get('/', async (req: AuthRequest, res) => {
       ...item,
       studentId: item.student_id,
       topicId: item.topic_id,
+      cycleId: item.cycle_id,
       topicTitle: item.topic_title,
       teacherName: item.teacher_name,
       studentName: item.student_name,
@@ -448,17 +387,28 @@ router.post('/adjustments', requireRole(['student']), async (req: AuthRequest, r
     const { fromTopicId, toTopicId, reason } = req.body
     if (!reason) return error(res, '请填写调整原因')
     if (!toTopicId) return error(res, '请选择目标课题')
+    const activeCycle = await getActiveCycle()
+    if (!activeCycle || activeCycle.phase !== 'adjustment') return error(res, '当前不在调剂阶段')
+    const [targetTopic] = await query<any>('SELECT id, cycle_id, status, major_code FROM topics WHERE id = ?', [toTopicId])
+    if (!targetTopic || Number(targetTopic.cycle_id) !== Number(activeCycle.id) || targetTopic.status !== 'published') {
+      return error(res, '目标课题不在当前周期或不可调剂')
+    }
+    const policy = await getTopicAccessPolicy(activeCycle.id)
+    const majorCode = await getStudentMajorCode(req.user!.id)
+    if (!isTopicVisible(policy, majorCode, targetTopic.major_code)) return error(res, '您无权申请该专业课题', 403)
 
     const acceptedApplications = await query<any>(
-      "SELECT topic_id FROM applications WHERE student_id = ? AND status = 'accepted'",
-      [req.user!.id],
+      `SELECT a.topic_id FROM applications a JOIN topics t ON t.id = a.topic_id
+       WHERE a.student_id = ? AND a.status = 'accepted' AND t.cycle_id = ?`,
+      [req.user!.id, activeCycle.id],
     )
     const source = resolveAdjustmentSource(acceptedApplications.map(item => item.topic_id), fromTopicId)
     if (source.error) return error(res, source.error)
 
     const [pendingAdjustment] = await query<any>(
-      "SELECT id FROM adjustments WHERE student_id = ? AND status = 'pending' LIMIT 1",
-      [req.user!.id],
+      `SELECT adj.id FROM adjustments adj JOIN topics t ON t.id = adj.to_topic_id
+       WHERE adj.student_id = ? AND adj.status = 'pending' AND t.cycle_id = ? LIMIT 1`,
+      [req.user!.id, activeCycle.id],
     )
     if (pendingAdjustment) return error(res, '已有待处理的调整申请，请勿重复提交')
 
@@ -483,7 +433,7 @@ router.get('/adjustments', async (req: AuthRequest, res) => {
     if (req.user!.role === 'admin' || req.user!.role === 'teacher') {
       sql = `
         SELECT adj.*, s.real_name AS student_name, s.student_id, sp.gpa AS gpa,
-               ft.title AS from_topic_title, tt.title AS to_topic_title
+               ft.title AS from_topic_title, tt.title AS to_topic_title, tt.cycle_id
         FROM adjustments adj
         JOIN users s ON adj.student_id = s.id
         LEFT JOIN student_profiles sp ON sp.user_id = s.id
@@ -494,7 +444,7 @@ router.get('/adjustments', async (req: AuthRequest, res) => {
     } else {
       sql = `
         SELECT adj.*,
-               ft.title AS from_topic_title, tt.title AS to_topic_title
+               ft.title AS from_topic_title, tt.title AS to_topic_title, tt.cycle_id
         FROM adjustments adj
         LEFT JOIN topics ft ON adj.from_topic_id = ft.id
         LEFT JOIN topics tt ON adj.to_topic_id = tt.id
@@ -538,8 +488,9 @@ router.put('/adjustments/:id', requireRole(['admin']), async (req: AuthRequest, 
         SELECT id, topic_id
         FROM applications
         WHERE student_id = ? AND status = 'accepted'
+          AND topic_id IN (SELECT id FROM topics WHERE cycle_id = (SELECT cycle_id FROM topics WHERE id = ?))
         FOR UPDATE
-      `, [adj.student_id])
+      `, [adj.student_id, adj.to_topic_id])
       const source = resolveAdjustmentSource(currentApplications.map(item => item.topic_id), adj.from_topic_id)
       if (source.error) return { error: source.error }
       const currentApplication = source.sourceTopicId

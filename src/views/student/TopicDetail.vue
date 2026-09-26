@@ -91,7 +91,7 @@
               {{ isShortlisted ? '已加入预选列表' : '加入预选列表' }}
             </el-button>
             <p style="font-size: 12px; color: #909399; text-align: center;">
-              可添加多个课题到预选列表进行对比，再选择1-3个志愿提交
+              可先收藏课题，再到选题工作台选择 3–6 个志愿；所选课题须覆盖至少两位不同指导教师。
             </p>
           </el-card>
 
@@ -103,33 +103,8 @@
                 您已将此课题作为<strong>第{{ priorityLabel[myApplication.priority] }}志愿</strong>填报
               </p>
               <template v-else>
-                <el-form ref="applyFormRef" :model="applyForm" :rules="applyRules">
-                  <el-form-item prop="priority">
-                    <label>选择志愿优先级：</label>
-                    <el-radio-group v-model="applyForm.priority">
-                      <el-radio :value="1" :disabled="!canApplyPriority(1)">第一志愿</el-radio>
-                      <el-radio :value="2" :disabled="!canApplyPriority(2)">第二志愿</el-radio>
-                      <el-radio :value="3" :disabled="!canApplyPriority(3)">第三志愿</el-radio>
-                    </el-radio-group>
-                  </el-form-item>
-                  <el-form-item prop="motivation">
-                    <el-input
-                      v-model="applyForm.motivation"
-                      type="textarea"
-                      :rows="3"
-                      placeholder="请说明选择该课题的理由（可选）"
-                    />
-                  </el-form-item>
-                  <el-button
-                    type="primary"
-                    :loading="applying"
-                    :disabled="!applyForm.priority || !canApplyPriority(applyForm.priority)"
-                    @click="handleApply"
-                    style="width: 100%;"
-                  >
-                    确认填报
-                  </el-button>
-                </el-form>
+                <p>请在选题工作台统一排序并提交志愿，至少覆盖两位不同指导教师。</p>
+                <el-button type="primary" style="width: 100%;" @click="router.push('/student/browse')">前往选题工作台</el-button>
               </template>
             </div>
           </el-card>
@@ -145,7 +120,6 @@ import { useRoute, useRouter } from 'vue-router'
 import { useTopicStore } from '../../stores/topic'
 import { useApplicationStore } from '../../stores/application'
 import { useUserStore } from '../../stores/user'
-import type { FormInstance, FormRules } from 'element-plus'
 import { ElMessage } from 'element-plus'
 import { Document, UserFilled, CircleCheckFilled, ShoppingCart, Message, Phone } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
@@ -158,14 +132,7 @@ const applicationStore = useApplicationStore()
 const userStore = useUserStore()
 
 const loading = ref(false)
-const applying = ref(false)
-const applyFormRef = ref<FormInstance>()
-const applyForm = ref({ priority: undefined as number | undefined, motivation: '' })
 const shortlistedIds = ref<string[]>([])
-
-const applyRules: FormRules = {
-  priority: [{ required: true, message: '请选择志愿优先级', trigger: 'change' }]
-}
 
 const topic = computed(() => {
   const localTopic = topicStore.getTopicById(route.params.id as string)
@@ -208,41 +175,6 @@ const addToShortlist = async () => {
     ElMessage.success('已添加到预选列表')
   } catch (e: any) {
     ElMessage.error(e.response?.data?.message || '添加失败')
-  }
-}
-
-function canApplyPriority(priority: number): boolean {
-  if (!userStore.currentUser) return false
-  const myApps = applicationStore.getApplicationsByStudent(userStore.currentUser.id)
-  const usedPriorities = myApps.map(a => a.priority)
-  // 已申请过此课题
-  if (myApps.some(a => a.topicId === route.params.id)) return false
-  // 该优先级已被使用
-  if (usedPriorities.includes(priority)) return false
-  // 已满3个志愿（且此优先级未被使用）
-  if (myApps.length >= 3 && !usedPriorities.includes(priority)) {
-    return myApps.some(a => a.status === 'withdrawn')
-  }
-  return true
-}
-
-async function handleApply() {
-  const valid = await applyFormRef.value?.validate().catch(() => false)
-  if (!valid || !applyForm.value.priority) return
-
-  applying.value = true
-  try {
-    await applicationStore.submitApplication({
-      topicId: topic.value!.id,
-      priority: applyForm.value.priority!,
-      motivation: applyForm.value.motivation
-    })
-    ElMessage.success('志愿申请提交成功')
-    router.push('/student/browse?panel=submitted')
-  } catch (e: any) {
-    ElMessage.error(e.response?.data?.message || '提交失败')
-  } finally {
-    applying.value = false
   }
 }
 

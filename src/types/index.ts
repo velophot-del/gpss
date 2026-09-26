@@ -175,12 +175,18 @@ export interface Topic {
   difficulty: 'easy' | 'medium' | 'hard'
   maxStudents: number
   currentCount: number
+  // 本课题已录取人数；applyCount 包含仍在处理的申请
   status: TopicStatus
   schedules: TopicSchedule[]
   attachments: TopicAttachment[]
   tags: string[]
   viewCount: number
   applyCount: number         // 申请人数
+  firstChoiceCount?: number
+  teacherApplicantCount?: number
+  teacherFirstChoiceCount?: number
+  teacherAcceptedCount?: number
+  teacherStudentLimit?: number
   createdAt: string
   updatedAt: string
   major?: string             // 专业名称

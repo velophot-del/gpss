@@ -7,7 +7,6 @@ import { ElMessage } from 'element-plus'
 export const useApplicationStore = defineStore('application', () => {
   const applications = ref<Application[]>([])
   const myApplications = ref<Application[]>([])
-  const isMatching = ref(false)
 
   // 统计数据
   const stats = computed(() => {
@@ -95,23 +94,9 @@ export const useApplicationStore = defineStore('application', () => {
     return applications.value.find(a => a.studentId === studentId && a.status === 'accepted')
   }
 
-  // 自动匹配（管理员功能）
-  async function runMatching() {
-    isMatching.value = true
-    try {
-      // 后端暂无匹配接口，刷新数据并统计当前状态
-      await fetchApplications()
-      const matched = applications.value.filter(a => a.status === 'accepted').length
-      return { matched, total: applications.value.length }
-    } finally {
-      isMatching.value = false
-    }
-  }
-
   return {
     applications,
     myApplications,
-    isMatching,
     stats,
     finalResults,
     fetchApplications,
@@ -125,6 +110,5 @@ export const useApplicationStore = defineStore('application', () => {
     getApplicationsByTopic,
     getApplicationsByStudent,
     getStudentResult,
-    runMatching
   }
 })

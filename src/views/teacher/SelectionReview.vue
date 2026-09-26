@@ -8,8 +8,8 @@
           <span>当前课题剩余 <strong>{{ remainingSlots }}</strong> 个名额</span>
         </div>
         <div class="header-actions">
-          <el-button type="success" icon="MagicStick" @click="handleAutoMatch" :loading="applicationStore.isMatching">
-            自动匹配
+          <el-button type="success" @click="refreshReview">
+            刷新遴选状态
           </el-button>
           <el-button type="primary" icon="Download" @click="exportResults">
             导出名单
@@ -354,25 +354,9 @@ async function showStudentDetail(studentId: string) {
   detailLoading.value = false
 }
 
-async function handleAutoMatch() {
-  try {
-    await ElMessageBox.confirm(
-      '自动匹配将按照第一志愿→第二志愿→第三志愿的顺序进行匹配，确定执行？',
-      '自动匹配确认',
-      { confirmButtonText: '开始匹配', cancelButtonText: '取消', type: 'info' }
-    )
-
-    const result = await applicationStore.runMatching()
-    ElMessage.success(`匹配完成！成功匹配 ${result.matched} 名学生，共处理 ${result.total} 人`)
-
-    // 刷新数据
-    await Promise.all([
-      applicationStore.fetchApplications(),
-      topicStore.fetchTopics()
-    ])
-  } catch {
-    // 用户取消
-  }
+async function refreshReview() {
+  await Promise.all([applicationStore.fetchApplications(), topicStore.fetchMyTopics()])
+  ElMessage.success('遴选状态已更新')
 }
 
 /**

@@ -32,7 +32,7 @@ router.post('/', requireRole(['student']), async (req: AuthRequest, res) => {
 router.get('/', requireRole(['student']), async (req: AuthRequest, res) => {
   try {
     const list = await query<any>(`
-      SELECT s.*, t.title, t.description, t.category, t.difficulty, t.max_students,
+      SELECT s.*, t.title, t.description, t.category, t.difficulty, t.max_students, t.teacher_id,
              (SELECT COUNT(*) FROM applications a WHERE a.topic_id = t.id AND a.status != 'withdrawn') AS apply_count,
              t.status as topic_status, u.real_name as teacher_name
       FROM topic_shortlist s

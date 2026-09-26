@@ -1,0 +1,55 @@
+name: Deploy GPSS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpss-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Build frontend and backend
+        run: |
+          npm ci
+          npm ci --prefix server
+          npm run build:all
+      - name: Package committed source
+        run: python3 scripts/package-gpss.py "release/gpss-${GITHUB_SHA}.tar.gz"
+      - name: Configure SSH
+        env:
+          DEPLOY_KEY: ${{ secrets.GPSS_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.GPSS_DEPLOY_KNOWN_HOSTS }}
+        run: |
+          test -n "$DEPLOY_KEY" && test -n "$KNOWN_HOSTS"
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/gpss_deploy"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/gpss_deploy" "$HOME/.ssh/known_hosts"
+          ssh-keygen -y -f "$HOME/.ssh/gpss_deploy" >/dev/null
+      - name: Upload and deploy GPSS only
+        env:
+          DEPLOY_HOST: ${{ secrets.GPSS_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.GPSS_DEPLOY_USER }}
+        run: |
+          test -n "$DEPLOY_HOST" && test -n "$DEPLOY_USER"
+          target="$DEPLOY_USER@$DEPLOY_HOST"
+          remote_dir="/tmp/gpss-release/$GITHUB_SHA"
+          ssh -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes "$target" "mkdir -p '$remote_dir'"
+          scp -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes \
+            "release/gpss-$GITHUB_SHA.tar.gz" "release/gpss-$GITHUB_SHA.tar.gz.sha256" \
+            deployment/deploy-gpss-only.sh "$target:$remote_dir/"
+          ssh -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes "$target" \
+            "bash '$remote_dir/deploy-gpss-only.sh' '$remote_dir/gpss-$GITHUB_SHA.tar.gz' '$remote_dir/gpss-$GITHUB_SHA.tar.gz.sha256'"

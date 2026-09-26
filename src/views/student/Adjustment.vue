@@ -11,7 +11,7 @@
         style="margin-bottom: 20px;"
       >
         <template #default>
-          调剂阶段仅面向未被录取的学生开放。您可以在此期间申请仍有名额的课题。教师将根据剩余名额进行二次遴选。
+          调剂阶段面向未录取学生开放。您可申请有剩余名额的课题，管理员核对教师意见和名额后审批。每人同时只能有一条待处理申请。
         </template>
       </el-alert>
 
@@ -36,7 +36,7 @@
         </el-table-column>
         <el-table-column label="操作" width="140" fixed="right">
           <template #default="{ row }">
-            <el-button type="warning" size="small" icon="Position" @click="showApplyDialog(row)">
+            <el-button type="warning" size="small" icon="Position" :disabled="!canSubmitAdjustment" @click="showApplyDialog(row)">
               申请调剂
             </el-button>
           </template>
@@ -46,17 +46,17 @@
       <!-- 我的调剂记录 -->
       <h3 style="margin-top: 32px; margin-bottom: 16px; color: #303133;">我的调剂记录</h3>
       <el-table :data="myAdjustments" stripe empty-text="暂无调剂记录">
-        <el-table-column prop="topicTitle" label="申请课题" min-width="220" />
+        <el-table-column prop="to_topic_title" label="申请课题" min-width="220" />
         <el-table-column label="状态" width="100" align="center">
           <template #default="{ row }">
-            <el-tag :type="row.status === 'accepted' ? 'success' : row.status === 'pending_review' ? 'warning' : 'danger'" size="small">
+            <el-tag :type="row.status === 'approved' ? 'success' : row.status === 'pending' ? 'warning' : 'danger'" size="small">
               {{ adjustmentStatusLabel[row.status] }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="motivation" label="调剂理由" show-overflow-tooltip />
-        <el-table-column prop="submittedAt" label="申请时间" width="170">
-          <template #default="{ row }">{{ formatDateTime(row.submittedAt) }}</template>
+        <el-table-column prop="reason" label="调剂理由" show-overflow-tooltip />
+        <el-table-column prop="created_at" label="申请时间" width="170">
+          <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
         </el-table-column>
       </el-table>
     </div>
@@ -90,19 +90,26 @@ import { ref, computed, onMounted } from 'vue'
 import { useTopicStore } from '../../stores/topic'
 import { useApplicationStore } from '../../stores/application'
 import { useUserStore } from '../../stores/user'
-import type { Topic, Application } from '../../types'
+import { useCycleStore } from '../../stores/cycle'
+import { applicationApi } from '../../api'
+import type { Topic } from '../../types'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
 
 const topicStore = useTopicStore()
 const applicationStore = useApplicationStore()
 const userStore = useUserStore()
+const cycleStore = useCycleStore()
 
 const loading = ref(false)
 const submitting = ref(false)
 const applyDialogVisible = ref(false)
 const selectedTopic = ref<Topic | null>(null)
 const adjustForm = ref({ motivation: '' })
+const myAdjustments = ref<any[]>([])
+const canSubmitAdjustment = computed(() => cycleStore.currentPhase === 'adjustment' &&
+  !applicationStore.finalResults.some(a => String((a as any).cycleId) === String(cycleStore.currentCycle?.id)) &&
+  !myAdjustments.value.some(a => a.status === 'pending' && String(a.cycle_id) === String(cycleStore.currentCycle?.id)))
 
 // 可调剂课题：还有名额的
 const availableTopics = computed(() => {
@@ -112,18 +119,8 @@ const availableTopics = computed(() => {
   )
 })
 
-// 该学生的调剂申请记录
-const myAdjustments = computed((): Application[] => {
-  if (!userStore.currentUser) return []
-  return applicationStore.applications.filter(
-    a => a.studentId === userStore.currentUser!.id &&
-    ['pending_review', 'accepted'].includes(a.status) &&
-    // 判断是否为调剂申请（通过时间或标记）
-    a.priority === 1 && !applicationStore.finalResults.find(r => r.studentId === a.studentId)
-  )
-})
-
 function showApplyDialog(topic: Topic) {
+  if (!canSubmitAdjustment.value) return
   selectedTopic.value = topic
   applyDialogVisible.value = true
   adjustForm.value.motivation = ''
@@ -144,6 +141,7 @@ async function handleAdjustApply() {
     })
     ElMessage.success('调剂申请已提交')
     applyDialogVisible.value = false
+    await loadAdjustments()
   } catch (err: any) {
     ElMessage.error(err?.message || '提交失败')
   } finally {
@@ -155,9 +153,14 @@ const difficultyType: Record<string, string> = { easy: 'success', medium: 'warni
 const difficultyLabel: Record<string, string> = { easy: '简单', medium: '中等', hard: '困难' }
 
 const adjustmentStatusLabel: Record<string, string> = {
-  pending_review: '待审核',
-  accepted: '已接受',
+  pending: '待审核',
+  approved: '已通过',
   rejected: '已拒绝'
+}
+
+async function loadAdjustments() {
+  const res: any = await applicationApi.getAdjustments()
+  myAdjustments.value = res.data || []
 }
 
 function formatDateTime(dateStr: string): string {
@@ -167,8 +170,10 @@ function formatDateTime(dateStr: string): string {
 onMounted(async () => {
   loading.value = true
   await Promise.all([
-    topicStore.fetchTopics(),
-    applicationStore.fetchApplications()
+    topicStore.fetchTopics({ pageSize: 50 }),
+    applicationStore.fetchApplications(),
+    cycleStore.fetchCurrentCycle(),
+    loadAdjustments()
   ])
   loading.value = false
 })

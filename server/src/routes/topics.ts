@@ -6,6 +6,8 @@ import { success, error, paginated } from '../utils/response.js'
 import { getStudentMajorCode, getTopicAccessPolicy, isTopicVisible } from '../utils/topicAccess.js'
 import { getAllowedMajorNames, getAllowedMajorOptions, getCycleMajors, getCycleResearchCategories, type MajorOption } from '../utils/majors.js'
 import { getActiveCycle, isInProgressCycle } from '../utils/processFlow.js'
+import { getTeacherStudentLimit } from '../utils/policies.js'
+import { safeParseJson } from '../utils/json.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -44,9 +46,11 @@ router.get('/', async (req: AuthRequest, res) => {
 
     // 学生专属：分页响应额外下发“该生允许浏览的专业”，前端下拉不再依赖课题是否携带专业码
     let allowedMajors: MajorOption[] | undefined
+    let teacherStudentLimit = 0
     if (req.user!.role === 'student') {
       const majorCode = await getStudentMajorCode(req.user!.id)
       const active = await getActiveCycle()
+      teacherStudentLimit = getTeacherStudentLimit(safeParseJson(active?.phases_config, {}))
       // 无周期时回退到默认规则（默认仅限本专业），保证下拉仍有内容
       const policy = await getTopicAccessPolicy(active?.id)
       // 周期“毕业专业列表”为可见专业过滤的权威来源（未配置回退默认 4 专业）
@@ -95,10 +99,28 @@ router.get('/', async (req: AuthRequest, res) => {
 
     const list = await query<any>(`
       SELECT t.*, u.real_name AS teacher_name, u.title AS teacher_title, u.department, u.email AS teacher_email, u.phone AS teacher_phone, u.avatar AS teacher_avatar,
-             COALESCE(ac.cnt, 0) AS apply_count
+             COALESCE(ac.cnt, 0) AS apply_count, COALESCE(ac.first_choice_count, 0) AS first_choice_count,
+             COALESCE(ac.accepted_count, 0) AS accepted_count,
+             COALESCE(tc.applicant_count, 0) AS teacher_applicant_count,
+             COALESCE(tc.first_choice_count, 0) AS teacher_first_choice_count,
+             COALESCE(tc.accepted_count, 0) AS teacher_accepted_count
       FROM topics t
       LEFT JOIN users u ON t.teacher_id = u.id
-      LEFT JOIN (SELECT topic_id, COUNT(*) AS cnt FROM applications WHERE status != 'withdrawn' GROUP BY topic_id) ac ON t.id = ac.topic_id
+      LEFT JOIN (
+        SELECT topic_id,
+               SUM(status IN ('pending', 'submitted', 'pending_review', 'waitlisted', 'accepted')) AS cnt,
+               SUM(priority = 1 AND status IN ('pending', 'submitted', 'pending_review', 'waitlisted', 'accepted')) AS first_choice_count,
+               SUM(status = 'accepted') AS accepted_count
+        FROM applications GROUP BY topic_id
+      ) ac ON t.id = ac.topic_id
+      LEFT JOIN (
+        SELECT tt.teacher_id, tt.cycle_id,
+               COUNT(DISTINCT CASE WHEN a.status IN ('pending', 'submitted', 'pending_review', 'waitlisted', 'accepted') THEN a.student_id END) AS applicant_count,
+               COUNT(DISTINCT CASE WHEN a.priority = 1 AND a.status IN ('pending', 'submitted', 'pending_review', 'waitlisted', 'accepted') THEN a.student_id END) AS first_choice_count,
+               COUNT(DISTINCT CASE WHEN a.status = 'accepted' THEN a.student_id END) AS accepted_count
+        FROM topics tt LEFT JOIN applications a ON a.topic_id = tt.id
+        GROUP BY tt.teacher_id, tt.cycle_id
+      ) tc ON tc.teacher_id = t.teacher_id AND tc.cycle_id = t.cycle_id
       ${whereSql}
       ORDER BY t.created_at DESC
       LIMIT ? OFFSET ?
@@ -114,7 +136,7 @@ router.get('/', async (req: AuthRequest, res) => {
       category: item.category,
       difficulty: item.difficulty,
       maxStudents: item.max_students,
-      currentCount: Number(item.apply_count),
+      currentCount: Number(item.accepted_count),
       status: item.status,
       teacherId: item.teacher_id,
       teacherName: item.teacher_name,
@@ -128,6 +150,11 @@ router.get('/', async (req: AuthRequest, res) => {
       requirements: item.requirements,
       viewCount: item.view_count,
       applyCount: Number(item.apply_count),
+      firstChoiceCount: Number(item.first_choice_count),
+      teacherApplicantCount: Number(item.teacher_applicant_count),
+      teacherFirstChoiceCount: Number(item.teacher_first_choice_count),
+      teacherAcceptedCount: Number(item.teacher_accepted_count),
+      teacherStudentLimit,
       schedules: typeof item.schedules === 'string' ? JSON.parse(item.schedules) : item.schedules || [],
       attachments: typeof item.attachments === 'string' ? JSON.parse(item.attachments) : item.attachments || [],
       major: item.major,
@@ -254,9 +281,12 @@ router.get('/:id', async (req: AuthRequest, res) => {
     ;(topic as any).view_count++
 
     const applyCountRows = await query(`
-      SELECT COUNT(*) as count FROM applications WHERE topic_id = ? AND status != 'withdrawn'
+      SELECT SUM(status IN ('pending', 'submitted', 'pending_review', 'waitlisted', 'accepted')) AS count,
+             SUM(priority = 1 AND status IN ('pending', 'submitted', 'pending_review', 'waitlisted', 'accepted')) AS first_choice_count,
+             SUM(status = 'accepted') AS accepted_count
+      FROM applications WHERE topic_id = ?
     `, [id]) as any[]
-    const applyCount = applyCountRows[0]?.count || 0
+    const applyCount = Number(applyCountRows[0]?.count || 0)
 
     const result = {
       id: topic.id,
@@ -265,7 +295,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
       category: topic.category,
       difficulty: topic.difficulty,
       maxStudents: topic.max_students,
-      currentCount: applyCount,
+      currentCount: Number(applyCountRows[0]?.accepted_count || 0),
       status: topic.status,
       teacherId: topic.teacher_id,
       teacherName: topic.teacher_name,
@@ -280,6 +310,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
       requirements: topic.requirements,
       viewCount: topic.view_count,
       applyCount: applyCount,
+      firstChoiceCount: Number(applyCountRows[0]?.first_choice_count || 0),
       schedules: typeof topic.schedules === 'string' ? JSON.parse(topic.schedules) : topic.schedules || [],
       attachments: typeof topic.attachments === 'string' ? JSON.parse(topic.attachments) : topic.attachments || [],
       major: topic.major,

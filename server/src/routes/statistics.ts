@@ -80,12 +80,13 @@ router.get('/topics', async (req: AuthRequest, res) => {
       ORDER BY topic_count DESC
     `)
 
-    // 热门课题 Top 10
+    // 已发布课题按浏览量排序，工作台从中取前 5 项
     const hotTopics = await query<any>(`
       SELECT t.*, u.real_name as teacher_name
       FROM topics t
       JOIN users u ON t.teacher_id = u.id
-      ORDER BY t.view_count DESC, t.apply_count DESC
+      WHERE t.status = 'published'
+      ORDER BY t.view_count DESC, t.apply_count DESC, t.id ASC
       LIMIT 10
     `)
 

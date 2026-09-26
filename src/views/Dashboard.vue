@@ -35,7 +35,7 @@
             <el-icon :size="28"><Document /></el-icon>
           </div>
           <div class="stat-info">
-            <p class="stat-value">{{ topicStore.topics.length }}</p>
+            <p class="stat-value">{{ adminTopicCount }}</p>
             <p class="stat-label">课题总数</p>
           </div>
         </el-card>
@@ -214,6 +214,7 @@
               <el-tag :type="row.applyCount > 10 ? 'danger' : 'info'" size="small">{{ row.applyCount }}</el-tag>
             </template>
           </el-table-column>
+          <el-table-column prop="viewCount" label="浏览量" width="80" align="center" />
           <el-table-column label="难度" width="80" align="center">
             <template #default="{ row }">
               <el-tag :type="difficultyTypeMap[row.difficulty]" size="small">{{ difficultyLabels[row.difficulty] }}</el-tag>
@@ -226,12 +227,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useUserStore } from '../stores/user'
 import { useCycleStore } from '../stores/cycle'
 import { useTopicStore } from '../stores/topic'
 import { useApplicationStore } from '../stores/application'
 import { useStudentStore } from '../stores/student'
+import { adminApi, statisticsApi } from '../api'
 import dayjs from 'dayjs'
 import {
   Timer, Document, UserFilled, CircleCheck,
@@ -243,6 +245,8 @@ const cycleStore = useCycleStore()
 const topicStore = useTopicStore()
 const applicationStore = useApplicationStore()
 const studentStore = useStudentStore()
+const adminTopicCount = ref(0)
+const hotTopics = ref<any[]>([])
 
 // 问候语
 const greeting = computed(() => {
@@ -287,14 +291,6 @@ const statusTypeMap: Record<string, any> = {
   completed: 'info',
   none: 'info'
 }
-
-// 热门课题（只统计学院已发布的；store 全局共享，可能残留教师自己的草稿）
-const hotTopics = computed(() => {
-  return topicStore.topics
-    .filter(t => t.status === 'published')
-    .sort((a, b) => b.applyCount - a.applyCount)
-    .slice(0, 5)
-})
 
 const difficultyTypeMap: Record<string, any> = {
   easy: 'success',
@@ -344,9 +340,32 @@ onMounted(async () => {
   await Promise.all([
     topicStore.topics.length === 0 ? topicStore.fetchTopics() : Promise.resolve(),
     userStore.currentUser?.role === 'student' ? studentStore.fetchProfile() : Promise.resolve(),
-    applicationStore.fetchApplications()
+    applicationStore.fetchApplications(),
+    loadDashboardTopicData()
   ])
 })
+
+async function loadDashboardTopicData() {
+  const [topicStatsResult, adminStatsResult] = await Promise.allSettled([
+    statisticsApi.getTopicStats(),
+    userStore.userRole === 'admin' ? adminApi.getStatistics() : Promise.resolve(null)
+  ])
+  if (topicStatsResult.status === 'fulfilled') {
+    hotTopics.value = (topicStatsResult.value.data?.hotTopics || []).slice(0, 5).map((topic: any) => ({
+      ...topic,
+      teacherName: topic.teacher_name,
+      applyCount: Number(topic.apply_count) || 0,
+      viewCount: Number(topic.view_count) || 0
+    }))
+  } else {
+    console.error('获取工作台热门课题失败:', topicStatsResult.reason)
+  }
+  if (adminStatsResult.status === 'fulfilled' && adminStatsResult.value) {
+    adminTopicCount.value = Number(adminStatsResult.value.data?.topics?.total) || 0
+  } else if (adminStatsResult.status === 'rejected') {
+    console.error('获取管理员课题总数失败:', adminStatsResult.reason)
+  }
+}
 </script>
 
 <style scoped>
