@@ -170,6 +170,8 @@ export const adminApi = {
   getTeachers: () => request.get('/admin/teachers'),
   getStudents: () => request.get('/admin/students'),
   getAllApplications: () => request.get('/admin/applications'),
+  returnStudentVolunteers: (studentId: string, reason: string) =>
+    request.post(`/admin/students/${studentId}/volunteers/return`, { reason }),
   getStatistics: () => request.get('/admin/statistics'),
   getStudentSelections: () => request.get('/admin/student-selections')
 }

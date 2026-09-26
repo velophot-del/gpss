@@ -26,6 +26,9 @@
     <el-alert v-if="hasSubmittedVolunteers" :title="'已提交志愿：已锁定，仅可浏览课题与查看结果'" type="success" :closable="false" show-icon class="phase-alert">
       如需调整请到调剂阶段或联系管理员。
     </el-alert>
+    <el-alert v-if="canRefillVolunteers" title="原志愿已撤回，可以重新填报" type="warning" :closable="false" show-icon class="phase-alert">
+      请查看消息通知中的退回原因，重新选择 3–6 个课题并提交整组志愿。
+    </el-alert>
     <el-alert v-if="loadError" title="课题暂时加载失败" type="error" show-icon class="phase-alert" :closable="false">
       <template #default><el-button link type="danger" @click="loadData">重新加载</el-button></template>
     </el-alert>
@@ -38,7 +41,7 @@
 
     <div class="workspace-tabs" role="tablist" aria-label="选题内容">
       <el-button :type="activePanel === 'catalog' ? 'primary' : 'default'" @click="activePanel = 'catalog'">浏览课题</el-button>
-      <el-button :type="activePanel === 'submitted' ? 'primary' : 'default'" @click="activePanel = 'submitted'">已提交志愿（{{ submittedApplications.length }}）</el-button>
+      <el-button :type="activePanel === 'submitted' ? 'primary' : 'default'" @click="activePanel = 'submitted'">志愿记录（{{ currentCycleApplications.length }}）</el-button>
     </div>
 
     <div v-if="activePanel === 'catalog'" class="catalog-layout">
@@ -127,7 +130,7 @@
     <section v-else class="submitted-panel card-container">
       <div class="panel-heading"><div><h2>已提交志愿</h2><p>提交成功后会生成记录，教师审批结果将在“选课结果”中更新。</p></div><el-button type="primary" plain @click="activePanel = 'catalog'">继续浏览</el-button></div>
       <div v-if="successReceipt" class="success-receipt"><el-icon><CircleCheck /></el-icon><div><strong>志愿已提交</strong><p>凭证号：{{ successReceipt }}</p></div><el-button type="primary" @click="$router.push('/student/result')">查看结果</el-button></div>
-      <el-empty v-if="submittedApplications.length === 0" description="还没有提交记录"><el-button type="primary" @click="activePanel = 'catalog'">去选择志愿</el-button></el-empty>
+      <el-empty v-if="currentCycleApplications.length === 0" description="还没有提交记录"><el-button type="primary" @click="activePanel = 'catalog'">去选择志愿</el-button></el-empty>
       <div v-else class="submitted-list">
         <div
           v-for="application in sortedSubmittedApplications"
@@ -278,9 +281,17 @@ watch([() => topicStore.topics, () => topicStore.allowedMajors], () => {
   if (single.length === 1) topicStore.selectedMajor = single[0].value
 })
 
+const currentCycleApplications = computed(() => submittedApplications.value.filter(a =>
+  Number(a.cycleId ?? a.cycle_id) === Number(cycleStore.currentCycle?.id)
+))
 // 已提交志愿（≥3 个在途）后进入“仅浏览”冻结态
 const hasSubmittedVolunteers = computed(() =>
-  submittedApplications.value.filter(a => ['pending', 'submitted', 'pending_review'].includes(a.status)).length >= VOLUNTEER_MIN
+  currentCycleApplications.value.filter(a => ['pending', 'submitted', 'pending_review'].includes(a.status)).length >= VOLUNTEER_MIN ||
+  currentCycleApplications.value.some(a => ['accepted', 'rejected', 'waitlisted', 'cancelled'].includes(a.status))
+)
+const canRefillVolunteers = computed(() => isActivePhase.value &&
+  currentCycleApplications.value.some(a => a.status === 'withdrawn') &&
+  currentCycleApplications.value.every(a => a.status === 'withdrawn')
 )
 function assertNotSubmitted(): boolean {
   if (!hasSubmittedVolunteers.value) return true
@@ -288,7 +299,7 @@ function assertNotSubmitted(): boolean {
   return false
 }
 const shortlistedIds = computed(() => shortlist.value.map(item => item.topic_id))
-const currentStep = computed(() => submittedApplications.value.length ? 3 : selectedList.value.length ? 1 : 0)
+const currentStep = computed(() => hasSubmittedVolunteers.value ? 3 : selectedList.value.length ? 1 : 0)
 const deadlineLabel = computed(() => cycleStore.currentCycle?.studentApplyEnd ? String(cycleStore.currentCycle.studentApplyEnd).slice(0, 10) : '以系统阶段为准')
 const difficultyLabel: Record<string, string> = { easy: '入门友好', medium: '适中', hard: '挑战型' }
 const difficultyType: Record<string, any> = { easy: 'success', medium: 'warning', hard: 'danger' }
@@ -297,7 +308,7 @@ const statusType: Record<string, any> = { pending: 'warning', submitted: 'warnin
 
 // 已提交志愿按志愿序号(第1志愿→第6志愿)排列，方便看清录取顺序
 const sortedSubmittedApplications = computed(() =>
-  [...submittedApplications.value].sort((a, b) => Number(a.priority || 0) - Number(b.priority || 0))
+  [...currentCycleApplications.value].sort((a, b) => Number(a.priority || 0) - Number(b.priority || 0))
 )
 
 async function loadData() {
@@ -307,6 +318,10 @@ async function loadData() {
     const [shortlistRes, applicationRes] = await Promise.all([shortlistApi.getList(), applicationApi.getList()])
     shortlist.value = shortlistRes.data || []
     submittedApplications.value = applicationRes.data || []
+    if (!currentCycleApplications.value.length || currentCycleApplications.value.every(a => a.status === 'withdrawn')) {
+      successReceipt.value = ''
+      localStorage.removeItem('gpss_selection_receipt')
+    }
   } catch (error) {
     console.error('选题工作台加载失败:', error)
     loadError.value = true
@@ -411,6 +426,7 @@ async function confirmSubmit() {
   finally { submitting.value = false }
 }
 onMounted(async () => {
+  await cycleStore.fetchCurrentCycle()
   loadCycleConfig()
   await loadData()
   // 支持从“热门课题”等入口 ?open=课题id 直达详情抽屉（统一到新工作台）

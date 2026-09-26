@@ -41,14 +41,18 @@
 
       <el-card shadow="never">
         <template #header>
-          <div class="flex justify-between items-center">
+          <div class="flex justify-between items-center" style="flex-wrap: wrap; gap: 8px">
             <strong>所有选课申请记录</strong>
-            <el-select v-model="filterStatus" placeholder="筛选状态" size="small" class="w-40">
-              <el-option label="全部" value="" />
-              <el-option label="待审核" value="pending" />
-              <el-option label="已录取" value="accepted" />
-              <el-option label="已拒绝" value="rejected" />
-            </el-select>
+            <div class="flex gap-2" style="flex-wrap: wrap">
+              <el-input v-model="studentKeyword" placeholder="搜索学号或姓名" clearable size="small" style="width: 180px" />
+              <el-select v-model="filterStatus" placeholder="筛选状态" size="small" class="w-40">
+                <el-option label="全部" value="" />
+                <el-option label="待审核" value="pending" />
+                <el-option label="已录取" value="accepted" />
+                <el-option label="已拒绝" value="rejected" />
+                <el-option label="已撤回" value="withdrawn" />
+              </el-select>
+            </div>
           </div>
         </template>
         <el-table :data="filteredApplications" stripe size="small">
@@ -75,6 +79,14 @@
           </el-table-column>
           <el-table-column prop="created_at" label="申请时间" width="150" />
           <el-table-column prop="comment" label="备注" min-width="150" show-overflow-tooltip />
+          <el-table-column label="操作" width="150" fixed="right">
+            <template #default="{ row }">
+              <el-button v-if="returnableApplicationIds.has(row.id)" type="warning" link
+                :loading="returningStudentId === row.student_id" @click="returnVolunteers(row)">
+                退回该生志愿
+              </el-button>
+            </template>
+          </el-table-column>
         </el-table>
       </el-card>
     </div>
@@ -84,21 +96,54 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Download } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api'
+import { useCycleStore } from '@/stores/cycle'
 
 const applications = ref<any[]>([])
 const filterStatus = ref('')
+const studentKeyword = ref('')
+const returningStudentId = ref('')
+const cycleStore = useCycleStore()
+const unresolvedStatuses = ['pending', 'submitted', 'pending_review']
 
 const stats = computed(() => ({
   total: applications.value.length,
   accepted: applications.value.filter(a => a.status === 'accepted').length,
-  pending: applications.value.filter(a => a.status === 'pending').length,
+  pending: applications.value.filter(a => unresolvedStatuses.includes(a.status)).length,
   rejected: applications.value.filter(a => a.status === 'rejected').length
 }))
 
 const filteredApplications = computed(() => {
-  if (!filterStatus.value) return applications.value
-  return applications.value.filter(a => a.status === filterStatus.value)
+  const keyword = studentKeyword.value.trim().toLowerCase()
+  return applications.value.filter(a => {
+    const statusMatches = !filterStatus.value || (filterStatus.value === 'pending'
+      ? unresolvedStatuses.includes(a.status) : a.status === filterStatus.value)
+    const studentMatches = !keyword || String(a.student_code || '').toLowerCase().includes(keyword) ||
+      String(a.student_name || '').toLowerCase().includes(keyword)
+    return statusMatches && studentMatches
+  })
+})
+
+const returnableApplicationIds = computed(() => {
+  const ids = new Set<string>()
+  if (cycleStore.currentPhase !== 'student_apply') return ids
+  const cycleId = Number(cycleStore.currentCycle?.id)
+  const byStudent = new Map<string, any[]>()
+  for (const app of applications.value) {
+    if (Number(app.cycle_id) !== cycleId) continue
+    const group = byStudent.get(app.student_id) || []
+    group.push(app)
+    byStudent.set(app.student_id, group)
+  }
+  for (const group of byStudent.values()) {
+    if (group.some(a => ['accepted', 'rejected', 'waitlisted', 'cancelled'].includes(a.status))) continue
+    const pending = group.filter(a => unresolvedStatuses.includes(a.status))
+    if (pending.length >= 3 && pending.length <= 6 && pending.every(a => !a.reviewed_by && !a.reviewed_at)) {
+      ids.add(pending[0].id)
+    }
+  }
+  return ids
 })
 
 const priorityType: Record<number, string> = {
@@ -109,21 +154,58 @@ const priorityType: Record<number, string> = {
 
 const statusLabel: Record<string, string> = {
   'pending': '待审核',
+  'submitted': '待审核',
+  'pending_review': '待审核',
   'accepted': '已录取',
   'rejected': '已拒绝',
-  'withdrawn': '已撤回'
+  'waitlisted': '候补待定',
+  'withdrawn': '已撤回',
+  'cancelled': '已取消'
 }
 
 const statusType: Record<string, string> = {
   'pending': 'warning',
+  'submitted': 'warning',
+  'pending_review': 'warning',
   'accepted': 'success',
   'rejected': 'danger',
-  'withdrawn': 'info'
+  'waitlisted': 'info',
+  'withdrawn': 'info',
+  'cancelled': 'info'
 }
 
 const loadApplications = async () => {
   const res = await adminApi.getAllApplications()
   applications.value = res.data
+}
+
+const returnVolunteers = async (row: any) => {
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `将退回 ${row.student_name} 在当前周期的整组未审核志愿，学生可重新填报。请说明原因：`,
+      '退回重填',
+      {
+        inputType: 'textarea',
+        inputValidator: value => {
+          const length = value?.trim().length || 0
+          return length >= 4 && length <= 500 || '请填写 4–500 字的退回原因'
+        },
+        confirmButtonText: '确认退回',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    returningStudentId.value = row.student_id
+    await adminApi.returnStudentVolunteers(row.student_id, value.trim())
+    await loadApplications()
+    ElMessage.success('整组志愿已退回，学生可重新填报')
+  } catch (err: any) {
+    if (err !== 'cancel' && err !== 'close') {
+      ElMessage.error(err?.response?.data?.message || '退回失败，请刷新后重试')
+    }
+  } finally {
+    returningStudentId.value = ''
+  }
 }
 
 const exportData = () => {
@@ -151,7 +233,7 @@ const exportData = () => {
   URL.revokeObjectURL(url)
 }
 
-onMounted(loadApplications)
+onMounted(() => { void Promise.all([cycleStore.fetchCurrentCycle(), loadApplications()]) })
 </script>
 
 <style scoped>

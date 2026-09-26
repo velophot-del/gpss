@@ -1,8 +1,9 @@
 import { Router } from 'express'
-import { query } from '../config/database.js'
+import { v4 as uuidv4 } from 'uuid'
+import { query, transaction } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
-import { getActiveCycle } from '../utils/processFlow.js'
+import { getActiveCycle, isInProgressCycle, isStudentSelectionPhase } from '../utils/processFlow.js'
 import { getTeacherStudentLimit } from '../utils/policies.js'
 import { safeParseJson } from '../utils/json.js'
 
@@ -134,7 +135,7 @@ router.get('/applications', async (_req: AuthRequest, res) => {
   try {
     const applications = await query<any>(`
       SELECT a.*, s.real_name as student_name, s.student_id as student_code, s.class_name as student_class, s.major as student_major,
-             t.title as topic_title, t.category as topic_category, t.difficulty as topic_difficulty,
+             t.title as topic_title, t.category as topic_category, t.difficulty as topic_difficulty, t.cycle_id,
              u.real_name as teacher_name, u.title as teacher_title, u.department as teacher_dept
       FROM applications a
       JOIN users s ON a.student_id = s.id
@@ -146,6 +147,69 @@ router.get('/applications', async (_req: AuthRequest, res) => {
     success(res, applications)
   } catch (err: any) {
     console.error('获取申请列表失败:', err)
+    error(res, '服务器内部错误', 500)
+  }
+})
+
+// POST /api/admin/students/:id/volunteers/return - 整批退回未审核志愿，供学生重新填报
+router.post('/students/:id/volunteers/return', async (req: AuthRequest, res) => {
+  const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : ''
+  if (reason.length < 4 || reason.length > 500) return error(res, '请填写 4–500 字的退回原因')
+
+  try {
+    const activeCycle = await getActiveCycle()
+    if (!activeCycle || !isStudentSelectionPhase(activeCycle.phase)) {
+      return error(res, '当前不在志愿填报阶段，不能退回重填')
+    }
+
+    const result = await transaction(async conn => {
+      const [cycles] = await conn.query<any[]>(
+        'SELECT id, phase, status FROM cycles WHERE id = ? FOR UPDATE', [activeCycle.id]
+      )
+      if (!cycles[0] || !isInProgressCycle(cycles[0].status) || !isStudentSelectionPhase(cycles[0].phase)) {
+        return { error: '志愿填报阶段已结束，请刷新页面' }
+      }
+      const [students] = await conn.query<any[]>(
+        "SELECT id FROM users WHERE id = ? AND role = 'student' FOR UPDATE", [req.params.id]
+      )
+      if (!students.length) return { error: '学生不存在' }
+
+      const [rows] = await conn.query<any[]>(`
+        SELECT a.id, a.topic_id, a.priority, a.status, a.motivation,
+               a.created_at, a.reviewed_by, a.reviewed_at
+        FROM applications a JOIN topics t ON t.id = a.topic_id
+        WHERE a.student_id = ? AND t.cycle_id = ?
+        ORDER BY a.priority FOR UPDATE
+      `, [req.params.id, activeCycle.id])
+      const pending = rows.filter(row => ['pending', 'submitted', 'pending_review'].includes(row.status))
+      if (pending.length < 3 || pending.length > 6) return { error: '该生没有可整批退回的已提交志愿' }
+      if (rows.some(row => ['accepted', 'rejected', 'waitlisted', 'cancelled'].includes(row.status)) ||
+          pending.some(row => row.reviewed_by || row.reviewed_at)) {
+        return { error: '该生志愿已有教师处理结果，请使用调剂或专门复核流程' }
+      }
+
+      await conn.query("UPDATE applications SET status = 'withdrawn' WHERE id IN (?)", [pending.map(row => row.id)])
+      await conn.query(`
+        INSERT INTO operation_logs (user_id, action, target_type, target_id, detail, ip_address)
+        VALUES (?, 'volunteers_returned', 'student', ?, ?, ?)
+      `, [req.user!.id, req.params.id, JSON.stringify({
+        cycleId: activeCycle.id, reason,
+        applications: pending.map(row => ({
+          id: row.id, topicId: row.topic_id, priority: row.priority,
+          status: row.status, motivation: row.motivation, createdAt: row.created_at
+        }))
+      }), req.ip || null])
+      await conn.query(`
+        INSERT INTO notifications (id, user_id, type, title, content, related_type, related_id)
+        VALUES (?, ?, 'volunteers_returned', '志愿已退回，请重新填报', ?, 'cycle', ?)
+      `, [uuidv4(), req.params.id, `管理员退回了本周期志愿，原因：${reason}。请在填报阶段重新提交整组志愿。`, String(activeCycle.id)])
+      return { error: null, count: pending.length }
+    })
+
+    if (result.error) return error(res, result.error)
+    success(res, { returned: result.count }, '已退回该生整组志愿并通知学生')
+  } catch (err) {
+    console.error('管理员退回志愿失败:', err)
     error(res, '服务器内部错误', 500)
   }
 })

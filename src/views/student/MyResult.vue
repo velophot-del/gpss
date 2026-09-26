@@ -3,7 +3,16 @@
     <div class="card-container" style="max-width: 800px;">
       <h2 class="section-title">我的选课结果</h2>
 
-      <template v-if="result">
+      <template v-if="needsResubmit">
+        <div class="result-card warning">
+          <div class="result-icon"><el-icon :size="64" color="#e6a23c"><WarningFilled /></el-icon></div>
+          <h3 class="result-status">志愿已退回</h3>
+          <p class="result-desc">请查看消息通知中的原因，重新整理并提交整组志愿。</p>
+          <div class="result-actions"><el-button type="primary" size="large" @click="$router.push('/student/browse')">重新填报</el-button></div>
+        </div>
+      </template>
+
+      <template v-else-if="result">
         <!-- 已录取 -->
         <div class="result-card success">
           <div class="result-icon">
@@ -94,15 +103,19 @@ onMounted(async () => {
   ])
 })
 
-const result = computed(() => {
-  if (!userStore.currentUser) return null
-  return applicationStore.getStudentResult(userStore.currentUser.id)
+const currentApplications = computed(() => {
+  if (!userStore.currentUser) return []
+  return applicationStore.getApplicationsByStudent(userStore.currentUser.id).filter(
+    a => Number(a.cycleId) === Number(cycleStore.currentCycle?.id)
+  )
 })
+const result = computed(() => currentApplications.value.find(a => a.status === 'accepted') || null)
+const needsResubmit = computed(() => cycleStore.currentPhase === 'student_apply' &&
+  currentApplications.value.length > 0 && currentApplications.value.every(a => a.status === 'withdrawn')
+)
 
 const hasRejectedApps = computed(() => {
-  if (!userStore.currentUser) return false
-  const apps = applicationStore.getApplicationsByStudent(userStore.currentUser.id)
-  return apps.some(a => a.status === 'rejected')
+  return currentApplications.value.some(a => a.status === 'rejected')
 })
 
 function formatDateTime(dateStr: string): string {

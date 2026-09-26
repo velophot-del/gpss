@@ -255,6 +255,7 @@ export interface Application {
   studentName: string
   topicId: string
   topicTitle: string
+  cycleId?: number
   priority: number            // 1=第一志愿, 2=第二志愿, 3=第三志愿
   status: ApplicationStatus
   motivation: string          // 申请理由/个人陈述

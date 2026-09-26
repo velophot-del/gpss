@@ -68,6 +68,12 @@ router.post('/volunteers/submit', requireRole(['student']), async (req: AuthRequ
     if (teacherIds.size < 2) return error(res, '志愿须覆盖至少两位不同指导教师的课题')
 
     const result: any = await transaction(async (conn: Connection): Promise<any> => {
+      const [cycles] = await conn.query<any[]>(
+        'SELECT phase, status FROM cycles WHERE id = ? FOR SHARE', [activeCycle.id]
+      )
+      if (!cycles[0] || !isInProgressCycle(cycles[0].status) || !isStudentSelectionPhase(cycles[0].phase)) {
+        return { error: '志愿填报阶段已结束，请刷新页面' }
+      }
       // 锁学生行，串行化“同一学生的并发整批提交”
       await conn.query('SELECT id FROM users WHERE id = ? FOR UPDATE', [req.user!.id])
       const [placedRows] = await conn.query<any[]>(
@@ -76,22 +82,47 @@ router.post('/volunteers/submit', requireRole(['student']), async (req: AuthRequ
         [req.user!.id, activeCycle.id]
       )
       if (placedRows.length) return { error: '您已被本周期课题录取，不能再提交志愿' }
+      const [reviewedRows] = await conn.query<any[]>(
+        `SELECT a.id FROM applications a JOIN topics t ON a.topic_id = t.id
+         WHERE a.student_id = ? AND t.cycle_id = ? AND a.status IN ('rejected', 'waitlisted', 'cancelled') LIMIT 1`,
+        [req.user!.id, activeCycle.id]
+      )
+      if (reviewedRows.length) return { error: '本周期志愿已有处理结果，不能重新填报，请联系管理员' }
       const [existingRows] = await conn.query<any[]>(
         `SELECT a.id FROM applications a JOIN topics t ON a.topic_id = t.id
          WHERE a.student_id = ? AND t.cycle_id = ? AND a.status IN ('pending', 'submitted', 'pending_review')`,
         [req.user!.id, activeCycle.id]
       )
       if (existingRows.length >= VOLUNTEER_MIN) return { error: '本周期志愿已提交，请勿重复提交' }
+      const existingIds = new Set(existingRows.map(row => row.id))
+      const [priorRows] = await conn.query<any[]>(
+        'SELECT id, topic_id, status FROM applications WHERE student_id = ? AND topic_id IN (?) FOR UPDATE',
+        [req.user!.id, items.map(item => item.topicId)]
+      )
+      const priorByTopic = new Map(priorRows.map(row => [row.topic_id, row]))
+      if (priorRows.some(row => row.status !== 'withdrawn' && !existingIds.has(row.id))) {
+        return { error: '所选课题已有不可重填的申请记录，请刷新后重试' }
+      }
       // 兼容旧入口留下的 1–2 条未完成志愿：保留撤回记录，再以整批志愿替换。
       if (existingRows.length) {
         await conn.query("UPDATE applications SET status = 'withdrawn' WHERE id IN (?)", [existingRows.map(row => row.id)])
       }
       for (const it of items) {
-        await conn.query(
-          `INSERT INTO applications (id, student_id, topic_id, priority, status, motivation)
-           VALUES (?, ?, ?, ?, 'pending', ?)`,
-          [uuidv4(), req.user!.id, it.topicId, it.priority, it.motivation || '']
-        )
+        const prior = priorByTopic.get(it.topicId)
+        if (prior) {
+          // 唯一键(student_id, topic_id)要求复用退回的行；原志愿快照已在管理员操作日志中留存。
+          await conn.query(`
+            UPDATE applications SET priority = ?, status = 'pending', motivation = ?,
+              teacher_comment = NULL, reviewed_by = NULL, reviewed_at = NULL, created_at = NOW()
+            WHERE id = ?
+          `, [it.priority, it.motivation || '', prior.id])
+        } else {
+          await conn.query(
+            `INSERT INTO applications (id, student_id, topic_id, priority, status, motivation)
+             VALUES (?, ?, ?, ?, 'pending', ?)`,
+            [uuidv4(), req.user!.id, it.topicId, it.priority, it.motivation || '']
+          )
+        }
       }
       return { error: null }
     })

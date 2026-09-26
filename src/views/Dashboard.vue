@@ -326,7 +326,8 @@ const profileComplete = computed(() => {
 const myApplications = computed(() => {
   if (userStore.currentUser?.role !== 'student') return []
   return applicationStore.getApplicationsByStudent(userStore.currentUser.id).filter(
-    a => a.status === 'submitted' || a.status === 'accepted'
+    a => Number(a.cycleId) === Number(cycleStore.currentCycle?.id) &&
+      ['pending', 'submitted', 'pending_review', 'waitlisted', 'accepted'].includes(a.status)
   )
 })
 
