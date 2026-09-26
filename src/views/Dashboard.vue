@@ -195,29 +195,56 @@
       </el-col>
     </el-row>
 
-    <!-- 热门课题 -->
-    <div style="margin-top: 20px;">
+    <!-- 学生选题推荐 / 管理端综合热度 -->
+    <div v-if="userStore.userRole === 'student'" style="margin-top: 20px;">
       <el-card shadow="never" class="card-container">
         <template #header>
-          <span class="section-title" style="border: none; padding: 0;">热门课题 Top 5</span>
+          <div class="recommendation-header">
+            <div>
+              <span class="section-title" style="border: none; padding: 0;">选题推荐</span>
+              <p>优先展示申请较少、浏览较少的课题，并在不同教师之间轮换。</p>
+            </div>
+            <div class="recommendation-actions">
+              <el-button :disabled="recommendedTopics.length <= recommendationPageSize" @click="changeRecommendations">换一批</el-button>
+              <el-button type="primary" plain @click="$router.push('/student/browse')">查看全部选题</el-button>
+            </div>
+          </div>
         </template>
-        <el-table :data="hotTopics" stripe size="small">
+        <el-empty v-if="visibleRecommendations.length === 0" description="当前没有可推荐的课题" />
+        <el-table v-else :data="visibleRecommendations" stripe size="small">
           <el-table-column prop="title" label="课题名称" min-width="200">
             <template #default="{ row }">
-              <router-link v-if="userStore.userRole === 'student'" :to="`/student/browse?open=${row.id}`" class="topic-link">{{ row.title }}</router-link>
-              <router-link v-else :to="`/student/topic/${row.id}`" class="topic-link">{{ row.title }}</router-link>
+              <router-link :to="`/student/browse?open=${row.id}`" class="topic-link">{{ row.title }}</router-link>
             </template>
           </el-table-column>
           <el-table-column prop="teacherName" label="指导教师" width="100" />
-          <el-table-column prop="applyCount" label="申请数" width="80" align="center">
+          <el-table-column label="申请/名额" width="100" align="center">
             <template #default="{ row }">
-              <el-tag :type="row.applyCount > 10 ? 'danger' : 'info'" size="small">{{ row.applyCount }}</el-tag>
+              {{ row.applyCount }} / {{ row.maxStudents || '—' }}
             </template>
           </el-table-column>
-          <el-table-column prop="viewCount" label="浏览量" width="80" align="center" />
-          <el-table-column label="难度" width="80" align="center">
+          <el-table-column label="竞争程度" width="100" align="center">
             <template #default="{ row }">
-              <el-tag :type="difficultyTypeMap[row.difficulty]" size="small">{{ difficultyLabels[row.difficulty] }}</el-tag>
+              <el-tag :type="competitionType(row)" size="small">{{ competitionLabel(row) }}</el-tag>
+            </template>
+          </el-table-column>
+        </el-table>
+      </el-card>
+    </div>
+
+    <div v-else style="margin-top: 20px;">
+      <el-card shadow="never" class="card-container">
+        <template #header>
+          <span class="section-title" style="border: none; padding: 0;">综合热度 Top 5</span>
+        </template>
+        <el-table :data="hotTopics" stripe size="small">
+          <el-table-column prop="title" label="课题名称" min-width="200" />
+          <el-table-column prop="teacherName" label="指导教师" width="100" />
+          <el-table-column prop="applyCount" label="申请数" width="80" align="center" />
+          <el-table-column prop="viewCount" label="浏览量" width="80" align="center" />
+          <el-table-column label="竞争程度" width="100" align="center">
+            <template #default="{ row }">
+              <el-tag :type="competitionType(row)" size="small">{{ competitionLabel(row) }}</el-tag>
             </template>
           </el-table-column>
         </el-table>
@@ -247,6 +274,15 @@ const applicationStore = useApplicationStore()
 const studentStore = useStudentStore()
 const adminTopicCount = ref(0)
 const hotTopics = ref<any[]>([])
+const recommendedTopics = ref<any[]>([])
+const recommendationOffset = ref(0)
+const recommendationPageSize = 5
+const visibleRecommendations = computed(() => {
+  if (recommendedTopics.value.length <= recommendationPageSize) return recommendedTopics.value
+  return Array.from({ length: recommendationPageSize }, (_, index) =>
+    recommendedTopics.value[(recommendationOffset.value + index) % recommendedTopics.value.length]
+  )
+})
 
 // 问候语
 const greeting = computed(() => {
@@ -336,6 +372,31 @@ function formatDate(dateStr: string): string {
   return dayjs(dateStr).format('YYYY-MM-DD')
 }
 
+function changeRecommendations() {
+  recommendationOffset.value = (recommendationOffset.value + recommendationPageSize) % recommendedTopics.value.length
+}
+
+function competitionRatio(topic: any): number {
+  const capacity = Number(topic.maxStudents) || 0
+  return capacity > 0 ? Number(topic.applyCount) / capacity : 0
+}
+
+function competitionLabel(topic: any): string {
+  const ratio = competitionRatio(topic)
+  if (Number(topic.applyCount) === 0) return '暂无竞争'
+  if (ratio <= 1) return '竞争适中'
+  if (ratio <= 2) return '竞争较高'
+  return '竞争激烈'
+}
+
+function competitionType(topic: any): 'success' | 'info' | 'warning' | 'danger' {
+  const ratio = competitionRatio(topic)
+  if (Number(topic.applyCount) === 0) return 'success'
+  if (ratio <= 1) return 'info'
+  if (ratio <= 2) return 'warning'
+  return 'danger'
+}
+
 // 加载数据
 onMounted(async () => {
   await Promise.all([
@@ -352,12 +413,16 @@ async function loadDashboardTopicData() {
     userStore.userRole === 'admin' ? adminApi.getStatistics() : Promise.resolve(null)
   ])
   if (topicStatsResult.status === 'fulfilled') {
-    hotTopics.value = (topicStatsResult.value.data?.hotTopics || []).slice(0, 5).map((topic: any) => ({
+    const mapTopic = (topic: any) => ({
       ...topic,
       teacherName: topic.teacher_name,
       applyCount: Number(topic.apply_count) || 0,
-      viewCount: Number(topic.view_count) || 0
-    }))
+      viewCount: Number(topic.view_count) || 0,
+      maxStudents: Number(topic.max_students) || 0
+    })
+    hotTopics.value = (topicStatsResult.value.data?.hotTopics || []).slice(0, 5).map(mapTopic)
+    recommendedTopics.value = (topicStatsResult.value.data?.recommendedTopics || []).map(mapTopic)
+    recommendationOffset.value = 0
   } else {
     console.error('获取工作台热门课题失败:', topicStatsResult.reason)
   }
@@ -398,6 +463,40 @@ async function loadDashboardTopicData() {
   margin-top: 8px;
   opacity: 0.85;
   font-size: 14px;
+}
+
+.recommendation-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.recommendation-header p {
+  margin: 6px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.recommendation-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+@media (max-width: 640px) {
+  .recommendation-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .recommendation-actions {
+    width: 100%;
+  }
+
+  .recommendation-actions .el-button {
+    flex: 1;
+  }
 }
 
 .stats-row .el-col {

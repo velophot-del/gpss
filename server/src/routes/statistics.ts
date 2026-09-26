@@ -2,6 +2,9 @@ import { Router } from 'express'
 import { query } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
+import { getActiveCycle } from '../utils/processFlow.js'
+import { getStudentMajorCode, getTopicAccessPolicy } from '../utils/topicAccess.js'
+import { getAllowedMajorNames, getAllowedMajorOptions, getCycleMajors } from '../utils/majors.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -80,17 +83,99 @@ router.get('/topics', async (req: AuthRequest, res) => {
       ORDER BY topic_count DESC
     `)
 
-    // 已发布课题按浏览量排序，工作台从中取前 5 项
-    const hotTopics = await query<any>(`
-      SELECT t.*, u.real_name as teacher_name
+    const activeCycle = await getActiveCycle()
+    if (!activeCycle) {
+      return success(res, { teacherRanking, hotTopics: [], recommendedTopics: [] })
+    }
+
+    let visibilitySql = ''
+    const visibilityParams: any[] = []
+    if (req.user!.role === 'student') {
+      const [studentMajorCode, policy, cycleMajors] = await Promise.all([
+        getStudentMajorCode(req.user!.id),
+        getTopicAccessPolicy(activeCycle.id),
+        getCycleMajors(activeCycle.id),
+      ])
+      if (policy.mode !== 'all') {
+        const allowedMajors = getAllowedMajorOptions(policy, cycleMajors, studentMajorCode)
+        const allowedCodes = allowedMajors.map(major => major.code)
+        if (!allowedCodes.length) {
+          return success(res, { teacherRanking, hotTopics: [], recommendedTopics: [] })
+        }
+        const allowedNames = getAllowedMajorNames(allowedCodes, cycleMajors)
+        const conditions = [`t.major_code IN (${allowedCodes.map(() => '?').join(',')})`]
+        visibilityParams.push(...allowedCodes)
+        if (allowedNames.length) {
+          conditions.push(`t.major IN (${allowedNames.map(() => '?').join(',')})`)
+          visibilityParams.push(...allowedNames)
+        }
+        visibilitySql = ` AND (${conditions.join(' OR ')})`
+      }
+    }
+
+    // 工作台只统计当前周期的已发布课题；申请人数从 applications 实时计算，排除已撤回志愿。
+    const topicRows = await query<any>(`
+      SELECT t.id, t.title, t.difficulty, t.max_students, t.major, t.major_code,
+             t.view_count, t.teacher_id, u.real_name AS teacher_name,
+             COALESCE(ac.apply_count, 0) AS apply_count,
+             COALESCE(ac.accepted_count, 0) AS accepted_count
       FROM topics t
       JOIN users u ON t.teacher_id = u.id
-      WHERE t.status = 'published'
-      ORDER BY t.view_count DESC, t.apply_count DESC, t.id ASC
-      LIMIT 10
-    `)
+      LEFT JOIN (
+        SELECT topic_id,
+               COUNT(*) AS apply_count,
+               SUM(status = 'accepted') AS accepted_count
+        FROM applications
+        WHERE status IN ('pending', 'submitted', 'pending_review', 'waitlisted', 'accepted')
+        GROUP BY topic_id
+      ) ac ON ac.topic_id = t.id
+      WHERE t.status = 'published' AND t.cycle_id = ?${visibilitySql}
+    `, [activeCycle.id, ...visibilityParams])
 
-    success(res, { teacherRanking, hotTopics })
+    const numericRows = topicRows.map((topic: any) => ({
+      ...topic,
+      view_count: Number(topic.view_count) || 0,
+      apply_count: Number(topic.apply_count) || 0,
+      accepted_count: Number(topic.accepted_count) || 0,
+      max_students: Number(topic.max_students) || 0,
+    }))
+
+    // 管理员/教师查看综合热度：申请意向权重 60%，浏览关注权重 40%。
+    const maxApplyLog = Math.max(...numericRows.map((topic: any) => Math.log1p(topic.apply_count)), 1)
+    const maxViewLog = Math.max(...numericRows.map((topic: any) => Math.log1p(topic.view_count)), 1)
+    const hotTopics = numericRows
+      .map((topic: any) => ({
+        ...topic,
+        heat_score: Number((
+          Math.log1p(topic.apply_count) / maxApplyLog * 0.6
+          + Math.log1p(topic.view_count) / maxViewLog * 0.4
+        ).toFixed(4)),
+      }))
+      .sort((a: any, b: any) => b.heat_score - a.heat_score || b.apply_count - a.apply_count || b.view_count - a.view_count || String(a.id).localeCompare(String(b.id)))
+      .slice(0, 10)
+
+    // 学生推荐优先低申请、低浏览课题，并按教师轮换，避免同一教师连续占据推荐位。
+    const recommendationGroups = new Map<string, any[]>()
+    const fairRows = [...numericRows].sort((a: any, b: any) => {
+      const aScore = Math.log1p(a.apply_count) * 0.6 + Math.log1p(a.view_count) * 0.4
+      const bScore = Math.log1p(b.apply_count) * 0.6 + Math.log1p(b.view_count) * 0.4
+      return aScore - bScore || a.apply_count - b.apply_count || a.view_count - b.view_count || String(a.id).localeCompare(String(b.id))
+    })
+    for (const topic of fairRows) {
+      const teacherId = String(topic.teacher_id)
+      if (!recommendationGroups.has(teacherId)) recommendationGroups.set(teacherId, [])
+      recommendationGroups.get(teacherId)!.push(topic)
+    }
+    const recommendedTopics: any[] = []
+    while (recommendationGroups.size) {
+      for (const [teacherId, topics] of recommendationGroups) {
+        const topic = topics.shift()
+        if (topic) recommendedTopics.push(topic)
+        if (!topics.length) recommendationGroups.delete(teacherId)
+      }
+    }
+
+    success(res, { teacherRanking, hotTopics, recommendedTopics })
   } catch (err: any) {
     error(res, '服务器内部错误', 500)
   }
