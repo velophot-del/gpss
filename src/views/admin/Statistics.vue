@@ -208,8 +208,6 @@ const teacherWorkload = computed(() => {
   padding: 0 12px;
 }
 .chart-container {
-  max-height: 520px;
-  overflow-y: auto;
   padding: 12px 0;
 }
 .bar-item {

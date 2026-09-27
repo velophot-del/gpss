@@ -47,6 +47,8 @@ assert.match(teacherTopicsRoute, /teacherName: item\.teacher_name/)
 const statisticsView = read('src/views/admin/Statistics.vue')
 assert.match(statisticsView, /adminApi\.getAllTopics\(\)/)
 assert.match(statisticsView, /const statisticsTopics = ref<any\[\]>\(\[\]\)/)
+const chartContainerStyles = statisticsView.match(/\.chart-container\s*\{([^}]*)\}/s)?.[1] || ''
+assert.doesNotMatch(chartContainerStyles, /max-height|overflow-y/)
 
 const dashboard = read('src/views/Dashboard.vue')
 assert.match(dashboard, /if \(!dateStr\) return '-'/)
