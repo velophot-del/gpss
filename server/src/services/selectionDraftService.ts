@@ -111,15 +111,16 @@ async function validateDraftCapacity(conn: Connection, topic: any, batchId: stri
 export async function getSelectionDraft(topicId: string, actor: SessionUser): Promise<SelectionDraftView> {
   const topicRows = await query<any>(`
     SELECT t.id, t.title, t.teacher_id, t.cycle_id, t.max_students, c.phases_config
-    FROM topics t JOIN cycles c ON c.id = t.cycle_id WHERE t.id = ?
+    FROM topics t LEFT JOIN cycles c ON c.id = t.cycle_id WHERE t.id = ?
   `, [topicId])
   const topic = topicRows[0]
   if (!topic) throw new SelectionDraftError('课题不存在或未关联选题周期', 404)
   assertReadable(topic, actor)
   const deadline = getReviewDeadline(safeParseJson(topic.phases_config, {}))
-  if (!deadline) throw new SelectionDraftError('当前周期未配置教师遴选截止时间', 409)
 
-  const batchRows = await query<any>('SELECT * FROM selection_batches WHERE cycle_id = ? AND topic_id = ?', [topic.cycle_id, topic.id])
+  const batchRows = topic.cycle_id
+    ? await query<any>('SELECT * FROM selection_batches WHERE cycle_id = ? AND topic_id = ?', [topic.cycle_id, topic.id])
+    : []
   const batch = batchRows[0]
   const applications = await query<any>(`
     SELECT a.id, a.student_id, a.priority, a.status, a.motivation, a.created_at,
@@ -129,7 +130,7 @@ export async function getSelectionDraft(topicId: string, actor: SessionUser): Pr
     JOIN users u ON u.id = a.student_id
     LEFT JOIN student_profiles sp ON sp.user_id = a.student_id
     LEFT JOIN selection_draft_items sdi ON sdi.application_id = a.id AND sdi.batch_id = ?
-    WHERE a.topic_id = ? AND a.status IN ('pending', 'submitted', 'pending_review', 'accepted')
+    WHERE a.topic_id = ?
     ORDER BY a.priority, a.created_at, a.id
   `, [batch?.id || '', topic.id])
   const config = safeParseJson<Record<string, any>>(topic.phases_config, {})
@@ -157,7 +158,7 @@ export async function getSelectionDraft(topicId: string, actor: SessionUser): Pr
       motivation: item.motivation, gpa: item.gpa, appliedAt: item.created_at, decision: item.decision || null,
       decisionRank: item.decision_rank == null ? null : Number(item.decision_rank), comment: item.comment || '',
     })),
-    deadline: deadline.toISOString(),
+    deadline: deadline?.toISOString() || '',
     teacherStudentLimit: getTeacherStudentLimit(config),
     teacherAcceptedCount: Number(counts[0]?.accepted_count || 0),
     teacherProposedCount: Number(counts[0]?.proposed_count || 0),

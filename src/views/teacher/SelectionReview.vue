@@ -6,10 +6,9 @@
         <el-button @click="refreshAll">刷新状态</el-button>
       </div>
 
-      <el-alert v-if="!canViewApplications" :title="`当前为${cycleStore.phaseInfo.label}`" description="当前阶段暂不可查看学生申报信息。" type="info" :closable="false" show-icon class="state-alert" />
-      <el-alert v-else-if="!isTeacherReview" :title="`当前为${cycleStore.phaseInfo.label}`" description="可查看学生申报状态和学生信息；教师遴选尚未开始，当前不能提交、退回或处理申请。" type="info" :closable="false" show-icon class="state-alert" />
-      <el-empty v-else-if="!myTopics.length" description="暂无可查看课题" />
-      <el-tabs v-else-if="canViewApplications" v-model="activeTopicId" @tab-change="loadTopic" class="topic-tabs">
+      <el-alert v-if="!isTeacherReview" :title="`当前为${cycleStore.phaseInfo.label}`" description="当前阶段为只读状态，可查看课题、学生申报状态和学生信息；遴选操作仅在教师遴选阶段开放。" type="info" :closable="false" show-icon class="state-alert" />
+      <el-empty v-if="!myTopics.length" description="暂无可查看课题" />
+      <el-tabs v-if="myTopics.length" v-model="activeTopicId" @tab-change="loadTopic" class="topic-tabs">
         <el-tab-pane v-for="topic in myTopics" :key="topic.id" :name="topic.id" :label="`${topic.title}（${topic.applyCount || 0}人）`">
           <div v-if="currentDraft" v-loading="loading" class="draft-body">
             <div class="summary-grid">
@@ -18,7 +17,7 @@
               <div><span>候补</span><strong>{{ decisionCount('reserve') }}</strong></div>
               <div><span>未处理</span><strong>{{ undecidedCount }}</strong></div>
               <div><span>教师指导上限</span><strong>{{ currentDraft.teacherStudentLimit || '未设置' }}</strong></div>
-              <div><span>审核截止</span><strong class="deadline">{{ formatDateTime(currentDraft.deadline) }}</strong></div>
+              <div><span>审核截止</span><strong class="deadline">{{ currentDraft.deadline ? formatDateTime(currentDraft.deadline) : '未配置' }}</strong></div>
             </div>
 
             <el-alert :type="batchAlertType" :closable="false" show-icon class="state-alert">
@@ -56,7 +55,7 @@
               <el-table-column label="学生申请状态" width="130" align="center"><template #default="{ row }"><el-tag :type="applicationStatusType[row.status] || 'info'">{{ applicationStatusLabel[row.status] || row.status }}</el-tag></template></el-table-column>
               <el-table-column label="遴选草稿" width="110" align="center"><template #default="{ row }"><el-tag v-if="row.status === 'accepted'" type="success">既有录取</el-tag><el-tag v-else :type="decisionType[row.decision] || 'info'">{{ decisionLabel[row.decision] || '未处理' }}</el-tag></template></el-table-column>
               <el-table-column label="操作" min-width="310" fixed="right"><template #default="{ row }">
-                <el-button-group v-if="row.status !== 'accepted'">
+                <el-button-group v-if="['pending', 'submitted', 'pending_review'].includes(row.status)">
                   <el-button size="small" type="success" :plain="row.decision !== 'proposed'" :disabled="readOnly" @click="setDecision(row.id, 'proposed')">拟录取</el-button>
                   <el-button size="small" type="warning" :plain="row.decision !== 'reserve'" :disabled="readOnly" @click="setDecision(row.id, 'reserve')">候补</el-button>
                   <el-button size="small" type="danger" :plain="row.decision !== 'reject'" :disabled="readOnly" @click="setDecision(row.id, 'reject')">不录取</el-button>
@@ -128,20 +127,18 @@ const loading = computed(() => draftStore.loadingTopicIds.includes(activeTopicId
 const saving = computed(() => draftStore.savingTopicIds.includes(activeTopicId.value))
 const submitting = computed(() => draftStore.submittingTopicIds.includes(activeTopicId.value))
 const isTeacherReview = computed(() => cycleStore.currentPhase === 'teacher_review')
-const canViewApplications = computed(() => ['student_apply', 'teacher_review'].includes(cycleStore.currentPhase))
 const readOnly = computed(() => !isTeacherReview.value || !currentDraft.value || currentDraft.value.batch.status !== 'draft')
-const undecidedCount = computed(() => currentDraft.value?.applications.filter(item => item.status !== 'accepted' && !item.decision).length || 0)
+const undecidedCount = computed(() => currentDraft.value?.applications.filter(item => ['pending', 'submitted', 'pending_review'].includes(item.status) && !item.decision).length || 0)
 const batchStatusLabel = computed(() => ({ draft: '草稿可继续修改，学生看不到当前决定', submitted: '已提交，等待统一结算', auto_submitted: '已到截止时间，系统已自动提交', settled: '统一录取已完成' }[currentDraft.value?.batch.status || 'draft']))
 const batchAlertType = computed(() => currentDraft.value?.batch.status === 'settled' ? 'success' : currentDraft.value?.batch.status === 'draft' ? 'info' : 'warning')
 const decisionLabel: Record<string, string> = { proposed: '拟录取', reserve: '候补', reject: '不录取' }
 const decisionType: Record<string, string> = { proposed: 'success', reserve: 'warning', reject: 'danger' }
-const applicationStatusLabel: Record<string, string> = { pending: '待审核', submitted: '已提交', pending_review: '待审核', accepted: '已录取', rejected: '未录取', waitlisted: '候补' }
-const applicationStatusType: Record<string, string> = { accepted: 'success', rejected: 'danger', waitlisted: 'warning' }
+const applicationStatusLabel: Record<string, string> = { pending: '待审核', submitted: '已提交', pending_review: '待审核', accepted: '已录取', rejected: '未录取', waitlisted: '候补', withdrawn: '已撤回', cancelled: '已取消' }
+const applicationStatusType: Record<string, string> = { accepted: 'success', rejected: 'danger', waitlisted: 'warning', withdrawn: 'info', cancelled: 'info' }
 
 onMounted(async () => {
   try {
     await Promise.all([cycleStore.fetchCurrentCycle(), topicStore.fetchMyTopics()])
-    if (!canViewApplications.value) return
     if (myTopics.value.length) {
       activeTopicId.value = myTopics.value[0].id
       await draftStore.load(activeTopicId.value)
@@ -193,7 +190,6 @@ async function submitDraft() {
 }
 async function refreshAll() {
   await cycleStore.fetchCurrentCycle()
-  if (!canViewApplications.value) return ElMessage.info('当前阶段暂不可查看学生申报信息')
   const results = await Promise.allSettled(myTopics.value.map(topic => draftStore.load(topic.id)))
   if (results.some(result => result.status === 'rejected')) return ElMessage.warning('部分课题状态未能刷新，请切换课题查看提示')
   ElMessage.success('状态已更新')
