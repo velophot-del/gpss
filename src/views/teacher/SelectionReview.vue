@@ -6,9 +6,10 @@
         <el-button @click="refreshAll">刷新状态</el-button>
       </div>
 
-      <el-alert v-if="!isTeacherReview" :title="`当前为${cycleStore.phaseInfo.label}`" description="学生遴选仅在“教师遴选阶段”开放。当前可查看流程，不能保存草稿、提交名单或录取学生。" type="info" :closable="false" show-icon class="state-alert" />
-      <el-empty v-else-if="!myTopics.length" description="暂无可遴选课题" />
-      <el-tabs v-else v-model="activeTopicId" @tab-change="loadTopic" class="topic-tabs">
+      <el-alert v-if="!canViewApplications" :title="`当前为${cycleStore.phaseInfo.label}`" description="当前阶段暂不可查看学生申报信息。" type="info" :closable="false" show-icon class="state-alert" />
+      <el-alert v-else-if="!isTeacherReview" :title="`当前为${cycleStore.phaseInfo.label}`" description="可查看学生申报状态和学生信息；教师遴选尚未开始，当前不能提交、退回或处理申请。" type="info" :closable="false" show-icon class="state-alert" />
+      <el-empty v-else-if="!myTopics.length" description="暂无可查看课题" />
+      <el-tabs v-else-if="canViewApplications" v-model="activeTopicId" @tab-change="loadTopic" class="topic-tabs">
         <el-tab-pane v-for="topic in myTopics" :key="topic.id" :name="topic.id" :label="`${topic.title}（${topic.applyCount || 0}人）`">
           <div v-if="currentDraft" v-loading="loading" class="draft-body">
             <div class="summary-grid">
@@ -28,7 +29,7 @@
               <section class="rank-card">
                 <h3>拟录取顺序</h3>
                 <el-empty v-if="!proposedItems.length" description="尚未设置拟录取" :image-size="48" />
-                <div v-for="(item, index) in proposedItems" :key="item.id" class="rank-row" draggable="true"
+                <div v-for="(item, index) in proposedItems" :key="item.id" class="rank-row" :draggable="!readOnly"
                   @dragstart="onDragStart('proposed', index)" @dragover.prevent @drop="onDrop('proposed', index)">
                   <span class="rank-number">{{ index + 1 }}</span><span>{{ item.studentName }}</span><small>{{ formatPriority(item.priority) }}</small>
                   <div class="rank-actions"><el-button link :disabled="readOnly || index === 0" @click="move('proposed', index, -1)">上移</el-button><el-button link :disabled="readOnly || index === proposedItems.length - 1" @click="move('proposed', index, 1)">下移</el-button></div>
@@ -37,7 +38,7 @@
               <section class="rank-card">
                 <h3>候补顺序</h3>
                 <el-empty v-if="!reserveItems.length" description="尚未设置候补" :image-size="48" />
-                <div v-for="(item, index) in reserveItems" :key="item.id" class="rank-row" draggable="true"
+                <div v-for="(item, index) in reserveItems" :key="item.id" class="rank-row" :draggable="!readOnly"
                   @dragstart="onDragStart('reserve', index)" @dragover.prevent @drop="onDrop('reserve', index)">
                   <span class="rank-number reserve">{{ index + 1 }}</span><span>{{ item.studentName }}</span><small>{{ formatPriority(item.priority) }}</small>
                   <div class="rank-actions"><el-button link :disabled="readOnly || index === 0" @click="move('reserve', index, -1)">上移</el-button><el-button link :disabled="readOnly || index === reserveItems.length - 1" @click="move('reserve', index, 1)">下移</el-button></div>
@@ -52,7 +53,8 @@
               <el-table-column prop="className" label="班级" width="120" />
               <el-table-column prop="major" label="专业" min-width="130" />
               <el-table-column prop="motivation" label="申请理由" min-width="180" show-overflow-tooltip />
-              <el-table-column label="草稿决定" width="110" align="center"><template #default="{ row }"><el-tag v-if="row.status === 'accepted'" type="success">既有录取</el-tag><el-tag v-else :type="decisionType[row.decision] || 'info'">{{ decisionLabel[row.decision] || '未处理' }}</el-tag></template></el-table-column>
+              <el-table-column label="学生申请状态" width="130" align="center"><template #default="{ row }"><el-tag :type="applicationStatusType[row.status] || 'info'">{{ applicationStatusLabel[row.status] || row.status }}</el-tag></template></el-table-column>
+              <el-table-column label="遴选草稿" width="110" align="center"><template #default="{ row }"><el-tag v-if="row.status === 'accepted'" type="success">既有录取</el-tag><el-tag v-else :type="decisionType[row.decision] || 'info'">{{ decisionLabel[row.decision] || '未处理' }}</el-tag></template></el-table-column>
               <el-table-column label="操作" min-width="310" fixed="right"><template #default="{ row }">
                 <el-button-group v-if="row.status !== 'accepted'">
                   <el-button size="small" type="success" :plain="row.decision !== 'proposed'" :disabled="readOnly" @click="setDecision(row.id, 'proposed')">拟录取</el-button>
@@ -126,17 +128,20 @@ const loading = computed(() => draftStore.loadingTopicIds.includes(activeTopicId
 const saving = computed(() => draftStore.savingTopicIds.includes(activeTopicId.value))
 const submitting = computed(() => draftStore.submittingTopicIds.includes(activeTopicId.value))
 const isTeacherReview = computed(() => cycleStore.currentPhase === 'teacher_review')
+const canViewApplications = computed(() => ['student_apply', 'teacher_review'].includes(cycleStore.currentPhase))
 const readOnly = computed(() => !isTeacherReview.value || !currentDraft.value || currentDraft.value.batch.status !== 'draft')
 const undecidedCount = computed(() => currentDraft.value?.applications.filter(item => item.status !== 'accepted' && !item.decision).length || 0)
 const batchStatusLabel = computed(() => ({ draft: '草稿可继续修改，学生看不到当前决定', submitted: '已提交，等待统一结算', auto_submitted: '已到截止时间，系统已自动提交', settled: '统一录取已完成' }[currentDraft.value?.batch.status || 'draft']))
 const batchAlertType = computed(() => currentDraft.value?.batch.status === 'settled' ? 'success' : currentDraft.value?.batch.status === 'draft' ? 'info' : 'warning')
 const decisionLabel: Record<string, string> = { proposed: '拟录取', reserve: '候补', reject: '不录取' }
 const decisionType: Record<string, string> = { proposed: 'success', reserve: 'warning', reject: 'danger' }
+const applicationStatusLabel: Record<string, string> = { pending: '待审核', submitted: '已提交', pending_review: '待审核', accepted: '已录取', rejected: '未录取', waitlisted: '候补' }
+const applicationStatusType: Record<string, string> = { accepted: 'success', rejected: 'danger', waitlisted: 'warning' }
 
 onMounted(async () => {
   try {
     await Promise.all([cycleStore.fetchCurrentCycle(), topicStore.fetchMyTopics()])
-    if (!isTeacherReview.value) return
+    if (!canViewApplications.value) return
     if (myTopics.value.length) {
       activeTopicId.value = myTopics.value[0].id
       await draftStore.load(activeTopicId.value)
@@ -188,7 +193,7 @@ async function submitDraft() {
 }
 async function refreshAll() {
   await cycleStore.fetchCurrentCycle()
-  if (!isTeacherReview.value) return ElMessage.info('当前不在教师遴选阶段，不能处理学生申请')
+  if (!canViewApplications.value) return ElMessage.info('当前阶段暂不可查看学生申报信息')
   const results = await Promise.allSettled(myTopics.value.map(topic => draftStore.load(topic.id)))
   if (results.some(result => result.status === 'rejected')) return ElMessage.warning('部分课题状态未能刷新，请切换课题查看提示')
   ElMessage.success('状态已更新')
@@ -196,8 +201,9 @@ async function refreshAll() {
 async function showStudentDetail(studentId: string) {
   detailVisible.value = true
   detailLoading.value = true
-  selectedStudentProfile.value = await studentStore.fetchProfileByUserId(studentId)
-  detailLoading.value = false
+  try { selectedStudentProfile.value = await studentStore.fetchProfileByUserId(studentId) }
+  catch { ElMessage.error('读取学生信息失败') }
+  finally { detailLoading.value = false }
 }
 </script>
 
