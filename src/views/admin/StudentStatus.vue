@@ -121,7 +121,7 @@
                   <el-table-column prop="priority" label="志愿" width="60" align="center">
                     <template #default="{ row }">
                       <el-tag :type="getPriorityType(row.priority)" size="small">
-                        {{ row.priority }}
+                        {{ formatPriority(row.priority) }}
                       </el-tag>
                     </template>
                   </el-table-column>
@@ -182,6 +182,7 @@ import { ref, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Download } from '@element-plus/icons-vue'
 import { adminApi, applicationApi } from '@/api'
+import { formatPriority, priorityTagType } from '@/utils/volunteerRules'
 
 const overview = ref<any>(null)
 const overviewLoading = ref(false)
@@ -310,10 +311,7 @@ const getStudentSelections = (studentId: string) => {
 }
 
 const getPriorityType = (priority: number) => {
-  if (priority === 1) return 'danger'
-  if (priority === 2) return 'warning'
-  if (priority === 3) return 'info'
-  return 'info'
+  return priorityTagType(priority)
 }
 
 const getStatusType = (status: string) => {

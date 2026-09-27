@@ -65,8 +65,8 @@
           <el-table-column prop="topic_category" label="课题方向" width="100" />
           <el-table-column prop="priority" label="志愿优先级" width="100" align="center">
             <template #default="{ row }">
-              <el-tag :type="priorityType[row.priority]" size="small">
-                第{{ row.priority }}志愿
+              <el-tag :type="priorityTagType(row.priority)" size="small">
+                {{ formatPriority(row.priority) }}
               </el-tag>
             </template>
           </el-table-column>
@@ -99,6 +99,7 @@ import { Download } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { adminApi } from '@/api'
 import { useCycleStore } from '@/stores/cycle'
+import { formatPriority, priorityTagType } from '@/utils/volunteerRules'
 
 const applications = ref<any[]>([])
 const filterStatus = ref('')
@@ -146,19 +147,13 @@ const returnableApplicationIds = computed(() => {
   return ids
 })
 
-const priorityType: Record<number, string> = {
-  1: 'danger',
-  2: 'warning',
-  3: 'info'
-}
-
 const statusLabel: Record<string, string> = {
   'pending': '待审核',
   'submitted': '待审核',
   'pending_review': '待审核',
   'accepted': '已录取',
   'rejected': '已拒绝',
-  'waitlisted': '候补待定',
+  'waitlisted': '等待统一录取（兼容）',
   'withdrawn': '已撤回',
   'cancelled': '已取消'
 }

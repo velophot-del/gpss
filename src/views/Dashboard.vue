@@ -184,7 +184,7 @@
                 <el-tag v-if="!profileComplete" type="danger" size="small" style="margin-left: 8px;">未完成</el-tag>
               </el-button>
               <el-button icon="Tickets" @click="$router.push('/student/browse?panel=submitted')" style="width: 100%; margin-top: 12px;">
-                我的志愿 ({{ myApplications.length }}/3)
+                我的志愿（已填 {{ myApplications.length }} 个，至少 3 个、最多 6 个）
               </el-button>
               <el-button icon="CircleCheck" @click="$router.push('/student/result')" style="width: 100%; margin-top: 12px;">
                 查看选课结果
@@ -260,6 +260,7 @@ import { useCycleStore } from '../stores/cycle'
 import { useTopicStore } from '../stores/topic'
 import { useApplicationStore } from '../stores/application'
 import { useStudentStore } from '../stores/student'
+import { useSelectionDraftStore } from '../stores/selectionDraft'
 import { adminApi, statisticsApi } from '../api'
 import dayjs from 'dayjs'
 import {
@@ -272,6 +273,7 @@ const cycleStore = useCycleStore()
 const topicStore = useTopicStore()
 const applicationStore = useApplicationStore()
 const studentStore = useStudentStore()
+const selectionDraftStore = useSelectionDraftStore()
 const adminTopicCount = ref(0)
 const hotTopics = ref<any[]>([])
 const recommendedTopics = ref<any[]>([])
@@ -342,6 +344,7 @@ const difficultyLabels: Record<string, string> = {
 // 待遴选数量
 const pendingReviewCount = computed(() => {
   if (userStore.currentUser?.role !== 'teacher' && userStore.currentUser?.role !== 'admin') return 0
+  if (userStore.currentUser?.role === 'teacher') return selectionDraftStore.pendingTopicCount
   const myTopics = topicStore.getTopicsByTeacher(userStore.currentUser.id)
   let count = 0
   for (const topic of myTopics) {
@@ -405,6 +408,10 @@ onMounted(async () => {
     applicationStore.fetchApplications(),
     loadDashboardTopicData()
   ])
+  if (userStore.currentUser?.role === 'teacher') {
+    const ownTopics = topicStore.getTopicsByTeacher(userStore.currentUser.id)
+    await Promise.all(ownTopics.map(topic => selectionDraftStore.load(topic.id).catch(() => null)))
+  }
 })
 
 async function loadDashboardTopicData() {

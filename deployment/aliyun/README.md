@@ -80,10 +80,11 @@ docker compose up -d --build
 ```bash
 docker compose exec app node dist/scripts/initDb.js
 docker compose exec app node dist/scripts/migrateAddProcessStages.js
+docker compose exec app node dist/scripts/migrateSelectionDrafts.js
 docker compose restart app
 ```
 
-第二条命令会扩展 `cycles.phase`，包含 `topic_publish`、`student_apply`、`teacher_review` 与 `result_announce`，不会删除已有周期数据。
+第二条命令会扩展 `cycles.phase`，包含 `topic_publish`、`student_apply`、`teacher_review` 与 `result_announce`，不会删除已有周期数据。第三条命令只处理当前进行中周期的旧 `waitlisted`：转换为候补草稿并恢复为 `pending`；重复执行不会重复迁移。完整发布检查见 `docs/releases/selection-settlement-rollout.md`。
 
 ## 5. 查看状态
 

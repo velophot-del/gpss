@@ -107,8 +107,13 @@ const applyDialogVisible = ref(false)
 const selectedTopic = ref<Topic | null>(null)
 const adjustForm = ref({ motivation: '' })
 const myAdjustments = ref<any[]>([])
+const currentCycleApplications = computed(() => applicationStore.applications.filter(a =>
+  String(a.cycleId) === String(cycleStore.currentCycle?.id)
+))
 const canSubmitAdjustment = computed(() => cycleStore.currentPhase === 'adjustment' &&
   !applicationStore.finalResults.some(a => String((a as any).cycleId) === String(cycleStore.currentCycle?.id)) &&
+  currentCycleApplications.value.length > 0 &&
+  currentCycleApplications.value.every(a => ['rejected', 'withdrawn', 'cancelled'].includes(a.status)) &&
   !myAdjustments.value.some(a => a.status === 'pending' && String(a.cycle_id) === String(cycleStore.currentCycle?.id)))
 
 // 可调剂课题：还有名额的

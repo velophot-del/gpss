@@ -198,6 +198,7 @@ import type { MajorConfig } from '../../types'
 import { MAJOR_OPTIONS, RESEARCH_CATEGORIES, resolveTopicMajorCode } from '../../types'
 import { useTopicStore } from '../../stores/topic'
 import { useCycleStore } from '../../stores/cycle'
+import { VOLUNTEER_MIN, VOLUNTEER_MAX } from '../../utils/volunteerRules'
 
 const topicStore = useTopicStore()
 const cycleStore = useCycleStore()
@@ -233,9 +234,7 @@ const availableMajorOptions = computed(() => {
   topicStore.topics.forEach((t: any) => { const c = resolveTopicMajorCode(t); if (c) codes.add(c) })
   return majorsOptions.value.filter(o => codes.has(o.code))
 })
-// 每名学生填报志愿的数量区间：至少 3 个、至多 6 个（不重复）
-const VOLUNTEER_MIN = 3
-const VOLUNTEER_LIMIT = 6
+const VOLUNTEER_LIMIT = VOLUNTEER_MAX
 const shortlist = ref<any[]>([])
 const selectedList = ref<any[]>([])
 function isCrowdedTopic(topic: { firstChoiceCount?: number; maxStudents: number; teacherFirstChoiceCount?: number; teacherStudentLimit?: number }) {
@@ -303,7 +302,7 @@ const currentStep = computed(() => hasSubmittedVolunteers.value ? 3 : selectedLi
 const deadlineLabel = computed(() => cycleStore.currentCycle?.studentApplyEnd ? String(cycleStore.currentCycle.studentApplyEnd).slice(0, 10) : '以系统阶段为准')
 const difficultyLabel: Record<string, string> = { easy: '入门友好', medium: '适中', hard: '挑战型' }
 const difficultyType: Record<string, any> = { easy: 'success', medium: 'warning', hard: 'danger' }
-const statusLabel: Record<string, string> = { pending: '等待教师处理', submitted: '等待教师处理', pending_review: '等待教师处理', accepted: '已录取', rejected: '未录取', waitlisted: '候补待定', withdrawn: '已撤回' }
+const statusLabel: Record<string, string> = { pending: '等待教师遴选/统一录取', submitted: '等待教师遴选/统一录取', pending_review: '等待教师遴选/统一录取', accepted: '已录取', rejected: '未录取', waitlisted: '等待教师遴选/统一录取', withdrawn: '已撤回' }
 const statusType: Record<string, any> = { pending: 'warning', submitted: 'warning', pending_review: 'warning', accepted: 'success', rejected: 'danger', waitlisted: 'info', withdrawn: 'info' }
 
 // 已提交志愿按志愿序号(第1志愿→第6志愿)排列，方便看清录取顺序

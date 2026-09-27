@@ -56,6 +56,7 @@
             <el-menu-item index="/admin/teachers">教师申报状态</el-menu-item>
             <el-menu-item index="/admin/students">学生选课状态</el-menu-item>
             <el-menu-item index="/admin/applications">选课申请数据</el-menu-item>
+            <el-menu-item index="/admin/selection-settlement">录取结算</el-menu-item>
           </el-sub-menu>
           <el-sub-menu index="admin-process">
             <template #title>

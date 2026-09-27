@@ -30,6 +30,9 @@ import documentTemplateRoutes from './routes/documentTemplates.js'
 import topicAccessRoutes from './routes/topicAccess.js'
 import cycleConfigRoutes from './routes/cycleConfig.js'
 import profileOptionsRoutes from './routes/profileOptions.js'
+import selectionDraftRoutes from './routes/selectionDrafts.js'
+import selectionAdminRoutes from './routes/selectionAdmin.js'
+import { startSelectionDeadlineWorker } from './services/selectionDeadlineWorker.js'
 
 // 导入认证中间件
 import { authMiddleware, type AuthRequest } from './middleware/auth.js'
@@ -97,6 +100,7 @@ app.use('/api/auth', authRoutes)
 // 需要登录的路由
 app.use('/api/users', userRoutes)
 app.use('/api/topics', topicRoutes)
+app.use('/api/applications', selectionDraftRoutes)
 app.use('/api/applications', applicationRoutes)
 app.use('/api/cycles', cycleRoutes)
 app.use('/api/topic-access', topicAccessRoutes)
@@ -106,6 +110,7 @@ app.use('/api/statistics', statisticsRoutes)
 app.use('/api/students', studentRoutes)
 app.use('/api/upload', uploadRoutes)
 app.use('/api/shortlist', shortlistRoutes)
+app.use('/api/admin', selectionAdminRoutes)
 app.use('/api/admin', adminRoutes)
 app.use('/api/task-books', taskBookRoutes)
 app.use('/api/proposals', proposalRoutes)
@@ -134,7 +139,7 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 })
 
 // 启动服务
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`
 ╔════════════════════════════════════════╗
 ║   毕业设计管理系统 - API Server       ║
@@ -145,5 +150,17 @@ app.listen(PORT, HOST, () => {
 ╚════════════════════════════════════════╝
   `)
 })
+
+const selectionDeadlineWorker = startSelectionDeadlineWorker()
+let shuttingDown = false
+function shutdown(signal: string) {
+  if (shuttingDown) return
+  shuttingDown = true
+  console.log(`[gpss] 收到 ${signal}，正在停止服务...`)
+  selectionDeadlineWorker.stop()
+  server.close(() => process.exit(0))
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'))
+process.on('SIGINT', () => shutdown('SIGINT'))
 
 export default app

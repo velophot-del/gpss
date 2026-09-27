@@ -2,6 +2,9 @@
   <div class="cycle-management page-container">
     <div class="card-container">
       <h2 class="section-title">选题周期管理</h2>
+      <el-alert v-if="configurationError" :title="configurationError" type="error" show-icon class="config-alert">
+        <template #default><el-button link type="danger" @click="router.push('/admin/selection-settlement')">前往录取结算查看配置</el-button></template>
+      </el-alert>
 
       <el-button type="primary" icon="Plus" style="margin-bottom: 20px;" @click="showCreateDialog">
         创建新周期
@@ -267,12 +270,15 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useCycleStore } from '../../stores/cycle'
 import { cycleApi, cycleConfigApi } from '../../api'
 import dayjs from 'dayjs'
 import { ElMessage } from 'element-plus'
 
 const cycleStore = useCycleStore()
+const router = useRouter()
+const configurationError = ref('')
 const loading = ref(false)
 const submitting = ref(false)
 
@@ -463,12 +469,14 @@ async function changeStatus(id: string, status: any) {
         status,
         phase: statusToPhaseMap[status] || 'topic_publish'
       })
+      configurationError.value = ''
       ElMessage.success(`状态已更新为「${cycleStatusLabel[status] || status}」`)
       await fetchCycles()
     }
   } catch (e: any) {
     console.error('更新状态失败:', e)
-    ElMessage.error(e.response?.data?.message || '更新失败')
+    configurationError.value = e.response?.data?.message || '更新失败'
+    ElMessage.error(configurationError.value)
   }
 }
 
@@ -510,13 +518,15 @@ async function handleEdit() {
       }
     })
     await cycleConfigApi.save(editingId.value, cfgPayload)
+    configurationError.value = ''
     ElMessage.success('选题周期与专业/研究方向已更新')
     closeEditDialog()
     editingId.value = null
     await fetchCycles()
   } catch (e: any) {
     console.error('更新周期失败:', e)
-    ElMessage.error(e.response?.data?.message || '更新失败')
+    configurationError.value = e.response?.data?.message || '更新失败'
+    ElMessage.error(configurationError.value)
   } finally {
     submitting.value = false
   }

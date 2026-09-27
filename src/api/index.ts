@@ -85,6 +85,20 @@ export const applicationApi = {
     request.put(`/applications/adjustments/${id}`, data)
 }
 
+export const selectionDraftApi = {
+  get: (topicId: string) => request.get(`/applications/topics/${topicId}/selection-draft`),
+  save: (topicId: string, data: { version: number; items: any[] }) =>
+    request.put(`/applications/topics/${topicId}/selection-draft`, data),
+  submit: (topicId: string, data: { version: number }) =>
+    request.post(`/applications/topics/${topicId}/submit-selection`, data),
+}
+
+export const selectionAdminApi = {
+  getProgress: (cycleId: string | number) => request.get(`/admin/selection-settlement/${cycleId}`),
+  unlock: (topicId: string, reason: string) => request.post(`/admin/selection-topics/${topicId}/unlock`, { reason }),
+  run: (cycleId: string | number) => request.post(`/admin/selection-settlement/${cycleId}/run`),
+}
+
 // ===== 周期管理 =====
 export const cycleApi = {
   getAll: () => request.get('/cycles'),

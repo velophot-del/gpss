@@ -12,7 +12,7 @@
       <div v-for="n in list" :key="n.id" class="notif-item" :class="{ unread: !n.isRead }" @click="read(n)">
         <span class="notif-dot" v-if="!n.isRead"></span>
         <div class="notif-body">
-          <div class="notif-title">{{ n.title }}</div>
+          <div class="notif-title"><el-tag v-if="notificationLabel(n.type)" :type="notificationType(n.type)" size="small">{{ notificationLabel(n.type) }}</el-tag>{{ n.title }}</div>
           <div class="notif-content">{{ n.content }}</div>
           <div class="notif-time">{{ formatDate(n.createdAt) }}</div>
         </div>
@@ -43,6 +43,15 @@ const pageSize = 20
 function formatDate(d: string) {
   if (!d) return ''
   return String(d).replace('T', ' ').slice(0, 16)
+}
+
+function notificationLabel(type: string) {
+  return ({ selection_accepted: '已录取', selection_unmatched: '未录取', selection_settled: '结算完成' } as Record<string, string>)[type] || ''
+}
+function notificationType(type: string): 'success' | 'warning' | 'info' {
+  if (type === 'selection_accepted' || type === 'selection_settled') return 'success'
+  if (type === 'selection_unmatched') return 'warning'
+  return 'info'
 }
 
 async function load() {
@@ -118,6 +127,7 @@ onMounted(load)
   color: #303133;
   font-size: 14px;
 }
+.notif-title .el-tag { margin-right: 8px; }
 .notif-content {
   color: #606266;
   font-size: 13px;

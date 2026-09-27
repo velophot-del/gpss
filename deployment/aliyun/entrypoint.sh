@@ -9,6 +9,9 @@ node dist/scripts/initDb.js
 echo "[gpss] 执行全流程迁移（幂等）..."
 node dist/scripts/migrateAddProcessStages.js
 
+echo "[gpss] 迁移旧候补为遴选草稿（幂等）..."
+node dist/scripts/migrateSelectionDrafts.js
+
 # 仅在不存在管理员时创建；bootstrapAdmin.ts 不会覆盖已有管理员密码。
 # 未显式提供密码时生成一次性随机密码并输出到容器日志，首次登录后必须立即修改。
 if [ -z "${ADMIN_INITIAL_PASSWORD:-}" ]; then

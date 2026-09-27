@@ -8,10 +8,7 @@ import { getTeacherStudentLimit, getReviewDeadline, resolveAdjustmentSource, val
 import { getStudentMajorCode, getTopicAccessPolicy, isTopicVisible } from '../utils/topicAccess.js'
 import { getActiveCycle, isInProgressCycle, isStudentSelectionPhase, isTeacherReviewPhase, notify } from '../utils/processFlow.js'
 import { safeParseJson } from '../utils/json.js'
-
-// 每名学生填报志愿的数量区间（前端同款）
-const VOLUNTEER_MIN = 3
-const VOLUNTEER_MAX = 6
+import { VOLUNTEER_MIN, VOLUNTEER_MAX, validateContinuousPriorities } from '../utils/volunteerRules.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -51,6 +48,8 @@ router.post('/volunteers/submit', requireRole(['student']), async (req: AuthRequ
       seenPriority.add(p)
       items.push({ topicId: tid, priority: p, motivation: v?.motivation })
     }
+    const priorityError = validateContinuousPriorities(items.map(item => item.priority))
+    if (priorityError) return error(res, priorityError)
 
     // 可见性、课题及导师覆盖校验
     const studentMajor = await getStudentMajorCode(req.user!.id)
@@ -233,11 +232,14 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
       // 课题所属周期必须仍在进行中才允许审批（含录取/拒绝/候补）。无周期的历史数据不受此限。
       if (topic.cycle_id != null) {
         const [cycleRows] = await conn.query<any[]>(
-          'SELECT status FROM cycles WHERE id = ?',
+          'SELECT status, phase FROM cycles WHERE id = ?',
           [topic.cycle_id]
         )
         if (!cycleRows[0] || !isInProgressCycle(cycleRows[0].status)) {
           return { error: '该课题所属周期不在进行中，无法审批' }
+        }
+        if (cycleRows[0].phase === 'teacher_review') {
+          return { error: '新版遴选流程已启用，请刷新页面并使用“保存草稿/提交名单”', statusCode: 409 }
         }
       }
 
@@ -354,7 +356,7 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
       return { error: null }
     })
 
-    if (reviewResult.error) return error(res, reviewResult.error)
+    if (reviewResult.error) return error(res, reviewResult.error, reviewResult.statusCode || 400)
 
     const statusMap: Record<string, string> = { accepted: '通过', rejected: '拒绝', waitlisted: '待定' }
     success(res, null, `申请已${statusMap[status] || status}`)
@@ -687,6 +689,9 @@ router.post('/finalize-topic', requireRole(['teacher', 'admin']), async (req: Au
         if (!cycleRows[0] || !isInProgressCycle(cycleRows[0].status)) {
           return { error: '该课题所属周期不在进行中，无法提交名单' }
         }
+        if (cycleRows[0].phase === 'teacher_review') {
+          return { error: '新版遴选流程已启用，请刷新页面并使用“提交本课题名单”', statusCode: 409 }
+        }
         if (!isTeacherReviewPhase(cycleRows[0].phase)) {
           return { error: '当前周期不在遴选/录取阶段（需处于学生申报或教师遴选阶段），无法提交名单' }
         }
@@ -696,7 +701,7 @@ router.post('/finalize-topic', requireRole(['teacher', 'admin']), async (req: Au
       return { error: null, rolled }
     })
 
-    if (result.error) return error(res, result.error)
+    if (result.error) return error(res, result.error, result.statusCode || 400)
     success(res, { rolled: result.rolled }, result.rolled
       ? `已提交名单，${result.rolled} 名未选中学生自动进入下一志愿`
       : '已提交名单（当前无待处理申请）')

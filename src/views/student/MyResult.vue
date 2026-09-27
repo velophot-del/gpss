@@ -30,7 +30,7 @@
         </div>
       </template>
 
-      <template v-else-if="cycleStore.currentPhase === 'adjustment' || hasRejectedApps">
+      <template v-else-if="isUnmatchedAfterSettlement">
         <!-- 未录取/调剂中 -->
         <div class="result-card warning">
           <div class="result-icon">
@@ -41,7 +41,7 @@
             您的志愿申请未能被录取。当前处于调剂阶段，您可以查看仍有名额的课题并提交调剂申请。
           </p>
           <div class="result-actions">
-            <el-button type="warning" size="large" @click="$router.push('/student/adjustment')">
+            <el-button v-if="cycleStore.currentPhase === 'adjustment'" type="warning" size="large" @click="$router.push('/student/adjustment')">
               参与调剂
             </el-button>
             <el-button size="large" @click="$router.push('/student/browse')">重新浏览课题</el-button>
@@ -57,7 +57,7 @@
           </div>
           <h3 class="result-status">结果尚未公布</h3>
           <p class="result-desc">
-            当前阶段：{{ cycleStore.phaseInfo.label }}
+            等待教师完成遴选并由系统统一录取。当前阶段：{{ cycleStore.phaseInfo.label }}
           </p>
           <el-timeline style="max-width: 400px; margin: 20px auto;">
             <el-timeline-item timestamp="志愿填报完成" :color="'#67c23a'" :done="true">
@@ -114,9 +114,11 @@ const needsResubmit = computed(() => cycleStore.currentPhase === 'student_apply'
   currentApplications.value.length > 0 && currentApplications.value.every(a => a.status === 'withdrawn')
 )
 
-const hasRejectedApps = computed(() => {
-  return currentApplications.value.some(a => a.status === 'rejected')
-})
+const isUnmatchedAfterSettlement = computed(() => currentApplications.value.length > 0 &&
+  !result.value &&
+  ['adjustment', 'result_announce', 'completed'].includes(cycleStore.currentPhase) &&
+  currentApplications.value.every(a => ['rejected', 'withdrawn', 'cancelled'].includes(a.status))
+)
 
 function formatDateTime(dateStr: string): string {
   return dayjs(dateStr).format('YYYY年MM月DD日 HH:mm')

@@ -4,6 +4,8 @@ import { authMiddleware, requireRole, type AuthRequest } from '../middleware/aut
 import { success, error } from '../utils/response.js'
 import { isInProgressCycle } from '../utils/processFlow.js'
 import { safeParseJson } from '../utils/json.js'
+import { getReviewDeadline } from '../utils/policies.js'
+import { getSelectionConfigurationError } from '../services/selectionSettlementService.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -88,6 +90,13 @@ router.put('/:id', requireRole(['admin']), async (req: AuthRequest, res) => {
       Object.assign(merged, phasesConfig)
     }
     const phasesConfigFinal = JSON.stringify(merged)
+
+    const nextPhase = phase ?? existing.phase
+    if (nextPhase === 'teacher_review') {
+      if (!getReviewDeadline(merged)) return error(res, '进入教师遴选阶段前必须配置有效的审核截止时间', 409)
+      const configurationError = await getSelectionConfigurationError(Number(id), merged)
+      if (configurationError) return error(res, configurationError, 409)
+    }
 
     await query(`
       UPDATE cycles SET name = ?, description = ?, year = ?, status = ?, phase = ?,

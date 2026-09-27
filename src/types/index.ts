@@ -256,7 +256,7 @@ export interface Application {
   topicId: string
   topicTitle: string
   cycleId?: number
-  priority: number            // 1=第一志愿, 2=第二志愿, 3=第三志愿
+  priority: number            // 1–6，数字越小优先级越高
   status: ApplicationStatus
   motivation: string          // 申请理由/个人陈述
   submittedAt: string
@@ -271,6 +271,36 @@ export interface Application {
 
 // ========== 遴选记录 ==========
 export type SelectionDecision = 'accepted' | 'rejected' | 'waitlisted'
+
+export type SelectionDraftDecision = 'proposed' | 'reserve' | 'reject'
+export type SelectionBatchStatus = 'draft' | 'submitted' | 'auto_submitted' | 'settled'
+
+export interface SelectionDraftApplication {
+  id: string
+  studentId: string
+  studentName: string
+  studentCode?: string
+  className?: string
+  major?: string
+  priority: number
+  status: ApplicationStatus
+  motivation?: string
+  gpa?: number
+  appliedAt: string
+  decision: SelectionDraftDecision | null
+  decisionRank: number | null
+  comment: string
+}
+
+export interface SelectionDraftView {
+  topic: { id: string; title: string; maxStudents: number; teacherId: string; cycleId: number }
+  batch: { id: string | null; status: SelectionBatchStatus; version: number; submittedAt: string | null; autoSubmittedAt: string | null }
+  applications: SelectionDraftApplication[]
+  deadline: string
+  teacherStudentLimit: number
+  teacherAcceptedCount: number
+  teacherProposedCount: number
+}
 
 export interface SelectionRecord {
   id: string

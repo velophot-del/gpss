@@ -100,7 +100,7 @@
             <div class="apply-status">
               <p v-if="myApplication" class="already-applied">
                 <el-icon color="#67c23a"><CircleCheckFilled /></el-icon>
-                您已将此课题作为<strong>第{{ priorityLabel[myApplication.priority] }}志愿</strong>填报
+                您已将此课题作为<strong>{{ formatPriority(myApplication.priority) }}</strong>填报
               </p>
               <template v-else>
                 <p>请在选题工作台统一排序并提交志愿，至少覆盖两位不同指导教师。</p>
@@ -124,6 +124,7 @@ import { ElMessage } from 'element-plus'
 import { Document, UserFilled, CircleCheckFilled, ShoppingCart, Message, Phone } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import { shortlistApi } from '@/api'
+import { formatPriority } from '@/utils/volunteerRules'
 
 const route = useRoute()
 const router = useRouter()
@@ -149,8 +150,6 @@ const myApplication = computed(() => {
 
 const difficultyType: Record<string, string> = { easy: 'success', medium: 'warning', hard: 'danger' }
 const difficultyLabel: Record<string, string> = { easy: '简单', medium: '中等', hard: '困难' }
-const priorityLabel: Record<number, string> = { 1: '一', 2: '二', 3: '三' }
-
 const isShortlisted = computed(() => shortlistedIds.value.includes(route.params.id as string))
 const isStudent = computed(() => userStore.userRole === 'student')
 

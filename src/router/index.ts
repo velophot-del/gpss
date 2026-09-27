@@ -96,6 +96,12 @@ const router = createRouter({
           meta: { roles: ['admin'] }
         },
         {
+          path: 'admin/selection-settlement',
+          name: 'AdminSelectionSettlement',
+          component: () => import('../views/admin/SelectionSettlement.vue'),
+          meta: { roles: ['admin'] }
+        },
+        {
           path: 'admin/document-templates',
           name: 'DocumentTemplateAdmin',
           component: () => import('../views/process/DocumentTemplates.vue'),
