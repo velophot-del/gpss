@@ -421,7 +421,7 @@ async function loadDashboardTopicData() {
   if (topicStatsResult.status === 'fulfilled') {
     const mapTopic = (topic: any) => ({
       ...topic,
-      teacherName: topic.teacher_name,
+      ...(userStore.userRole === 'student' ? {} : { teacherName: topic.teacher_name }),
       applyCount: Number(topic.apply_count) || 0,
       viewCount: Number(topic.view_count) || 0,
       maxStudents: Number(topic.max_students) || 0

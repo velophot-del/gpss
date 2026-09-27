@@ -70,6 +70,7 @@ router.get('/overview', async (req: AuthRequest, res) => {
 // GET /api/statistics/topics - 课题详细统计
 router.get('/topics', async (req: AuthRequest, res) => {
   try {
+    const isStudent = req.user!.role === 'student'
     // 教师课题数排行
     const teacherRanking = await query<any>(`
       SELECT u.real_name, u.department, COUNT(t.id) as topic_count,
@@ -85,7 +86,7 @@ router.get('/topics', async (req: AuthRequest, res) => {
 
     const activeCycle = await getActiveCycle()
     if (!activeCycle) {
-      return success(res, { teacherRanking, hotTopics: [], recommendedTopics: [] })
+      return success(res, { teacherRanking: isStudent ? [] : teacherRanking, hotTopics: [], recommendedTopics: [] })
     }
 
     let visibilitySql = ''
@@ -100,7 +101,7 @@ router.get('/topics', async (req: AuthRequest, res) => {
         const allowedMajors = getAllowedMajorOptions(policy, cycleMajors, studentMajorCode)
         const allowedCodes = allowedMajors.map(major => major.code)
         if (!allowedCodes.length) {
-          return success(res, { teacherRanking, hotTopics: [], recommendedTopics: [] })
+          return success(res, { teacherRanking: [], hotTopics: [], recommendedTopics: [] })
         }
         const allowedNames = getAllowedMajorNames(allowedCodes, cycleMajors)
         const conditions = [`t.major_code IN (${allowedCodes.map(() => '?').join(',')})`]
@@ -175,7 +176,15 @@ router.get('/topics', async (req: AuthRequest, res) => {
       }
     }
 
-    success(res, { teacherRanking, hotTopics, recommendedTopics })
+    const toStudentTopicStats = (topic: any) => {
+      const { teacher_id, teacher_name, ...safeTopic } = topic
+      return safeTopic
+    }
+    success(res, {
+      teacherRanking: isStudent ? [] : teacherRanking,
+      hotTopics: isStudent ? [] : hotTopics,
+      recommendedTopics: isStudent ? recommendedTopics.map(toStudentTopicStats) : recommendedTopics,
+    })
   } catch (err: any) {
     error(res, '服务器内部错误', 500)
   }
