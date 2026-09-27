@@ -30,7 +30,7 @@ assert.match(seed, /topicIds\[10\]/)
 assert.doesNotMatch(seed, /SELECT id FROM topics LIMIT 6/)
 
 const applicationsRoute = read('server/src/routes/applications.ts')
-assert.match(applicationsRoute, /activeCycle\.phase !== 'student_selection'/)
+assert.match(applicationsRoute, /!isStudentSelectionPhase\(activeCycle\.phase\)/)
 assert.doesNotMatch(applicationsRoute, /activeCycle\.phase !== 'student_apply'/)
 
 const cycleStore = read('src/stores/cycle.ts')

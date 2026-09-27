@@ -9,6 +9,7 @@ import { getActiveCycle, isInProgressCycle } from '../utils/processFlow.js'
 import { getTeacherStudentLimit } from '../utils/policies.js'
 import { safeParseJson } from '../utils/json.js'
 import { toStudentTopicView } from '../utils/studentTopic.js'
+import { getMajorCodeAliases, normalizeMajorCode } from '../utils/majorCodes.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -25,7 +26,8 @@ async function assertInCycleConfig(category: any, majorCode: any, cycleId?: any)
       ? `研究方向「${category}」不在当期允许的研究方向内`
       : '请选择研究方向'
   }
-  if (typeof majorCode !== 'string' || !majors.some(m => m.code === majorCode)) {
+  const normalizedMajorCode = typeof majorCode === 'string' ? normalizeMajorCode(majorCode) : ''
+  if (!normalizedMajorCode || !majors.some(m => m.code === normalizedMajorCode)) {
     const allowed = majors.map(m => `${m.name}(${m.code})`).join('、')
     return majorCode
       ? `专业代码「${majorCode}」不在当期配置的毕业专业内（允许：${allowed}）`
@@ -70,8 +72,9 @@ router.get('/', async (req: AuthRequest, res) => {
         } else if (allowedCodes.length) {
           // 允许专业按代码匹配；个别老课题没写 major_code 时按名称（含带方向后缀写法）兜底
           const names = getAllowedMajorNames(allowedCodes, cycleMajors)
-          const conds = [`t.major_code IN (${allowedCodes.map(() => '?').join(',')})`]
-          params.push(...allowedCodes)
+          const storedCodes = [...new Set(allowedCodes.flatMap(code => getMajorCodeAliases(code)))]
+          const conds = [`t.major_code IN (${storedCodes.map(() => '?').join(',')})`]
+          params.push(...storedCodes)
           if (names.length) {
             conds.push(`t.major IN (${names.map(() => '?').join(',')})`)
             params.push(...names)
@@ -335,6 +338,7 @@ router.post('/', requireRole(['teacher']), async (req: AuthRequest, res) => {
 
   try {
     const { title, description, category, difficulty, maxStudents, tags, requirements, schedules, attachments, status, cycleId, major, majorCode } = req.body
+    const storedMajorCode = normalizeMajorCode(majorCode, major || '')
 
     if (!title || !category) {
       console.log('[POST /api/topics] 验证失败: 标题或研究方向缺失')
@@ -342,7 +346,7 @@ router.post('/', requireRole(['teacher']), async (req: AuthRequest, res) => {
     }
 
     // 专业/研究方向必须属于目标周期（配置）内；cycleId 缺失回退当前进行中周期
-    const cfgMsg = await assertInCycleConfig(category, majorCode, cycleId)
+    const cfgMsg = await assertInCycleConfig(category, storedMajorCode, cycleId)
     if (cfgMsg) return error(res, cfgMsg, 400)
 
     const id = uuidv4()
@@ -351,7 +355,7 @@ router.post('/', requireRole(['teacher']), async (req: AuthRequest, res) => {
     await query(`
       INSERT INTO topics (id, title, description, category, difficulty, max_students, status, teacher_id, tags, requirements, schedules, attachments, cycle_id, major, major_code)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, title, description, category, difficulty || 'medium', maxStudents || 1, status || 'draft', req.user!.id, JSON.stringify(tags || []), requirements, JSON.stringify(schedules || []), JSON.stringify(attachments || []), cycleId || null, major || null, majorCode || null])
+    `, [id, title, description, category, difficulty || 'medium', maxStudents || 1, status || 'draft', req.user!.id, JSON.stringify(tags || []), requirements, JSON.stringify(schedules || []), JSON.stringify(attachments || []), cycleId || null, major || null, storedMajorCode || null])
 
     console.log('[POST /api/topics] 课题创建成功')
     success(res, { id }, '课题创建成功')
@@ -371,6 +375,7 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
     const topicRows = await query('SELECT * FROM topics WHERE id = ?', [id]) as any[]
     const topic = topicRows[0]
     if (!topic) return error(res, '课题不存在')
+    const storedMajorCode = majorCode === undefined ? undefined : normalizeMajorCode(majorCode, major || topic.major || '')
     if (topic.teacher_id !== req.user!.id && req.user!.role !== 'admin') {
       return error(res, '无权操作此课题')
     }
@@ -381,12 +386,12 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
     }
 
     // 仅对“被修改”的专业/研究方向做周期配置强校验；未改动（含历史自由文本课题）直接放行
-    const majorChanged = majorCode !== undefined && majorCode !== topic.major_code
+    const majorChanged = storedMajorCode !== undefined && storedMajorCode !== topic.major_code
     const categoryChanged = category !== undefined && category !== topic.category
     if (majorChanged || categoryChanged) {
       const cfgMsg = await assertInCycleConfig(
         category !== undefined ? category : topic.category,
-        majorCode !== undefined ? majorCode : topic.major_code,
+        storedMajorCode !== undefined ? storedMajorCode : topic.major_code,
         topic.cycle_id,
       )
       if (cfgMsg) return error(res, cfgMsg, 400)
@@ -415,7 +420,7 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
       JSON.stringify(attachments ?? existingAttachments),
       status ?? topic.status,
       major ?? topic.major ?? null,
-      majorCode ?? topic.major_code ?? null,
+      storedMajorCode ?? topic.major_code ?? null,
       id
     ])
 

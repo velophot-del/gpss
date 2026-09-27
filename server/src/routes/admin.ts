@@ -6,6 +6,7 @@ import { success, error } from '../utils/response.js'
 import { getActiveCycle, isInProgressCycle, isStudentSelectionPhase } from '../utils/processFlow.js'
 import { getTeacherStudentLimit } from '../utils/policies.js'
 import { safeParseJson } from '../utils/json.js'
+import { canReturnVolunteerRows } from '../utils/adminVolunteerRules.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -182,11 +183,10 @@ router.post('/students/:id/volunteers/return', async (req: AuthRequest, res) => 
         ORDER BY a.priority FOR UPDATE
       `, [req.params.id, activeCycle.id])
       const pending = rows.filter(row => ['pending', 'submitted', 'pending_review'].includes(row.status))
-      if (pending.length < 3 || pending.length > 6) return { error: '该生没有可整批退回的已提交志愿' }
-      if (rows.some(row => ['accepted', 'rejected', 'waitlisted', 'cancelled'].includes(row.status)) ||
-          pending.some(row => row.reviewed_by || row.reviewed_at)) {
+      if (rows.some(row => ['accepted', 'rejected', 'waitlisted', 'cancelled'].includes(row.status))) {
         return { error: '该生志愿已有教师处理结果，请使用调剂或专门复核流程' }
       }
+      if (!canReturnVolunteerRows(rows)) return { error: '该生没有可整批退回的已提交志愿' }
 
       await conn.query("UPDATE applications SET status = 'withdrawn' WHERE id IN (?)", [pending.map(row => row.id)])
       await conn.query(`

@@ -5,6 +5,7 @@ import { success, error } from '../utils/response.js'
 import { safeParseJson } from '../utils/json.js'
 import { getActiveCycle } from '../utils/processFlow.js'
 import { getCycleMajors, getCycleResearchCategories, type MajorConfig } from '../utils/majors.js'
+import { normalizeMajorCode, normalizeSmartInteractionCycleConfig } from '../utils/majorCodes.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -17,7 +18,7 @@ function normalizeConfig(body: any): { majors: MajorConfig[]; researchCategories
   const majors: MajorConfig[] = []
   for (const m of majorsRaw) {
     if (!m || typeof m !== 'object') return '专业配置格式不正确'
-    const code = typeof m.code === 'string' ? m.code.trim() : ''
+    const code = normalizeMajorCode(typeof m.code === 'string' ? m.code.trim() : '', typeof m.name === 'string' ? m.name.trim() : '')
     const name = typeof m.name === 'string' ? m.name.trim() : ''
     if (!code || !name) return '每个专业都需要填写代码与名称'
     if (seen.has(code)) return `专业代码重复：${code}`
@@ -79,9 +80,10 @@ router.put('/:cycleId', requireRole(['admin']), async (req: AuthRequest, res) =>
     if (typeof normalized === 'string') return error(res, normalized, 400)
 
     const base = safeParseJson<any>(cycle.phases_config, null)
-    const config = base && typeof base === 'object' && !Array.isArray(base) ? { ...base } : {}
-    config.majors = normalized.majors
-    config.researchCategories = normalized.researchCategories
+  const config = base && typeof base === 'object' && !Array.isArray(base) ? { ...base } : {}
+  config.majors = normalized.majors
+  config.researchCategories = normalized.researchCategories
+  Object.assign(config, normalizeSmartInteractionCycleConfig(config))
 
     await query('UPDATE cycles SET phases_config = ? WHERE id = ?', [JSON.stringify(config), cycleId])
     success(res, normalized, '周期专业与研究方向已保存')

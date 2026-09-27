@@ -33,7 +33,7 @@ async function migrate() {
 
     await conn.query(`
       INSERT IGNORE INTO system_configs (\`key\`, value, description) VALUES
-      ('allowed_majors', '[{"name":"视觉传达设计","code":"130502"},{"name":"数字媒体艺术","code":"130508"},{"name":"包装工程","code":"081702"},{"name":"智能交互","code":"080906T"}]', '允许的专业列表')
+      ('allowed_majors', '[{"name":"视觉传达设计","code":"130502"},{"name":"数字媒体艺术","code":"130508"},{"name":"包装工程","code":"081702"},{"name":"智能交互设计","code":"080218T"}]', '允许的专业列表')
     `)
     console.log('✅ 已添加专业配置')
 

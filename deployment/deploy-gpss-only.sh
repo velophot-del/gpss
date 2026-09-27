@@ -118,6 +118,7 @@ docker compose build gpss-app
 docker compose up -d --no-deps gpss-app
 log 'Running additive GPSS database migrations'
 docker compose exec -T gpss-app node server/dist/scripts/migrateAdjustmentVolunteers.js
+docker compose exec -T gpss-app node server/dist/scripts/migrateSmartInteractionMajorCode.js
 health
 log "GPSS healthy. Commit: $(cat "$SOURCE/DEPLOY_COMMIT")"
 log "Backups retained at $BACKUP_DIR"

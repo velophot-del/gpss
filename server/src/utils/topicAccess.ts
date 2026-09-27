@@ -1,5 +1,6 @@
 import { query } from '../config/database.js'
 import { safeParseJson } from './json.js'
+import { normalizeMajorCode } from './majorCodes.js'
 
 export type TopicAccessMode = 'same_major' | 'all' | 'matrix'
 export interface TopicAccessPolicy {
@@ -22,7 +23,8 @@ export async function getTopicAccessPolicy(cycleId?: string | null): Promise<Top
   const matrix: Record<string, string[]> = {}
   if (raw.matrix && typeof raw.matrix === 'object') {
     for (const [key, value] of Object.entries(raw.matrix)) {
-      matrix[key] = Array.isArray(value) ? value.map(String) : []
+      const normalizedKey = normalizeMajorCode(key)
+      matrix[normalizedKey] = [...new Set([...(matrix[normalizedKey] || []), ...(Array.isArray(value) ? value.map(String).map(code => normalizeMajorCode(code)) : [])])]
     }
   }
   return { mode: raw.mode, matrix }
@@ -31,11 +33,13 @@ export async function getTopicAccessPolicy(cycleId?: string | null): Promise<Top
 export function isTopicVisible(policy: TopicAccessPolicy, studentMajorCode?: string | null, topicMajorCode?: string | null): boolean {
   if (!studentMajorCode || !topicMajorCode) return false
   if (policy.mode === 'all') return true
-  if (policy.mode === 'matrix') return (policy.matrix[String(studentMajorCode)] || []).includes(String(topicMajorCode))
-  return String(studentMajorCode) === String(topicMajorCode)
+  const studentCode = normalizeMajorCode(String(studentMajorCode))
+  const topicCode = normalizeMajorCode(String(topicMajorCode))
+  if (policy.mode === 'matrix') return (policy.matrix[studentCode] || policy.matrix[String(studentMajorCode)] || []).some(code => normalizeMajorCode(code) === topicCode)
+  return studentCode === topicCode
 }
 
 export async function getStudentMajorCode(userId: string): Promise<string> {
-  const rows = await query<any>('SELECT major_code FROM users WHERE id = ? LIMIT 1', [userId])
-  return String(rows[0]?.major_code || '')
+  const rows = await query<any>('SELECT major_code, major FROM users WHERE id = ? LIMIT 1', [userId])
+  return normalizeMajorCode(String(rows[0]?.major_code || ''), String(rows[0]?.major || ''))
 }

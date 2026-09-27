@@ -4,6 +4,7 @@ import { authMiddleware, requireRole, type AuthRequest } from '../middleware/aut
 import { success, error } from '../utils/response.js'
 import { getTopicAccessPolicy } from '../utils/topicAccess.js'
 import { safeParseJson } from '../utils/json.js'
+import { normalizeMajorCode } from '../utils/majorCodes.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -20,7 +21,10 @@ router.put('/:cycleId', requireRole(['admin']), async (req: AuthRequest, res) =>
     if (!['same_major', 'all', 'matrix'].includes(body.mode)) return error(res, '无效的查看规则')
     const matrix: Record<string, string[]> = {}
     if (body.mode === 'matrix' && body.matrix && typeof body.matrix === 'object') {
-      for (const [key, value] of Object.entries(body.matrix)) matrix[key] = Array.isArray(value) ? value.map(String) : []
+      for (const [key, value] of Object.entries(body.matrix)) {
+        const normalizedKey = normalizeMajorCode(key)
+        matrix[normalizedKey] = [...new Set([...(matrix[normalizedKey] || []), ...(Array.isArray(value) ? value.map(String).map(code => normalizeMajorCode(code)) : [])])]
+      }
     }
     const parsedConfig = safeParseJson<Record<string, any>>(cycle.phases_config, {})
     const config = parsedConfig && typeof parsedConfig === 'object' && !Array.isArray(parsedConfig) ? parsedConfig : {}

@@ -211,7 +211,7 @@ const FALLBACK_MAJORS: MajorConfig[] = [
   { code: '130502', name: '视觉传达设计' },
   { code: '130508', name: '数字媒体艺术（交互方向）' },
   { code: '081702', name: '包装工程' },
-  { code: '080906T', name: '智能交互（工科）' }
+  { code: '080218T', name: '智能交互设计' }
 ]
 
 const route = useRoute()

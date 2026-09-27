@@ -140,7 +140,7 @@ const returnableApplicationIds = computed(() => {
   for (const group of byStudent.values()) {
     if (group.some(a => ['accepted', 'rejected', 'waitlisted', 'cancelled'].includes(a.status))) continue
     const pending = group.filter(a => unresolvedStatuses.includes(a.status))
-    if (pending.length >= 3 && pending.length <= 6 && pending.every(a => !a.reviewed_by && !a.reviewed_at)) {
+    if (pending.length >= 3 && pending.length <= 6) {
       ids.add(pending[0].id)
     }
   }
