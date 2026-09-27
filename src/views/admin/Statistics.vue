@@ -14,14 +14,14 @@
         </el-col>
         <el-col :span="6" :xs="12" :sm="6">
           <el-card shadow="hover">
-            <el-statistic title="参与学生" :value="studentStore.profiles.length">
+            <el-statistic title="参与学生" :value="participantCount">
               <template #prefix><el-icon color="#67c23a"><User /></el-icon></template>
             </el-statistic>
           </el-card>
         </el-col>
         <el-col :span="6" :xs="12" :sm="6">
           <el-card shadow="hover">
-            <el-statistic title="申请总数" :value="applicationStore.stats.totalApplications">
+            <el-statistic title="申请总数" :value="applicationCount">
               <template #prefix><el-icon color="#e6a23c"><Tickets /></el-icon></template>
             </el-statistic>
           </el-card>
@@ -39,7 +39,7 @@
         <el-col :span="12" :xs="24">
           <el-card shadow="never">
             <template #header><strong>各方向课题分布</strong></template>
-            <div style="height: 280px; display: flex; align-items: center; justify-content: center;">
+            <div class="chart-container">
               <div class="mock-chart">
                 <div v-for="(count, cat) in categoryStats" :key="cat" class="bar-item">
                   <span class="cat-name">{{ cat }}</span>
@@ -121,21 +121,23 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useStudentStore } from '../../stores/student'
-import { useApplicationStore } from '../../stores/application'
 import { adminApi } from '../../api'
 import { Document, User, Tickets, TrendCharts } from '@element-plus/icons-vue'
 
-const studentStore = useStudentStore()
-const applicationStore = useApplicationStore()
 const statisticsTopics = ref<any[]>([])
+const participantCount = ref(0)
+const matchedParticipantCount = ref(0)
+const applicationCount = ref(0)
 
 onMounted(async () => {
-  const [topicsResult] = await Promise.all([
+  const [topicsResult, statisticsResult] = await Promise.all([
     adminApi.getAllTopics(),
-    studentStore.fetchProfiles(),
-    applicationStore.fetchApplications()
+    adminApi.getStatistics()
   ])
+  const summary = statisticsResult.data || {}
+  participantCount.value = Number(summary.students?.applied) || 0
+  matchedParticipantCount.value = Number(summary.students?.matched) || 0
+  applicationCount.value = Number(summary.applications?.total) || 0
   statisticsTopics.value = (topicsResult.data || []).map((topic: any) => ({
     ...topic,
     teacherId: topic.teacher_id,
@@ -148,16 +150,16 @@ onMounted(async () => {
 
 // 匹配率
 const matchRate = computed(() => {
-  const total = studentStore.profiles.length
-  if (total === 0) return 0
-  return Math.round((applicationStore.stats.finalMatched / total) * 100)
+  if (participantCount.value === 0) return 0
+  return Math.round((matchedParticipantCount.value / participantCount.value) * 100)
 })
 
 // 分类统计
 const categoryStats = computed(() => {
   const stats: Record<string, number> = {}
   for (const t of statisticsTopics.value) {
-    stats[t.category] = (stats[t.category] || 0) + 1
+    const category = String(t.category || '').trim() || '未分类'
+    stats[category] = (stats[category] || 0) + 1
   }
   return Object.fromEntries(Object.entries(stats).sort(([, a], [, b]) => b - a))
 })
@@ -205,21 +207,29 @@ const teacherWorkload = computed(() => {
   width: 100%;
   padding: 0 12px;
 }
+.chart-container {
+  max-height: 520px;
+  overflow-y: auto;
+  padding: 12px 0;
+}
 .bar-item {
   display: flex;
-  align-items: center;
-  margin-bottom: 14px;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
 }
 .cat-name {
-  width: 90px;
+  width: 120px;
   font-size: 13px;
   flex-shrink: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
 }
 .bar-wrapper {
   flex: 1;
-  margin-left: 12px;
   position: relative;
-  height: 24px;
+  height: 28px;
 }
 .bar {
   height: 100%;

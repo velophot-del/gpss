@@ -249,6 +249,14 @@ router.get('/statistics', async (_req: AuthRequest, res) => {
 
     const teacherWithTopics = await query<any>('SELECT COUNT(DISTINCT teacher_id) as count FROM topics WHERE status != \'draft\'')
     const studentsApplied = await query<any>('SELECT COUNT(DISTINCT student_id) as count FROM applications WHERE status != \'withdrawn\'')
+    const studentsMatched = await query<any>(`
+      SELECT COUNT(DISTINCT student_id) as count
+      FROM applications
+      WHERE status = 'accepted'
+        AND student_id IN (
+          SELECT DISTINCT student_id FROM applications WHERE status != 'withdrawn'
+        )
+    `)
 
     success(res, {
       topics: topicStats,
@@ -260,6 +268,7 @@ router.get('/statistics', async (_req: AuthRequest, res) => {
       students: {
         ...studentStats,
         applied: studentsApplied[0]?.count || 0,
+        matched: studentsMatched[0]?.count || 0,
         not_applied: (studentStats.total || 0) - (studentsApplied[0]?.count || 0)
       },
       applications: applicationStats
