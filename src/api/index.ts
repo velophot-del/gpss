@@ -102,15 +102,19 @@ export const selectionAdminApi = {
 export const adjustmentVolunteerApi = {
   getEligibleTopics: () => request.get('/adjustment-volunteers/eligible-topics'),
   getMine: () => request.get('/adjustment-volunteers/mine'),
-  saveMine: (data: { version: number; items: { topicId: string; priority: number; motivation: string }[] }) => request.put('/adjustment-volunteers/mine', data),
-  getDraft: (topicId: string) => request.get(`/adjustment-volunteers/topics/${topicId}/draft`),
-  saveDraft: (topicId: string, data: { version: number; items: any[] }) => request.put(`/adjustment-volunteers/topics/${topicId}/draft`, data),
-  submitDraft: (topicId: string, data: { version: number }) => request.post(`/adjustment-volunteers/topics/${topicId}/submit`, data),
+  saveMine: (version: number, items: { topicId: string; motivation: string }[]) =>
+    request.put('/adjustment-volunteers/mine', { version, items }),
+  getTeacherTopics: () => request.get('/adjustment-volunteers/teacher/topics'),
+  getTeacherDraft: (topicId: string) => request.get(`/adjustment-volunteers/topics/${topicId}/draft`),
+  saveTeacherDraft: (topicId: string, version: number, items: any[]) =>
+    request.put(`/adjustment-volunteers/topics/${topicId}/draft`, { version, items }),
+  submitTeacherBatch: (topicId: string, version: number) =>
+    request.post(`/adjustment-volunteers/topics/${topicId}/submit`, { version }),
 }
 
 export const adjustmentAdminApi = {
   getProgress: (cycleId: string | number) => request.get(`/admin/adjustment-settlement/${cycleId}`),
-  unlock: (topicId: string) => request.post(`/admin/adjustment-topics/${topicId}/unlock`),
+  unlock: (topicId: string, reason: string) => request.post(`/admin/adjustment-topics/${topicId}/unlock`, { reason }),
   run: (cycleId: string | number) => request.post(`/admin/adjustment-settlement/${cycleId}/run`),
 }
 

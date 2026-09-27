@@ -22,7 +22,7 @@
 
       <el-row :gutter="20" style="margin-top: 20px;">
         <el-col :span="16" :xs="24">
-          <el-card v-if="!isStudent" shadow="never">
+          <el-card shadow="never">
             <template #header><strong>课题简介</strong></template>
             <p class="desc-text">{{ topic.description }}</p>
           </el-card>
@@ -55,7 +55,7 @@
           </el-card>
         </el-col>
 
-        <el-col :span="8" :xs="24">
+        <el-col v-if="!isStudent" :span="8" :xs="24">
           <el-card shadow="never">
             <template #header><strong>教师信息</strong></template>
             <div class="teacher-info">

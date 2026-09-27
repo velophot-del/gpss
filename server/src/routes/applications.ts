@@ -146,10 +146,9 @@ router.get('/', async (req: AuthRequest, res) => {
     if (req.user!.role === 'student') {
       sql = `
         SELECT a.*, t.title AS topic_title, t.major, t.category, t.cycle_id,
-               u.real_name AS teacher_name, t.difficulty, t.status AS topic_status
+               t.difficulty, t.status AS topic_status
         FROM applications a
         LEFT JOIN topics t ON a.topic_id = t.id
-        LEFT JOIN users u ON t.teacher_id = u.id
         WHERE a.student_id = ?
         ORDER BY a.created_at DESC
       `
@@ -193,7 +192,10 @@ router.get('/', async (req: AuthRequest, res) => {
       submittedAt: item.created_at || item.submitted_at,
       reviewedAt: item.reviewed_at
     }))
-    success(res, formattedList)
+    const responseList = req.user!.role === 'student'
+      ? formattedList.map(({ reviewed_by: _reviewedBy, ...item }) => item)
+      : formattedList
+    success(res, responseList)
   } catch (err: any) {
     console.error('获取申请列表失败:', err)
     error(res, '服务器内部错误', 500)

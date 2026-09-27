@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { query } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
+import { toStudentTopicView } from '../utils/studentTopic.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -42,7 +43,7 @@ router.get('/', requireRole(['student']), async (req: AuthRequest, res) => {
       ORDER BY s.added_at DESC
     `, [req.user!.id])
 
-    success(res, list)
+    success(res, list.map((item: any) => toStudentTopicView(item, item.teacher_id)))
   } catch (err: any) {
     console.error('获取预选列表失败:', err)
     error(res, '服务器内部错误', 500)
