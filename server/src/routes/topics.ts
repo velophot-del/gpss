@@ -7,6 +7,7 @@ import { getStudentMajorCode, getTopicAccessPolicy, isTopicVisible } from '../ut
 import { getAllowedMajorNames, getAllowedMajorOptions, getCycleMajors, getCycleResearchCategories, type MajorOption } from '../utils/majors.js'
 import { getActiveCycle, isInProgressCycle } from '../utils/processFlow.js'
 import { getTeacherStudentLimit } from '../utils/policies.js'
+import { getTopicStudentLimit, validateTopicStudentCount } from '../utils/topicCapacity.js'
 import { safeParseJson } from '../utils/json.js'
 import { toStudentTopicView } from '../utils/studentTopic.js'
 import { getMajorCodeAliases, normalizeMajorCode } from '../utils/majorCodes.js'
@@ -16,6 +17,14 @@ router.use(authMiddleware)
 
 // 校验课题的“专业代码/研究方向”是否属于目标周期配置（未配置周期回退默认）；
 // 返回错误文案或 null。category/majorCode 缺失时按“必填”对待。
+async function getTopicLimitForCycle(cycleId?: number | string | null): Promise<number> {
+  let targetCycleId = cycleId
+  if (targetCycleId == null) targetCycleId = (await getActiveCycle())?.id ?? null
+  if (targetCycleId == null) return 10
+  const rows = await query<any>('SELECT phases_config FROM cycles WHERE id = ?', [targetCycleId])
+  return getTopicStudentLimit(safeParseJson(rows[0]?.phases_config, {}))
+}
+
 async function assertInCycleConfig(category: any, majorCode: any, cycleId?: any): Promise<string | null> {
   const targetCycleId = cycleId ?? (await getActiveCycle())?.id ?? null
   const [majors, cats] = await Promise.all([getCycleMajors(targetCycleId), getCycleResearchCategories(targetCycleId)])
@@ -266,7 +275,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
     const topicRows = await query(`
       SELECT t.*, u.real_name AS teacher_name, u.title AS teacher_title, u.department,
              u.email AS teacher_email, u.phone AS teacher_phone, u.avatar AS teacher_avatar,
-             c.name AS cycle_name
+             c.name AS cycle_name, c.phases_config
       FROM topics t
       LEFT JOIN users u ON t.teacher_id = u.id
       LEFT JOIN cycles c ON t.cycle_id = c.id
@@ -311,6 +320,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
       teacherAvatar: topic.teacher_avatar,
       cycleId: topic.cycle_id,
       cycleName: topic.cycle_name,
+      topicStudentLimit: getTopicStudentLimit(safeParseJson(topic.phases_config, {})),
       tags: typeof topic.tags === 'string' ? JSON.parse(topic.tags) : topic.tags || [],
       requirements: topic.requirements,
       viewCount: topic.view_count,
@@ -345,6 +355,10 @@ router.post('/', requireRole(['teacher']), async (req: AuthRequest, res) => {
       return error(res, '标题和研究方向为必填项')
     }
 
+    const requestedMaxStudents = maxStudents ?? 1
+    const capacityError = validateTopicStudentCount(requestedMaxStudents, await getTopicLimitForCycle(cycleId))
+    if (capacityError) return error(res, capacityError, 400)
+
     // 专业/研究方向必须属于目标周期（配置）内；cycleId 缺失回退当前进行中周期
     const cfgMsg = await assertInCycleConfig(category, storedMajorCode, cycleId)
     if (cfgMsg) return error(res, cfgMsg, 400)
@@ -355,7 +369,7 @@ router.post('/', requireRole(['teacher']), async (req: AuthRequest, res) => {
     await query(`
       INSERT INTO topics (id, title, description, category, difficulty, max_students, status, teacher_id, tags, requirements, schedules, attachments, cycle_id, major, major_code)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, title, description, category, difficulty || 'medium', maxStudents || 1, status || 'draft', req.user!.id, JSON.stringify(tags || []), requirements, JSON.stringify(schedules || []), JSON.stringify(attachments || []), cycleId || null, major || null, storedMajorCode || null])
+    `, [id, title, description, category, difficulty || 'medium', Number(requestedMaxStudents), status || 'draft', req.user!.id, JSON.stringify(tags || []), requirements, JSON.stringify(schedules || []), JSON.stringify(attachments || []), cycleId || null, major || null, storedMajorCode || null])
 
     console.log('[POST /api/topics] 课题创建成功')
     success(res, { id }, '课题创建成功')
@@ -378,6 +392,14 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
     const storedMajorCode = majorCode === undefined ? undefined : normalizeMajorCode(majorCode, major || topic.major || '')
     if (topic.teacher_id !== req.user!.id && req.user!.role !== 'admin') {
       return error(res, '无权操作此课题')
+    }
+    const nextMaxStudents = maxStudents ?? topic.max_students
+    const nextStatus = status ?? topic.status
+    const capacityChanged = maxStudents !== undefined && Number(nextMaxStudents) !== Number(topic.max_students)
+    const isBeingPublished = nextStatus === 'published' && topic.status !== 'published'
+    if (capacityChanged || isBeingPublished) {
+      const capacityError = validateTopicStudentCount(nextMaxStudents, await getTopicLimitForCycle(topic.cycle_id))
+      if (capacityError) return error(res, capacityError, 400)
     }
 
     // 已正式发布的选题锁定：教师不可再编辑（如需修改由管理员“撤回发布”后编辑）
@@ -413,12 +435,12 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
       description ?? topic.description,
       category ?? topic.category,
       difficulty ?? topic.difficulty,
-      maxStudents ?? topic.max_students,
+      nextMaxStudents,
       JSON.stringify(tags ?? existingTags),
       requirements ?? topic.requirements,
       JSON.stringify(schedules ?? existingSchedules),
       JSON.stringify(attachments ?? existingAttachments),
-      status ?? topic.status,
+      nextStatus,
       major ?? topic.major ?? null,
       storedMajorCode ?? topic.major_code ?? null,
       id
@@ -445,6 +467,10 @@ router.put('/:id/status', requireRole(['teacher', 'admin']), async (req: AuthReq
     const topicRows2 = await query('SELECT * FROM topics WHERE id = ?', [id]) as any[]
     const topic2 = topicRows2[0]
     if (!topic2) return error(res, '课题不存在')
+    if (status === 'published' && topic2.status !== 'published') {
+      const capacityError = validateTopicStudentCount(topic2.max_students, await getTopicLimitForCycle(topic2.cycle_id))
+      if (capacityError) return error(res, capacityError, 400)
+    }
     if (topic2.teacher_id !== req.user!.id && req.user!.role !== 'admin') {
       return error(res, '无权操作此课题')
     }

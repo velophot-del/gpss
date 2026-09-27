@@ -6,6 +6,7 @@ import { isInProgressCycle } from '../utils/processFlow.js'
 import { safeParseJson } from '../utils/json.js'
 import { getReviewDeadline } from '../utils/policies.js'
 import { getSelectionConfigurationError } from '../services/selectionSettlementService.js'
+import { validateTopicStudentLimitSetting } from '../utils/topicCapacity.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -38,6 +39,11 @@ router.get('/active', async (req: AuthRequest, res) => {
 router.post('/', requireRole(['admin']), async (req: AuthRequest, res) => {
   try {
     const { name, description, year, startDate, endDate, phasesConfig, status } = req.body
+
+    if (phasesConfig && typeof phasesConfig === 'object' && phasesConfig.topic_student_limit !== undefined) {
+      const limitError = validateTopicStudentLimitSetting(phasesConfig.topic_student_limit)
+      if (limitError) return error(res, limitError, 400)
+    }
 
     const newStatus = status || 'draft'
     // 同一时刻只允许一个进行中周期：直接以进行中状态创建前需先结束旧周期
@@ -90,6 +96,11 @@ router.put('/:id', requireRole(['admin']), async (req: AuthRequest, res) => {
       Object.assign(merged, phasesConfig)
     }
     const phasesConfigFinal = JSON.stringify(merged)
+
+    if (phasesConfig && typeof phasesConfig === 'object' && Object.prototype.hasOwnProperty.call(phasesConfig, 'topic_student_limit')) {
+      const limitError = validateTopicStudentLimitSetting(phasesConfig.topic_student_limit)
+      if (limitError) return error(res, limitError, 400)
+    }
 
     const nextPhase = phase ?? existing.phase
     if (nextPhase === 'teacher_review') {

@@ -78,8 +78,8 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="招收人数" prop="maxStudents">
-              <el-input-number v-model="form.maxStudents" :min="1" :max="10" controls-position="right" />
-              <span class="form-tip">建议根据工作量合理设置</span>
+              <el-input-number v-model="form.maxStudents" :min="1" :max="topicStudentLimit" controls-position="right" />
+              <span class="form-tip">本周期单个课题上限为 {{ topicStudentLimit }} 人；已存在课题不会因调整上限自动变化</span>
             </el-form-item>
           </el-col>
         </el-row>
@@ -228,7 +228,8 @@ const loading = ref(false)
 const locked = ref(false)
 
 // 当期“毕业专业 + 研究方向”选项（来自周期配置；缺失回退默认）
-const cycleCfg = ref<{ majors: MajorConfig[]; researchCategories: Record<string, string[]> } | null>(null)
+const cycleCfg = ref<{ majors: MajorConfig[]; researchCategories: Record<string, string[]>; topicStudentLimit?: number } | null>(null)
+const topicStudentLimit = computed(() => cycleCfg.value?.topicStudentLimit ?? 10)
 const majors = computed<MajorConfig[]>(() =>
   cycleCfg.value?.majors?.length ? cycleCfg.value.majors : FALLBACK_MAJORS
 )
@@ -426,6 +427,10 @@ onMounted(async () => {
       const res: any = await topicApi.getDetail(route.params.id as string)
       const t = res.data
       if (t) {
+        cycleCfg.value = {
+          ...(cycleCfg.value || { majors: [], researchCategories: {} }),
+          topicStudentLimit: Number(t.topicStudentLimit) || 10
+        }
         suppressCategoryReset.value = true
         Object.assign(form, {
           title: t.title || '',

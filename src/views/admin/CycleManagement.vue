@@ -86,6 +86,10 @@
           <el-form-item label="教师指导人数上限">
             <el-input-number v-model="form.teacherStudentLimit" :min="0" :max="200" :step="1" style="width: 100%" />
           </el-form-item>
+          <el-form-item label="单课题人数上限">
+            <el-input-number v-model="form.topicStudentLimit" :min="1" :max="10" :step="1" style="width: 100%" />
+            <div class="cycle-cfg-hint">限制每个课题可设置的招收人数；调整此项不会修改已存在课题。</div>
+          </el-form-item>
           <el-form-item label="描述">
             <el-input v-model="form.description" type="textarea" :rows="2" />
           </el-form-item>
@@ -173,6 +177,10 @@
           </el-form-item>
           <el-form-item label="教师指导人数上限">
             <el-input-number v-model="form.teacherStudentLimit" :min="0" :max="200" :step="1" style="width: 100%" />
+          </el-form-item>
+          <el-form-item label="单课题人数上限">
+            <el-input-number v-model="form.topicStudentLimit" :min="1" :max="10" :step="1" style="width: 100%" />
+            <div class="cycle-cfg-hint">限制每个课题可设置的招收人数；调整此项不会修改已存在课题。</div>
           </el-form-item>
           <el-form-item label="描述">
             <el-input v-model="form.description" type="textarea" :rows="2" />
@@ -292,6 +300,7 @@ const form = reactive({
   status: 'upcoming' as string,
   description: '',
   teacherStudentLimit: 0,
+  topicStudentLimit: 10,
   topicPublishStart: '',
   topicPublishEnd: '',
   studentApplyStart: '',
@@ -371,6 +380,7 @@ function showCreateDialog() {
   editingId.value = null
   Object.assign(form, {
     name: '', year: '', status: 'upcoming', description: '',
+    teacherStudentLimit: 0, topicStudentLimit: 10,
     topicPublishStart: '', topicPublishEnd: '',
     studentApplyStart: '', studentApplyEnd: '',
     teacherReviewStart: '', teacherReviewEnd: '',
@@ -401,6 +411,7 @@ async function showEditDialog(row: any) {
     status: row.status || 'upcoming',
     description: row.description || '',
     teacherStudentLimit: Number(phases.teacher_student_limit ?? row.teacherStudentLimit ?? 0) || 0,
+    topicStudentLimit: Number(phases.topic_student_limit ?? 10) || 10,
     topicPublishStart: phases.topic_publish?.start || row.topicPublishStart || '',
     topicPublishEnd: phases.topic_publish?.end || row.topicPublishEnd || '',
     studentApplyStart: phases.student_apply?.start || row.studentApplyStart || '',
@@ -439,7 +450,8 @@ async function handleCreate() {
         teacher_review: { start: form.teacherReviewStart, end: form.teacherReviewEnd },
         result_announce: form.resultAnnounceTime,
         adjustment: { start: form.adjustmentStart, end: form.adjustmentEnd },
-        teacher_student_limit: Number(form.teacherStudentLimit) || 0
+        teacher_student_limit: Number(form.teacherStudentLimit) || 0,
+        topic_student_limit: Number(form.topicStudentLimit) || 10
       }
     })
     ElMessage.success(`选题周期创建成功（状态：${form.status === 'active' ? '已启用' : '未开始'}）`)
@@ -514,7 +526,8 @@ async function handleEdit() {
         teacher_review: { start: form.teacherReviewStart, end: form.teacherReviewEnd },
         result_announce: form.resultAnnounceTime,
         adjustment: { start: form.adjustmentStart, end: form.adjustmentEnd },
-        teacher_student_limit: Number(form.teacherStudentLimit) || 0
+        teacher_student_limit: Number(form.teacherStudentLimit) || 0,
+        topic_student_limit: Number(form.topicStudentLimit) || 10
       }
     })
     await cycleConfigApi.save(editingId.value, cfgPayload)

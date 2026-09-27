@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 const policies = await import('../server/dist/utils/policies.js').catch(() => ({}))
+const topicCapacity = await import('../server/dist/utils/topicCapacity.js').catch(() => ({}))
 
 test('disabled accounts cannot restore a session from an otherwise valid token', () => {
   const result = policies.resolveSessionUser?.(
@@ -132,6 +133,21 @@ test('teacher capacity reads the persisted snake_case key and legacy camelCase k
   assert.equal(policies.getTeacherStudentLimit?.({ teacherStudentLimit: 3 }), 3)
   assert.equal(policies.getTeacherStudentLimit?.({ teacher_student_limit: 'invalid' }), 0)
   assert.equal(policies.getTeacherStudentLimit?.(null), 0)
+})
+
+test('per-topic student limit defaults to 10 and constrains valid topic capacities', () => {
+  assert.equal(topicCapacity.getTopicStudentLimit({ topic_student_limit: 6 }), 6)
+  assert.equal(topicCapacity.getTopicStudentLimit({ topic_student_limit: 1 }), 1)
+  assert.equal(topicCapacity.getTopicStudentLimit({ topic_student_limit: 11 }), 10)
+  assert.equal(topicCapacity.getTopicStudentLimit({ topic_student_limit: 0 }), 10)
+  assert.equal(topicCapacity.getTopicStudentLimit(null), 10)
+  assert.equal(topicCapacity.validateTopicStudentCount(6, 6), null)
+  assert.match(topicCapacity.validateTopicStudentCount(7, 6), /最多可设置为6人/)
+  assert.match(topicCapacity.validateTopicStudentCount(1.5, 6), /正整数/)
+  assert.match(topicCapacity.validateTopicStudentCount(0, 6), /正整数/)
+  assert.equal(topicCapacity.validateTopicStudentLimitSetting(10), null)
+  assert.match(topicCapacity.validateTopicStudentLimitSetting(0), /1至10/)
+  assert.match(topicCapacity.validateTopicStudentLimitSetting(11), /1至10/)
 })
 
 test('adjustment source supports unselected students and anchors selected students to their current topic', () => {

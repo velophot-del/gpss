@@ -6,6 +6,7 @@ import { safeParseJson } from '../utils/json.js'
 import { getActiveCycle } from '../utils/processFlow.js'
 import { getCycleMajors, getCycleResearchCategories, type MajorConfig } from '../utils/majors.js'
 import { normalizeMajorCode, normalizeSmartInteractionCycleConfig } from '../utils/majorCodes.js'
+import { getTopicStudentLimit } from '../utils/topicCapacity.js'
 
 const router = Router()
 router.use(authMiddleware)
@@ -48,7 +49,8 @@ router.get('/', async (_req: AuthRequest, res) => {
       getCycleMajors(active?.id),
       getCycleResearchCategories(active?.id),
     ])
-    success(res, { majors, researchCategories })
+    const phases = safeParseJson<any>(active?.phases_config, {})
+    success(res, { majors, researchCategories, topicStudentLimit: getTopicStudentLimit(phases) })
   } catch (err: any) {
     console.error('获取周期配置失败:', err)
     error(res, '服务器内部错误', 500)
