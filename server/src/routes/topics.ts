@@ -8,9 +8,19 @@ import { getAllowedMajorNames, getAllowedMajorOptions, getCycleMajors, getCycleR
 import { getActiveCycle, isInProgressCycle } from '../utils/processFlow.js'
 import { getTeacherStudentLimit } from '../utils/policies.js'
 import { safeParseJson } from '../utils/json.js'
+import { createHmac } from 'crypto'
+import { resolveJwtSecret } from '../utils/policies.js'
 
 const router = Router()
 router.use(authMiddleware)
+
+function toStudentTopicView(topic: Record<string, any>) {
+  const { teacherId, teacherName, teacherTitle, teacherDepartment, teacherEmail, teacherPhone, teacherAvatar, ...safeTopic } = topic
+  return {
+    ...safeTopic,
+    teacherGroupKey: createHmac('sha256', resolveJwtSecret()).update(String(teacherId || '')).digest('hex').slice(0, 24),
+  }
+}
 
 // 校验课题的“专业代码/研究方向”是否属于目标周期配置（未配置周期回退默认）；
 // 返回错误文案或 null。category/majorCode 缺失时按“必填”对待。
@@ -163,7 +173,8 @@ router.get('/', async (req: AuthRequest, res) => {
       updatedAt: item.updated_at
     }))
 
-    paginated(res, formattedList, total, p, ps, '查询成功', allowedMajors ? { allowedMajors } : undefined)
+    const responseList = req.user!.role === 'student' ? formattedList.map(toStudentTopicView) : formattedList
+    paginated(res, responseList, total, p, ps, '查询成功', allowedMajors ? { allowedMajors } : undefined)
   } catch (err: any) {
     console.error('获取课题列表失败:', err)
     error(res, '服务器内部错误', 500)
@@ -319,7 +330,7 @@ router.get('/:id', async (req: AuthRequest, res) => {
       updatedAt: topic.updated_at
     }
 
-    success(res, result)
+    success(res, req.user!.role === 'student' ? toStudentTopicView(result) : result)
   } catch (err: any) {
     console.error('获取课题详情失败:', err)
     error(res, '服务器内部错误', 500)

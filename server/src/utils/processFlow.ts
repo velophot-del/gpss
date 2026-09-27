@@ -15,8 +15,8 @@ export function isStudentSelectionPhase(phase?: string | null): boolean {
   return STUDENT_SELECTION_PHASES.some(p => p === phase)
 }
 
-// 教师“提交/确认本课题名单（落选自动进下一志愿）”允许的阶段：学生已能申报、教师进入遴选/录取
-export const TEACHER_REVIEW_PHASES = ['student_selection', 'student_apply', 'teacher_review'] as const
+// 教师遴选只能在教师遴选阶段进行，学生申报阶段只允许学生填报志愿。
+export const TEACHER_REVIEW_PHASES = ['teacher_review'] as const
 
 export function isTeacherReviewPhase(phase?: string | null): boolean {
   return TEACHER_REVIEW_PHASES.some(p => p === phase)

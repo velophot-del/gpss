@@ -47,13 +47,12 @@
                 <el-table-column label="教师余量" width="100"><template #default="{ row }">{{ teacherRemaining(row) }}</template></el-table-column>
               </el-table>
             </el-tab-pane>
-            <el-tab-pane :label="`调剂待办（${pendingAdjustments.length}）`">
-              <p class="mb-4">仅显示学生主动提交的申请；名额和导师余量是当前预览，审批时由后端再次校验。请先与目标教师确认。</p>
-              <el-table :data="pendingAdjustments" stripe max-height="420" empty-text="暂无待审批调剂申请">
+            <el-tab-pane label="历史调剂记录">
+              <p class="mb-4">旧单课题调剂记录仅供追溯。新的调剂补录由“调剂结算”页面统一处理，不支持逐条审批或按绩点排序。</p>
+              <el-table :data="adjustments" stripe max-height="420" empty-text="暂无历史调剂记录">
                 <el-table-column prop="student_id" label="学号" width="130" /><el-table-column prop="student_name" label="姓名" width="100" />
                 <el-table-column prop="to_topic_title" label="申请课题" min-width="230" /><el-table-column prop="reason" label="调剂理由" min-width="170" show-overflow-tooltip />
-                <el-table-column label="匹配预览" width="150"><template #default="{ row }"><el-tag :type="adjustmentHint(row).ok ? 'success' : 'warning'">{{ adjustmentHint(row).label }}</el-tag></template></el-table-column>
-                <el-table-column label="操作" width="100"><template #default="{ row }"><el-button link type="primary" :disabled="!adjustmentHint(row).ok" @click="approveAdjustment(row)">确认录取</el-button></template></el-table-column>
+                <el-table-column prop="status" label="历史状态" width="120" />
               </el-table>
             </el-tab-pane>
           </el-tabs>

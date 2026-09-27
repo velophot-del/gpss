@@ -32,6 +32,7 @@ import cycleConfigRoutes from './routes/cycleConfig.js'
 import profileOptionsRoutes from './routes/profileOptions.js'
 import selectionDraftRoutes from './routes/selectionDrafts.js'
 import selectionAdminRoutes from './routes/selectionAdmin.js'
+import adjustmentVolunteerRoutes from './routes/adjustmentVolunteers.js'
 import { startSelectionDeadlineWorker } from './services/selectionDeadlineWorker.js'
 
 // 导入认证中间件
@@ -102,6 +103,7 @@ app.use('/api/users', userRoutes)
 app.use('/api/topics', topicRoutes)
 app.use('/api/applications', selectionDraftRoutes)
 app.use('/api/applications', applicationRoutes)
+app.use('/api/adjustment-volunteers', adjustmentVolunteerRoutes)
 app.use('/api/cycles', cycleRoutes)
 app.use('/api/topic-access', topicAccessRoutes)
 app.use('/api/cycle-config', cycleConfigRoutes)

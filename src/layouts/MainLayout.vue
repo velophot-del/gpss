@@ -57,6 +57,7 @@
             <el-menu-item index="/admin/students">学生选课状态</el-menu-item>
             <el-menu-item index="/admin/applications">选课申请数据</el-menu-item>
             <el-menu-item index="/admin/selection-settlement">录取结算</el-menu-item>
+            <el-menu-item index="/admin/adjustment-settlement">调剂结算</el-menu-item>
           </el-sub-menu>
           <el-sub-menu index="admin-process">
             <template #title>
@@ -84,6 +85,10 @@
           <el-menu-item index="/teacher/review">
             <el-icon><UserFilled /></el-icon>
             <template #title>遴选学生</template>
+          </el-menu-item>
+          <el-menu-item index="/teacher/adjustment-review" v-if="cycleStore.currentPhase === 'adjustment'">
+            <el-icon><RefreshRight /></el-icon>
+            <template #title>调剂遴选</template>
           </el-menu-item>
           <el-menu-item index="/teacher/results">
             <el-icon><TrendCharts /></el-icon>
@@ -120,7 +125,7 @@
           </el-menu-item>
           <el-menu-item index="/student/adjustment" v-if="cycleStore.currentPhase === 'adjustment'">
             <el-icon><RefreshRight /></el-icon>
-            <template #title>调剂申请</template>
+            <template #title>调剂志愿</template>
           </el-menu-item>
           <el-sub-menu index="student-process">
             <template #title>

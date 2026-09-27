@@ -1,185 +1,36 @@
 <template>
-  <div class="adjustment page-container">
-    <div class="card-container">
-      <h2 class="section-title">调剂申请</h2>
-
-      <el-alert
-        title="调剂说明"
-        type="warning"
-        :closable="false"
-        show-icon
-        style="margin-bottom: 20px;"
-      >
-        <template #default>
-          调剂阶段面向未录取学生开放。您可申请有剩余名额的课题，管理员核对教师意见和名额后审批。每人同时只能有一条待处理申请。
-        </template>
-      </el-alert>
-
-      <!-- 可调剂课题列表 -->
-      <el-table :data="availableTopics" stripe v-loading="loading" empty-text="暂无可调剂的课题">
-        <el-table-column prop="title" label="课题名称" min-width="260" show-overflow-tooltip>
-          <template #default="{ row }">
-            <el-link type="primary" @click="showApplyDialog(row)">{{ row.title }}</el-link>
-          </template>
-        </el-table-column>
-        <el-table-column prop="teacherName" label="指导教师" width="110" />
-        <el-table-column prop="category" label="研究方向" width="130" />
-        <el-table-column label="难度" width="80" align="center">
-          <template #default="{ row }">
-            <el-tag :type="difficultyType[row.difficulty]" size="small">{{ difficultyLabel[row.difficulty] }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="剩余名额" width="100" align="center">
-          <template #default="{ row }">
-            <el-tag type="success">{{ Math.max(0, row.maxStudents - row.currentCount) }} 人</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="140" fixed="right">
-          <template #default="{ row }">
-            <el-button type="warning" size="small" icon="Position" :disabled="!canSubmitAdjustment" @click="showApplyDialog(row)">
-              申请调剂
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <!-- 我的调剂记录 -->
-      <h3 style="margin-top: 32px; margin-bottom: 16px; color: #303133;">我的调剂记录</h3>
-      <el-table :data="myAdjustments" stripe empty-text="暂无调剂记录">
-        <el-table-column prop="to_topic_title" label="申请课题" min-width="220" />
-        <el-table-column label="状态" width="100" align="center">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 'approved' ? 'success' : row.status === 'pending' ? 'warning' : 'danger'" size="small">
-              {{ adjustmentStatusLabel[row.status] }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="reason" label="调剂理由" show-overflow-tooltip />
-        <el-table-column prop="created_at" label="申请时间" width="170">
-          <template #default="{ row }">{{ formatDateTime(row.created_at) }}</template>
-        </el-table-column>
-      </el-table>
+  <div class="adjustment page-container"><div class="card-container">
+    <h2 class="section-title">调剂志愿</h2>
+    <el-alert :title="frozen ? '教师名单已提交或结算已开始，调剂志愿已冻结。' : '请提交 3 至 6 个本专业课题，并至少覆盖两位教师。'" :type="frozen ? 'warning' : 'info'" :closable="false" show-icon style="margin-bottom:20px" />
+    <el-table :data="topics" stripe v-loading="loading" empty-text="暂无可填报的本专业课题">
+      <el-table-column prop="title" label="课题名称" min-width="260" />
+      <el-table-column prop="category" label="研究方向" width="160" />
+      <el-table-column label="剩余名额" width="100"><template #default="{ row }">{{ row.maxStudents - row.currentCount }} 人</template></el-table-column>
+      <el-table-column label="操作" width="120"><template #default="{ row }"><el-button link type="primary" :disabled="frozen || isChosen(row.id)" @click="add(row)">{{ isChosen(row.id) ? '已加入' : '加入志愿' }}</el-button></template></el-table-column>
+    </el-table>
+    <h3 style="margin:28px 0 12px">我的调剂志愿（{{ items.length }}/6）</h3>
+    <el-empty v-if="!items.length" description="请选择 3 至 6 个课题，并至少覆盖两位教师" />
+    <div v-for="(item, index) in items" :key="item.topicId" class="volunteer-row">
+      <strong>第 {{ index + 1 }} 志愿</strong><span>{{ item.title }}</span>
+      <el-input v-model="item.motivation" :disabled="frozen" placeholder="填写调剂理由" maxlength="500" show-word-limit />
+      <el-button link type="primary" :disabled="frozen || index === 0" @click="move(index, -1)">上移</el-button><el-button link type="primary" :disabled="frozen || index === items.length - 1" @click="move(index, 1)">下移</el-button><el-button link type="danger" :disabled="frozen" @click="items.splice(index, 1)">移除</el-button>
     </div>
-
-    <!-- 调剂申请弹窗 -->
-    <el-dialog v-model="applyDialogVisible" title="调剂申请" width="520px">
-      <template v-if="selectedTopic">
-        <p><strong>课题：</strong>{{ selectedTopic.title }}</p>
-        <p><strong>教师：</strong>{{ selectedTopic.teacherName }}</p>
-        <el-form :model="adjustForm" style="margin-top: 16px;">
-          <el-form-item label="调剂理由" required>
-            <el-input
-              v-model="adjustForm.motivation"
-              type="textarea"
-              :rows="4"
-              placeholder="请说明希望调剂到该课题的原因..."
-            />
-          </el-form-item>
-        </el-form>
-      </template>
-      <template #footer>
-        <el-button @click="applyDialogVisible = false">取消</el-button>
-        <el-button type="warning" @click="handleAdjustApply" :loading="submitting">提交调剂申请</el-button>
-      </template>
-    </el-dialog>
-  </div>
+    <p class="hint">提交后等待教师遴选和统一结算；不显示教师草稿决定。</p>
+    <el-button type="primary" :loading="saving" :disabled="frozen || items.length < 3 || items.length > 6" @click="save">保存调剂志愿</el-button>
+  </div></div>
 </template>
-
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
-import { useTopicStore } from '../../stores/topic'
-import { useApplicationStore } from '../../stores/application'
-import { useUserStore } from '../../stores/user'
-import { useCycleStore } from '../../stores/cycle'
-import { applicationApi } from '../../api'
-import type { Topic } from '../../types'
-import dayjs from 'dayjs'
+import { computed, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-
-const topicStore = useTopicStore()
-const applicationStore = useApplicationStore()
-const userStore = useUserStore()
-const cycleStore = useCycleStore()
-
-const loading = ref(false)
-const submitting = ref(false)
-const applyDialogVisible = ref(false)
-const selectedTopic = ref<Topic | null>(null)
-const adjustForm = ref({ motivation: '' })
-const myAdjustments = ref<any[]>([])
-const currentCycleApplications = computed(() => applicationStore.applications.filter(a =>
-  String(a.cycleId) === String(cycleStore.currentCycle?.id)
-))
-const canSubmitAdjustment = computed(() => cycleStore.currentPhase === 'adjustment' &&
-  !applicationStore.finalResults.some(a => String((a as any).cycleId) === String(cycleStore.currentCycle?.id)) &&
-  currentCycleApplications.value.length > 0 &&
-  currentCycleApplications.value.every(a => ['rejected', 'withdrawn', 'cancelled'].includes(a.status)) &&
-  !myAdjustments.value.some(a => a.status === 'pending' && String(a.cycle_id) === String(cycleStore.currentCycle?.id)))
-
-// 可调剂课题：还有名额的
-const availableTopics = computed(() => {
-  return topicStore.topics.filter(t =>
-    t.status === 'published' &&
-    t.currentCount < t.maxStudents
-  )
-})
-
-function showApplyDialog(topic: Topic) {
-  if (!canSubmitAdjustment.value) return
-  selectedTopic.value = topic
-  applyDialogVisible.value = true
-  adjustForm.value.motivation = ''
-}
-
-async function handleAdjustApply() {
-  if (!userStore.currentUser || !selectedTopic.value) return
-  if (!adjustForm.value.motivation.trim()) {
-    ElMessage.warning('请填写调剂理由')
-    return
-  }
-
-  submitting.value = true
-  try {
-    await applicationStore.adjustApplication({
-      toTopicId: selectedTopic.value!.id,
-      reason: adjustForm.value.motivation
-    })
-    ElMessage.success('调剂申请已提交')
-    applyDialogVisible.value = false
-    await loadAdjustments()
-  } catch (err: any) {
-    ElMessage.error(err?.message || '提交失败')
-  } finally {
-    submitting.value = false
-  }
-}
-
-const difficultyType: Record<string, string> = { easy: 'success', medium: 'warning', hard: 'danger' }
-const difficultyLabel: Record<string, string> = { easy: '简单', medium: '中等', hard: '困难' }
-
-const adjustmentStatusLabel: Record<string, string> = {
-  pending: '待审核',
-  approved: '已通过',
-  rejected: '已拒绝'
-}
-
-async function loadAdjustments() {
-  const res: any = await applicationApi.getAdjustments()
-  myAdjustments.value = res.data || []
-}
-
-function formatDateTime(dateStr: string): string {
-  return dayjs(dateStr).format('YYYY-MM-DD HH:mm')
-}
-
-onMounted(async () => {
-  loading.value = true
-  await Promise.all([
-    topicStore.fetchTopics({ pageSize: 50 }),
-    applicationStore.fetchApplications(),
-    cycleStore.fetchCurrentCycle(),
-    loadAdjustments()
-  ])
-  loading.value = false
-})
+import { adjustmentVolunteerApi } from '@/api'
+type TopicItem = { id: string; title: string; category: string; maxStudents: number; currentCount: number; teacherGroupKey: string }
+type VolunteerItem = { topicId: string; title: string; motivation: string; teacherGroupKey: string }
+const loading = ref(false), saving = ref(false), topics = ref<TopicItem[]>([]), items = ref<VolunteerItem[]>([]), version = ref(0), frozen = ref(false)
+const isChosen = (id: string) => items.value.some(item => item.topicId === id)
+function add(topic: TopicItem) { if (items.value.length >= 6) return ElMessage.warning('最多填报 6 个调剂志愿'); items.value.push({ topicId: topic.id, title: topic.title, teacherGroupKey: topic.teacherGroupKey, motivation: '' }) }
+function move(index: number, direction: number) { const [item] = items.value.splice(index, 1); items.value.splice(index + direction, 0, item) }
+async function load() { loading.value = true; try { const [topicRes, mineRes]: any[] = await Promise.all([adjustmentVolunteerApi.getEligibleTopics(), adjustmentVolunteerApi.getMine()]); topics.value = topicRes.data || []; version.value = Number(mineRes.data?.version || 0); frozen.value = Boolean(mineRes.data?.frozen); items.value = (mineRes.data?.items || []).map((item: any) => ({ topicId: item.topicId, title: item.title, motivation: item.motivation, teacherGroupKey: item.teacherGroupKey })) } catch (cause: any) { ElMessage.error(cause?.response?.data?.message || '调剂信息加载失败') } finally { loading.value = false } }
+async function save() { if (new Set(items.value.map(item => item.teacherGroupKey)).size < 2) return ElMessage.warning('调剂志愿至少覆盖两位教师'); if (items.value.some(item => !item.motivation.trim())) return ElMessage.warning('请填写每个课题的调剂理由'); saving.value = true; try { const res: any = await adjustmentVolunteerApi.saveMine({ version: version.value, items: items.value.map((item, index) => ({ topicId: item.topicId, priority: index + 1, motivation: item.motivation })) }); version.value = Number(res.data?.version || items.value.length); frozen.value = Boolean(res.data?.frozen); ElMessage.success('调剂志愿已保存，等待教师遴选') } catch (cause: any) { ElMessage.error(cause?.response?.data?.message || '保存失败') } finally { saving.value = false } }
+onMounted(load)
 </script>
+<style scoped>.volunteer-row{display:grid;grid-template-columns:90px minmax(150px,1fr) minmax(220px,2fr) auto auto auto;gap:10px;align-items:center;padding:12px 0;border-bottom:1px solid #ebeef5}.hint{color:#909399;font-size:13px}@media(max-width:800px){.volunteer-row{grid-template-columns:1fr}}</style>

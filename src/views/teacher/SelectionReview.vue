@@ -6,7 +6,8 @@
         <el-button @click="refreshAll">刷新状态</el-button>
       </div>
 
-      <el-empty v-if="!myTopics.length" description="暂无可遴选课题" />
+      <el-alert v-if="!isTeacherReview" :title="`当前为${cycleStore.phaseInfo.label}`" description="学生遴选仅在“教师遴选阶段”开放。当前可查看流程，不能保存草稿、提交名单或录取学生。" type="info" :closable="false" show-icon class="state-alert" />
+      <el-empty v-else-if="!myTopics.length" description="暂无可遴选课题" />
       <el-tabs v-else v-model="activeTopicId" @tab-change="loadTopic" class="topic-tabs">
         <el-tab-pane v-for="topic in myTopics" :key="topic.id" :name="topic.id" :label="`${topic.title}（${topic.applyCount || 0}人）`">
           <div v-if="currentDraft" v-loading="loading" class="draft-body">
@@ -78,6 +79,18 @@
         <el-descriptions-item label="班级">{{ selectedStudentProfile.className || '-' }}</el-descriptions-item>
         <el-descriptions-item label="专业">{{ selectedStudentProfile.major || '-' }}</el-descriptions-item>
         <el-descriptions-item label="GPA">{{ Number(selectedStudentProfile.gpa || 0).toFixed(2) }}</el-descriptions-item>
+        <el-descriptions-item label="技能标签" :span="2">
+          <el-space v-if="selectedStudentProfile.skills?.length" wrap>
+            <el-tag v-for="skill in selectedStudentProfile.skills" :key="skill">{{ skill }}</el-tag>
+          </el-space>
+          <span v-else>未填写</span>
+        </el-descriptions-item>
+        <el-descriptions-item label="兴趣方向" :span="2">
+          <el-space v-if="selectedStudentProfile.interests?.length" wrap>
+            <el-tag v-for="interest in selectedStudentProfile.interests" :key="interest" type="info">{{ interest }}</el-tag>
+          </el-space>
+          <span v-else>未填写</span>
+        </el-descriptions-item>
         <el-descriptions-item label="个人陈述" :span="2">{{ selectedStudentProfile.personalStatement || '未填写' }}</el-descriptions-item>
       </el-descriptions></div>
     </el-dialog>
@@ -91,12 +104,14 @@ import dayjs from 'dayjs'
 import { useTopicStore } from '../../stores/topic'
 import { useStudentStore } from '../../stores/student'
 import { useSelectionDraftStore } from '../../stores/selectionDraft'
+import { useCycleStore } from '../../stores/cycle'
 import type { SelectionDraftDecision } from '../../types'
 import { formatPriority, priorityTagType } from '../../utils/volunteerRules'
 
 const topicStore = useTopicStore()
 const studentStore = useStudentStore()
 const draftStore = useSelectionDraftStore()
+const cycleStore = useCycleStore()
 const activeTopicId = ref('')
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -110,7 +125,8 @@ const reserveItems = computed(() => activeTopicId.value ? draftStore.ordered(act
 const loading = computed(() => draftStore.loadingTopicIds.includes(activeTopicId.value))
 const saving = computed(() => draftStore.savingTopicIds.includes(activeTopicId.value))
 const submitting = computed(() => draftStore.submittingTopicIds.includes(activeTopicId.value))
-const readOnly = computed(() => currentDraft.value ? currentDraft.value.batch.status !== 'draft' : true)
+const isTeacherReview = computed(() => cycleStore.currentPhase === 'teacher_review')
+const readOnly = computed(() => !isTeacherReview.value || !currentDraft.value || currentDraft.value.batch.status !== 'draft')
 const undecidedCount = computed(() => currentDraft.value?.applications.filter(item => item.status !== 'accepted' && !item.decision).length || 0)
 const batchStatusLabel = computed(() => ({ draft: '草稿可继续修改，学生看不到当前决定', submitted: '已提交，等待统一结算', auto_submitted: '已到截止时间，系统已自动提交', settled: '统一录取已完成' }[currentDraft.value?.batch.status || 'draft']))
 const batchAlertType = computed(() => currentDraft.value?.batch.status === 'settled' ? 'success' : currentDraft.value?.batch.status === 'draft' ? 'info' : 'warning')
@@ -119,7 +135,8 @@ const decisionType: Record<string, string> = { proposed: 'success', reserve: 'wa
 
 onMounted(async () => {
   try {
-    await topicStore.fetchMyTopics()
+    await Promise.all([cycleStore.fetchCurrentCycle(), topicStore.fetchMyTopics()])
+    if (!isTeacherReview.value) return
     if (myTopics.value.length) {
       activeTopicId.value = myTopics.value[0].id
       await draftStore.load(activeTopicId.value)
@@ -170,6 +187,8 @@ async function submitDraft() {
   }
 }
 async function refreshAll() {
+  await cycleStore.fetchCurrentCycle()
+  if (!isTeacherReview.value) return ElMessage.info('当前不在教师遴选阶段，不能处理学生申请')
   const results = await Promise.allSettled(myTopics.value.map(topic => draftStore.load(topic.id)))
   if (results.some(result => result.status === 'rejected')) return ElMessage.warning('部分课题状态未能刷新，请切换课题查看提示')
   ElMessage.success('状态已更新')

@@ -2,10 +2,11 @@ import { Router } from 'express'
 import { query, transaction } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { error, success } from '../utils/response.js'
-import { getReviewDeadline } from '../utils/policies.js'
+import { getAdjustmentDeadline, getReviewDeadline } from '../utils/policies.js'
 import { safeParseJson } from '../utils/json.js'
 import { getDeadlineWorkerStatus } from '../services/selectionDeadlineWorker.js'
 import { getSelectionConfigurationError, requestSettlementIfReady, SelectionSettlementError } from '../services/selectionSettlementService.js'
+import { requestAdjustmentSettlementIfReady, AdjustmentSettlementError } from '../services/adjustmentSettlementService.js'
 
 const router = Router()
 router.use(authMiddleware, requireRole(['admin']))
@@ -89,6 +90,42 @@ router.post('/selection-settlement/:cycleId/run', async (req: AuthRequest, res) 
     console.error('手动执行统一录取失败:', cause)
     error(res, cause?.message || '服务器内部错误', 500)
   }
+})
+
+router.get('/adjustment-settlement/:cycleId', async (req: AuthRequest, res) => {
+  try {
+    const cycleId = Number(req.params.cycleId)
+    const [cycle] = await query<any>('SELECT id,name,phase,phases_config FROM cycles WHERE id=?', [cycleId])
+    if (!cycle) return error(res, '选题周期不存在', 404)
+    const deadline = getAdjustmentDeadline(safeParseJson(cycle.phases_config, {}))
+    const [eligible] = await query<any>('SELECT COUNT(DISTINCT av.student_id) cnt FROM adjustment_volunteers av WHERE av.cycle_id=?', [cycleId])
+    const topics = await query<any>(`SELECT t.id,t.title,u.real_name teacher_name,COUNT(av.id) volunteer_count,ab.status batch_status,ab.version FROM topics t JOIN users u ON u.id=t.teacher_id LEFT JOIN adjustment_volunteers av ON av.topic_id=t.id AND av.status='submitted' LEFT JOIN adjustment_batches ab ON ab.cycle_id=t.cycle_id AND ab.topic_id=t.id WHERE t.cycle_id=? GROUP BY t.id,t.title,u.real_name,ab.status,ab.version HAVING volunteer_count>0 ORDER BY u.real_name,t.title`, [cycleId])
+    const [settlement] = await query<any>('SELECT * FROM adjustment_settlements WHERE cycle_id=?', [cycleId])
+    success(res, { cycle: { id: cycle.id, name: cycle.name, phase: cycle.phase, deadline: deadline?.toISOString() || null }, eligibleStudents: Number(eligible?.cnt || 0), topics, settlement: settlement ? { ...settlement, result_json: safeParseJson(settlement.result_json, null) } : null })
+  } catch (cause) { console.error('读取调剂结算进度失败:', cause); error(res, '服务器内部错误', 500) }
+})
+
+router.post('/adjustment-topics/:topicId/unlock', async (req: AuthRequest, res) => {
+  try {
+    await transaction(async conn => {
+      const [rows] = await conn.query<any[]>(`SELECT ab.*,asr.status settlement_status FROM adjustment_batches ab LEFT JOIN adjustment_settlements asr ON asr.cycle_id=ab.cycle_id WHERE ab.topic_id=? FOR UPDATE`, [req.params.topicId])
+      const batch=rows[0]
+      if (!batch) throw new AdjustmentSettlementError('该课题尚无调剂遴选批次',404)
+      if (['running','completed'].includes(batch.settlement_status)) throw new AdjustmentSettlementError('结算已开始或完成，不能退回')
+      if (!['submitted','auto_submitted'].includes(batch.status)) throw new AdjustmentSettlementError('只有已提交名单可以退回')
+      await conn.query(`UPDATE adjustment_batches SET status='draft',version=version+1,submitted_by=NULL,submitted_at=NULL,auto_submitted_at=NULL WHERE id=?`,[batch.id])
+    })
+    success(res, null, '已退回教师修改')
+  } catch (cause:any) { if(cause instanceof AdjustmentSettlementError) return error(res,cause.message,cause.statusCode); error(res,cause?.message || '服务器内部错误',500) }
+})
+
+router.post('/adjustment-settlement/:cycleId/run', async (req: AuthRequest, res) => {
+  try {
+    const [settlement] = await query<any>('SELECT status FROM adjustment_settlements WHERE cycle_id=?',[Number(req.params.cycleId)])
+    const result = await requestAdjustmentSettlementIfReady(Number(req.params.cycleId), settlement?.status === 'failed' ? 'admin_retry' : 'all_submitted')
+    if (result.status === 'waiting') return error(res, `仍有 ${result.pendingTopics} 个课题未提交，且尚未到截止时间`,409)
+    success(res,result,'调剂统一结算已完成')
+  } catch(cause:any) { if(cause instanceof AdjustmentSettlementError) return error(res,cause.message,cause.statusCode); error(res,cause?.message || '服务器内部错误',500) }
 })
 
 export default router

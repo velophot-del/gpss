@@ -26,6 +26,17 @@ export const useStudentStore = defineStore('student', () => {
     return arr.filter((v): v is string => typeof v === 'string' && valid.includes(v))
   }
 
+  function parseStringList(list: unknown): string[] {
+    if (Array.isArray(list)) return list.filter((value): value is string => typeof value === 'string')
+    if (typeof list !== 'string') return []
+    try {
+      const parsed = JSON.parse(list || '[]')
+      return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : []
+    } catch {
+      return []
+    }
+  }
+
   async function fetchOptions() {
     try {
       const res: any = await profileOptionsApi.get()
@@ -133,8 +144,8 @@ export const useStudentStore = defineStore('student', () => {
           gpa: res.data.gpa ?? 0,
           ranking: res.data.ranking ?? 0,
           totalStudents: res.data.totalStudents ?? 0,
-          skills: filterValid(res.data.skills, allSkills.value),
-          interests: filterValid(res.data.interests, interestOptions.value),
+          skills: parseStringList(res.data.skills),
+          interests: parseStringList(res.data.interests),
           portfolio: Array.isArray(res.data.portfolio) ? res.data.portfolio : [],
           personalStatement: res.data.personalStatement || '',
           contactEmail: res.data.contactEmail || '',

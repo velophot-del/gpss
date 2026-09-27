@@ -99,6 +99,21 @@ export const selectionAdminApi = {
   run: (cycleId: string | number) => request.post(`/admin/selection-settlement/${cycleId}/run`),
 }
 
+export const adjustmentVolunteerApi = {
+  getEligibleTopics: () => request.get('/adjustment-volunteers/eligible-topics'),
+  getMine: () => request.get('/adjustment-volunteers/mine'),
+  saveMine: (data: { version: number; items: { topicId: string; priority: number; motivation: string }[] }) => request.put('/adjustment-volunteers/mine', data),
+  getDraft: (topicId: string) => request.get(`/adjustment-volunteers/topics/${topicId}/draft`),
+  saveDraft: (topicId: string, data: { version: number; items: any[] }) => request.put(`/adjustment-volunteers/topics/${topicId}/draft`, data),
+  submitDraft: (topicId: string, data: { version: number }) => request.post(`/adjustment-volunteers/topics/${topicId}/submit`, data),
+}
+
+export const adjustmentAdminApi = {
+  getProgress: (cycleId: string | number) => request.get(`/admin/adjustment-settlement/${cycleId}`),
+  unlock: (topicId: string) => request.post(`/admin/adjustment-topics/${topicId}/unlock`),
+  run: (cycleId: string | number) => request.post(`/admin/adjustment-settlement/${cycleId}/run`),
+}
+
 // ===== 周期管理 =====
 export const cycleApi = {
   getAll: () => request.get('/cycles'),

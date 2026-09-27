@@ -1,0 +1,15 @@
+<template><div class="page-container"><div class="card-container"><h2 class="section-title">调剂遴选</h2><el-alert v-if="phase !== 'adjustment'" title="调剂遴选仅在调剂补录阶段开放。" type="warning" :closable="false" /><template v-else><el-select v-model="topicId" placeholder="选择课题" @change="load"><el-option v-for="topic in topics" :key="topic.id" :label="topic.title" :value="topic.id" /></el-select><el-table :data="draft?.applicants || []" style="margin-top:16px"><el-table-column prop="studentName" label="学生" /><el-table-column prop="major" label="专业" /><el-table-column prop="priority" label="调剂志愿" /><el-table-column label="技能/兴趣"><template #default="{row}"><el-tag v-for="x in row.match.skillMatches" :key="x" size="small">{{x}}</el-tag><el-tag v-for="x in row.match.interestMatches" :key="x" size="small" type="success">{{x}}</el-tag></template></el-table-column><el-table-column label="决定"><template #default="{row}"><el-select v-model="row.decision" :disabled="readonly"><el-option label="拟录取" value="proposed"/><el-option label="候补" value="reserve"/><el-option label="不录取" value="reject"/></el-select><el-input-number v-if="row.decision !== 'reject'" v-model="row.decisionRank" :min="1" :disabled="readonly" /></template></el-table-column></el-table><p><el-button type="primary" :disabled="readonly || !topicId" @click="save">保存草稿</el-button><el-button type="success" :disabled="readonly || !topicId" @click="submit">提交名单</el-button></p></template></div></div></template>
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { adjustmentVolunteerApi, topicApi } from '@/api'
+import { useCycleStore } from '@/stores/cycle'
+const cycle = useCycleStore()
+const phase = computed(() => cycle.currentPhase)
+const topics = ref<any[]>([]), topicId = ref(''), draft = ref<any>(null)
+const readonly = computed(() => draft.value?.batch?.status !== 'draft')
+async function load() { if (!topicId.value) return; try { const response: any = await adjustmentVolunteerApi.getDraft(topicId.value); draft.value = response.data } catch (e: any) { ElMessage.error(e.response?.data?.message || '加载失败') } }
+async function save() { try { await adjustmentVolunteerApi.saveDraft(topicId.value, { version: draft.value.batch.version, items: draft.value.applicants.filter((x: any) => x.decision).map((x: any) => ({ volunteerId: x.id, decision: x.decision, decisionRank: x.decisionRank, comment: x.comment })) }); await load(); ElMessage.success('草稿已保存') } catch (e: any) { ElMessage.error(e.response?.data?.message || '保存失败') } }
+async function submit() { try { await adjustmentVolunteerApi.submitDraft(topicId.value, { version: draft.value.batch.version }); await load(); ElMessage.success('名单已提交') } catch (e: any) { ElMessage.error(e.response?.data?.message || '提交失败') } }
+onMounted(async () => { await cycle.fetchCurrentCycle(); if (phase.value === 'adjustment') { const response: any = await topicApi.getMyTopics(); topics.value = response.data || [] } })
+</script>

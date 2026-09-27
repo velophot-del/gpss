@@ -74,7 +74,7 @@
             <p v-if="topic.teacherStudentLimit" class="topic-demand">导师第一志愿 {{ topic.teacherFirstChoiceCount || 0 }} 人 / 指导上限 {{ topic.teacherStudentLimit }} 人</p>
             <h3>{{ topic.title }}</h3>
             <p class="topic-summary">{{ topic.description?.slice(0, 92) || '暂无简介' }}{{ topic.description?.length > 92 ? '…' : '' }}</p>
-            <div class="topic-meta"><span>{{ topic.teacherName || '指导教师待定' }}</span><span>{{ topic.category }}</span></div>
+            <div class="topic-meta"><span>{{ topic.category }}</span></div>
             <div class="topic-actions">
               <el-button link type="primary" @click="openDetail(topic.id)">查看详情</el-button>
               <el-button v-if="shortlistedIds.includes(topic.id)" type="success" plain size="small" @click="focusBasket">已在清单</el-button>
@@ -156,9 +156,6 @@
           </el-tag>
         </div>
         <el-descriptions :column="1" border class="dd-desc-items">
-          <el-descriptions-item label="指导教师">
-            {{ currentDetail.teacherName || '-' }}{{ currentDetail.teacherTitle ? `（${currentDetail.teacherTitle}）` : '' }}
-          </el-descriptions-item>
           <el-descriptions-item label="专业方向">{{ currentDetail.major || '-' }}</el-descriptions-item>
           <el-descriptions-item label="招收名额">{{ currentDetail.maxStudents }} 人</el-descriptions-item>
         </el-descriptions>
@@ -246,7 +243,7 @@ const crowdedChoices = computed(() => selectedList.value.filter(item => {
   return topic && isCrowdedTopic(topic)
 }).length)
 const selectedTeacherIds = computed(() => [...new Set(selectedList.value
-  .map(item => item.teacher_id || topicStore.getTopicById(item.topic_id)?.teacherId)
+  .map(item => topicStore.getTopicById(item.topic_id)?.teacherGroupKey)
   .filter(Boolean))])
 const hasEnoughTeachers = computed(() => selectedTeacherIds.value.length >= 2)
 const oneTeacherSelected = computed(() => selectedList.value.length >= VOLUNTEER_MIN && selectedTeacherIds.value.length === 1)

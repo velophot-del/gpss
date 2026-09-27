@@ -238,6 +238,9 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
         if (!cycleRows[0] || !isInProgressCycle(cycleRows[0].status)) {
           return { error: '该课题所属周期不在进行中，无法审批' }
         }
+        if (!isTeacherReviewPhase(cycleRows[0].phase)) {
+          return { error: '当前不在教师遴选阶段，不能处理学生申请', statusCode: 409 }
+        }
         if (cycleRows[0].phase === 'teacher_review') {
           return { error: '新版遴选流程已启用，请刷新页面并使用“保存草稿/提交名单”', statusCode: 409 }
         }
@@ -416,6 +419,7 @@ router.delete('/:id', requireRole(['student']), async (req: AuthRequest, res) =>
 
 // POST /api/adjustments - 提交调整申请
 router.post('/adjustments', requireRole(['student']), async (req: AuthRequest, res) => {
+  return error(res, '单课题调剂已下线，请使用调剂志愿工作台', 410)
   try {
     const { fromTopicId, toTopicId, reason } = req.body
     if (!reason) return error(res, '请填写调整原因')
@@ -436,7 +440,7 @@ router.post('/adjustments', requireRole(['student']), async (req: AuthRequest, r
       [req.user!.id, activeCycle.id],
     )
     const source = resolveAdjustmentSource(acceptedApplications.map(item => item.topic_id), fromTopicId)
-    if (source.error) return error(res, source.error)
+    if (source.error) return error(res, source.error || undefined)
 
     const [pendingAdjustment] = await query<any>(
       `SELECT adj.id FROM adjustments adj JOIN topics t ON t.id = adj.to_topic_id
@@ -496,6 +500,7 @@ router.get('/adjustments', async (req: AuthRequest, res) => {
 
 // PUT /api/adjustments/:id - 管理员审批调整
 router.put('/adjustments/:id', requireRole(['admin']), async (req: AuthRequest, res) => {
+  return error(res, '管理员逐条审批调剂已下线，请使用调剂结算', 410)
   try {
     const { id } = req.params
     const { status, adminComment } = req.body
@@ -656,7 +661,7 @@ router.put('/adjustments/:id', requireRole(['admin']), async (req: AuthRequest, 
       return { error: null }
     })
 
-    if (result.error) return error(res, result.error)
+    if (result.error) return error(res, result.error || undefined)
 
     success(res, null, `调整申请已${status === 'approved' ? '批准' : '拒绝'}`)
   } catch (err: any) {
@@ -689,11 +694,11 @@ router.post('/finalize-topic', requireRole(['teacher', 'admin']), async (req: Au
         if (!cycleRows[0] || !isInProgressCycle(cycleRows[0].status)) {
           return { error: '该课题所属周期不在进行中，无法提交名单' }
         }
+        if (!isTeacherReviewPhase(cycleRows[0].phase)) {
+          return { error: '当前不在教师遴选阶段，不能提交课题名单', statusCode: 409 }
+        }
         if (cycleRows[0].phase === 'teacher_review') {
           return { error: '新版遴选流程已启用，请刷新页面并使用“提交本课题名单”', statusCode: 409 }
-        }
-        if (!isTeacherReviewPhase(cycleRows[0].phase)) {
-          return { error: '当前周期不在遴选/录取阶段（需处于学生申报或教师遴选阶段），无法提交名单' }
         }
       }
 

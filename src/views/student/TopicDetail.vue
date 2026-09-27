@@ -22,7 +22,7 @@
 
       <el-row :gutter="20" style="margin-top: 20px;">
         <el-col :span="16" :xs="24">
-          <el-card shadow="never">
+          <el-card v-if="!isStudent" shadow="never">
             <template #header><strong>课题简介</strong></template>
             <p class="desc-text">{{ topic.description }}</p>
           </el-card>
@@ -121,7 +121,7 @@ import { useTopicStore } from '../../stores/topic'
 import { useApplicationStore } from '../../stores/application'
 import { useUserStore } from '../../stores/user'
 import { ElMessage } from 'element-plus'
-import { Document, UserFilled, CircleCheckFilled, ShoppingCart, Message, Phone } from '@element-plus/icons-vue'
+import { Document, CircleCheckFilled, ShoppingCart } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import { shortlistApi } from '@/api'
 import { formatPriority } from '@/utils/volunteerRules'

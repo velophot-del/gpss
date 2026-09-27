@@ -217,7 +217,6 @@
               <router-link :to="`/student/browse?open=${row.id}`" class="topic-link">{{ row.title }}</router-link>
             </template>
           </el-table-column>
-          <el-table-column prop="teacherName" label="指导教师" width="100" />
           <el-table-column label="申请/名额" width="100" align="center">
             <template #default="{ row }">
               {{ row.applyCount }} / {{ row.maxStudents || '—' }}

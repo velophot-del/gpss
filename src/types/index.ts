@@ -159,8 +159,9 @@ export interface TopicSchedule {
 
 export interface Topic {
   id: string
-  teacherId: string
-  teacherName: string
+  teacherId?: string
+  teacherName?: string
+  teacherGroupKey?: string
   teacherTitle?: string
   teacherDepartment?: string
   teacherEmail?: string

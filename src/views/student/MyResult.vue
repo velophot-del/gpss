@@ -23,7 +23,6 @@
             <el-descriptions-item label="录取课题">
               <strong>{{ result.topicTitle }}</strong>
             </el-descriptions-item>
-            <el-descriptions-item label="指导教师">{{ result.teacherName }}</el-descriptions-item>
             <el-descriptions-item label="确认时间">{{ formatDateTime(result.confirmedAt || result.submittedAt) }}</el-descriptions-item>
           </el-descriptions>
           <el-alert title="请注意关注后续的开题、中期检查、答辩等通知" type="success" :closable="false" show-icon style="margin-top: 20px;" />

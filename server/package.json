@@ -12,7 +12,8 @@
     "db:seed": "tsx src/scripts/seed.ts",
     "db:bootstrap-admin": "tsx src/scripts/bootstrapAdmin.ts",
     "db:migrate-process": "tsx src/scripts/migrateAddProcessStages.ts",
-    "db:migrate-selection": "tsx src/scripts/migrateSelectionDrafts.ts"
+    "db:migrate-selection": "tsx src/scripts/migrateSelectionDrafts.ts",
+    "db:migrate-adjustment": "tsx src/scripts/migrateAdjustmentVolunteers.ts"
   },
   "dependencies": {
     "axios": "^1.20.0",

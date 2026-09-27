@@ -101,6 +101,7 @@ const router = createRouter({
           component: () => import('../views/admin/SelectionSettlement.vue'),
           meta: { roles: ['admin'] }
         },
+        { path: 'admin/adjustment-settlement', name: 'AdminAdjustmentSettlement', component: () => import('../views/admin/AdjustmentSettlement.vue'), meta: { roles: ['admin'] } },
         {
           path: 'admin/document-templates',
           name: 'DocumentTemplateAdmin',
@@ -140,6 +141,7 @@ const router = createRouter({
           component: () => import('../views/teacher/MyResults.vue'),
           meta: { roles: ['teacher'] }
         },
+        { path: 'teacher/adjustment-review', name: 'TeacherAdjustmentReview', component: () => import('../views/teacher/AdjustmentReview.vue'), meta: { roles: ['teacher'] } },
         // 学生端路由
         {
           path: 'student/browse',

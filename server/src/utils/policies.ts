@@ -201,6 +201,16 @@ export function getReviewDeadline(config: unknown): Date | null {
   return null
 }
 
+export function getAdjustmentDeadline(config: unknown): Date | null {
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return null
+  const adjustment = (config as Record<string, unknown>).adjustment
+  const end = adjustment && typeof adjustment === 'object' && !Array.isArray(adjustment)
+    ? (adjustment as Record<string, unknown>).end : null
+  if (typeof end !== 'string' || !end.trim()) return null
+  const date = new Date(end)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+
 export function resolveAdjustmentSource(
   acceptedTopicIds: string[],
   requestedSourceTopicId?: string | null,
