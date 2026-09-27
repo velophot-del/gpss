@@ -87,6 +87,11 @@ export async function createAdjustmentTables(conn: Connection) {
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'adjustment_volunteers' AND COLUMN_NAME = 'version'
   `)
   if (!versionColumns.length) {
-    await conn.query('ALTER TABLE adjustment_volunteers ADD COLUMN version INT UNSIGNED NOT NULL DEFAULT 1 AFTER motivation')
+    try {
+      await conn.query('ALTER TABLE adjustment_volunteers ADD COLUMN version INT UNSIGNED NOT NULL DEFAULT 1 AFTER motivation')
+    } catch (cause: any) {
+      // Container startup and the deployment migration may initialize the schema concurrently.
+      if (cause?.code !== 'ER_DUP_FIELDNAME') throw cause
+    }
   }
 }
