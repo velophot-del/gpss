@@ -19,8 +19,9 @@ export const userApi = {
     request.put('/users/profile', data),
 
   // 管理员：用户管理 CRUD
-  getList: (params?: { page?: number; pageSize?: number; keyword?: string; role?: string; status?: string }) =>
+  getList: (params?: { page?: number; pageSize?: number; keyword?: string; role?: string; status?: string; className?: string; major?: string }) =>
     request.get('/users', { params }),
+  getFilterOptions: () => request.get('/users/filter-options'),
   create: (data: any) => request.post('/users', data),
   update: (id: string, data: any) => request.put(`/users/${id}`, data),
   updateStatus: (id: string, status: string) => request.put(`/users/${id}/status`, { status }),

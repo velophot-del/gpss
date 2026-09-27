@@ -22,10 +22,16 @@
       <!-- 筛选栏 -->
       <div class="filter-bar">
         <el-input v-model="searchText" placeholder="搜索用户名/姓名/学号/邮箱" prefix-icon="Search" clearable style="width: 280px;" @input="handleSearch" />
-        <el-select v-model="roleFilter" placeholder="角色筛选" clearable style="width: 130px;" @change="fetchUsers">
+        <el-select v-model="roleFilter" placeholder="角色筛选" clearable style="width: 130px;" @change="handleFilterChange">
           <el-option label="管理员" value="admin" />
           <el-option label="教师" value="teacher" />
           <el-option label="学生" value="student" />
+        </el-select>
+        <el-select v-model="classFilter" placeholder="班级筛选" clearable filterable style="width: 180px;" @change="handleFilterChange">
+          <el-option v-for="className in classOptions" :key="className" :label="className" :value="className" />
+        </el-select>
+        <el-select v-model="majorFilter" placeholder="专业筛选" clearable filterable style="width: 180px;" @change="handleFilterChange">
+          <el-option v-for="major in majorOptions" :key="major" :label="major" :value="major" />
         </el-select>
       </div>
 
@@ -302,6 +308,10 @@ const page = ref(1)
 const pageSize = ref(20)
 const searchText = ref('')
 const roleFilter = ref('')
+const classFilter = ref('')
+const majorFilter = ref('')
+const classOptions = ref<string[]>([])
+const majorOptions = ref<string[]>([])
 const selectedRows = ref<any[]>([])
 const batchDeleting = ref(false)
 
@@ -371,7 +381,9 @@ async function fetchUsers() {
       page: page.value,
       pageSize: pageSize.value,
       keyword: searchText.value || undefined,
-      role: roleFilter.value || undefined
+      role: roleFilter.value || undefined,
+      className: classFilter.value || undefined,
+      major: majorFilter.value || undefined
     })
     if (res.data) {
       users.value = res.data.list || []
@@ -388,6 +400,21 @@ let searchTimer: any = null
 function handleSearch() {
   clearTimeout(searchTimer)
   searchTimer = setTimeout(() => { page.value = 1; fetchUsers() }, 400)
+}
+
+function handleFilterChange() {
+  page.value = 1
+  fetchUsers()
+}
+
+async function loadUserFilterOptions() {
+  try {
+    const res: any = await userApi.getFilterOptions()
+    classOptions.value = res.data?.classes || []
+    majorOptions.value = res.data?.majors || []
+  } catch (e) {
+    console.error('获取用户筛选项失败:', e)
+  }
 }
 
 function handleSortChange(_col: any) {
@@ -623,6 +650,7 @@ const majorChoices = computed(() => {
 // 初始化加载
 onMounted(() => {
   fetchUsers()
+  loadUserFilterOptions()
   loadCycleMajors()
 })
 

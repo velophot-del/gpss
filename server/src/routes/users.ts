@@ -69,10 +69,29 @@ router.get('/me', async (req: AuthRequest, res) => {
 
 // ===== 管理员接口：用户管理 CRUD =====
 
+// GET /api/users/filter-options - 用户管理班级/专业筛选项
+router.get('/filter-options', requireRole(['admin']), async (_req, res) => {
+  try {
+    const [classes, majors] = await Promise.all([
+      query<any>(`SELECT DISTINCT class_name AS value FROM users
+        WHERE role = 'student' AND class_name IS NOT NULL AND TRIM(class_name) <> '' ORDER BY class_name`),
+      query<any>(`SELECT DISTINCT major AS value FROM users
+        WHERE role = 'student' AND major IS NOT NULL AND TRIM(major) <> '' ORDER BY major`)
+    ])
+    success(res, {
+      classes: classes.map(row => row.value),
+      majors: majors.map(row => row.value)
+    })
+  } catch (err: any) {
+    console.error('获取用户筛选项失败:', err)
+    error(res, '服务器内部错误', 500)
+  }
+})
+
 // GET /api/users - 用户列表（管理员，支持分页/搜索/角色筛选）
 router.get('/', requireRole(['admin']), async (req: AuthRequest, res) => {
   try {
-    const { page = '1', pageSize = '20', keyword, role, status, all } = req.query
+    const { page = '1', pageSize = '20', keyword, role, status, className, major, all } = req.query
     const isExportAll = all === 'true'
 
     let whereSql = `WHERE 1=1`
@@ -89,6 +108,14 @@ router.get('/', requireRole(['admin']), async (req: AuthRequest, res) => {
     if (status) {
       whereSql += ` AND u.status = ?`
       params.push(status)
+    }
+    if (className) {
+      whereSql += ` AND u.class_name = ?`
+      params.push(className)
+    }
+    if (major) {
+      whereSql += ` AND u.major = ?`
+      params.push(major)
     }
 
     const listSql = `SELECT u.id, u.username, u.real_name, u.email, u.role, u.avatar, u.student_id, u.class_name, u.major, u.major_code, u.grade, u.title, u.department, u.phone, u.status, u.created_at, sp.gpa, sp.grade AS profile_grade FROM users u LEFT JOIN student_profiles sp ON u.id = sp.user_id ${whereSql} ORDER BY u.created_at DESC`
