@@ -30,6 +30,7 @@ function enrichCycle(raw: any): any {
     adjustmentStart: phases.adjustment?.start || '',
     adjustmentEnd: phases.adjustment?.end || '',
     teacherStudentLimit: Number(phases.teacher_student_limit ?? raw.teacher_student_limit ?? 0) || 0,
+    topicStudentLimit: Number(phases.topic_student_limit ?? raw.topic_student_limit ?? 10) || 10,
     startDate: start_date || null,
     endDate: end_date || null,
     createdAt: created_at || '',

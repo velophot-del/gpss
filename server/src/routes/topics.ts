@@ -7,7 +7,7 @@ import { getStudentMajorCode, getTopicAccessPolicy, isTopicVisible } from '../ut
 import { getAllowedMajorNames, getAllowedMajorOptions, getCycleMajors, getCycleResearchCategories, type MajorOption } from '../utils/majors.js'
 import { getActiveCycle, isInProgressCycle } from '../utils/processFlow.js'
 import { getTeacherStudentLimit } from '../utils/policies.js'
-import { getTopicStudentLimit, validateTopicStudentCount } from '../utils/topicCapacity.js'
+import { getTopicStudentLimit, validateTeacherTopicCapacity, validateTopicStudentCount } from '../utils/topicCapacity.js'
 import { safeParseJson } from '../utils/json.js'
 import { toStudentTopicView } from '../utils/studentTopic.js'
 import { getMajorCodeAliases, normalizeMajorCode } from '../utils/majorCodes.js'
@@ -23,6 +23,40 @@ async function getTopicLimitForCycle(cycleId?: number | string | null): Promise<
   if (targetCycleId == null) return 10
   const rows = await query<any>('SELECT phases_config FROM cycles WHERE id = ?', [targetCycleId])
   return getTopicStudentLimit(safeParseJson(rows[0]?.phases_config, {}))
+}
+
+async function getTeacherTopicQuota(cycleId: number | null, teacherId: string, currentTopicId?: string | null) {
+  if (cycleId == null) {
+    return { cycleId: null, teacherLimit: 0, allocatedCapacity: 0, currentTopicCapacity: 0, otherAllocatedCapacity: 0 }
+  }
+  const [cycle] = await query<any>('SELECT phases_config FROM cycles WHERE id = ?', [cycleId])
+  const teacherLimit = getTeacherStudentLimit(safeParseJson(cycle?.phases_config, {}))
+  const allocatedRows = await query<any>(`
+    SELECT COALESCE(SUM(max_students), 0) AS capacity
+    FROM topics
+    WHERE cycle_id = ? AND teacher_id = ?
+  `, [cycleId, teacherId])
+  const allocatedCapacity = Number(allocatedRows[0]?.capacity || 0)
+  let currentTopicCapacity = 0
+  if (currentTopicId) {
+    const currentRows = await query<any>(
+      'SELECT max_students FROM topics WHERE id = ? AND cycle_id = ? AND teacher_id = ?',
+      [currentTopicId, cycleId, teacherId],
+    )
+    currentTopicCapacity = Number(currentRows[0]?.max_students || 0)
+  }
+  return {
+    cycleId,
+    teacherLimit,
+    allocatedCapacity,
+    currentTopicCapacity,
+    otherAllocatedCapacity: Math.max(0, allocatedCapacity - currentTopicCapacity),
+  }
+}
+
+async function validateTeacherTopicQuota(cycleId: number | null, teacherId: string, maxStudents: unknown, currentTopicId?: string | null) {
+  const quota = await getTeacherTopicQuota(cycleId, teacherId, currentTopicId)
+  return validateTeacherTopicCapacity(maxStudents, quota.teacherLimit, quota.otherAllocatedCapacity)
 }
 
 async function assertInCycleConfig(category: any, majorCode: any, cycleId?: any): Promise<string | null> {
@@ -267,6 +301,27 @@ router.get('/teacher/mine', requireRole(['teacher']), async (req: AuthRequest, r
   }
 })
 
+// GET /api/topics/teacher/quota - 当前教师在本周期可分配的招生名额
+router.get('/teacher/quota', requireRole(['teacher']), async (req: AuthRequest, res) => {
+  try {
+    const currentTopicId = typeof req.query.topicId === 'string' ? req.query.topicId : null
+    let cycleId: number | null = null
+    if (currentTopicId) {
+      const topicRows = await query<any>('SELECT cycle_id FROM topics WHERE id = ? AND teacher_id = ?', [currentTopicId, req.user!.id])
+      const topic = topicRows[0]
+      if (!topic) return error(res, '课题不存在或无权查看', 404)
+      cycleId = topic.cycle_id == null ? null : Number(topic.cycle_id)
+    } else {
+      const active = await getActiveCycle()
+      cycleId = active ? Number(active.id) : null
+    }
+    success(res, await getTeacherTopicQuota(cycleId, req.user!.id, currentTopicId))
+  } catch (err: any) {
+    console.error('获取教师课题名额失败:', err)
+    error(res, '服务器内部错误', 500)
+  }
+})
+
 // GET /api/topics/:id - 课题详情
 router.get('/:id', async (req: AuthRequest, res) => {
   try {
@@ -348,6 +403,8 @@ router.post('/', requireRole(['teacher']), async (req: AuthRequest, res) => {
 
   try {
     const { title, description, category, difficulty, maxStudents, tags, requirements, schedules, attachments, status, cycleId, major, majorCode } = req.body
+    const activeCycle = cycleId == null ? await getActiveCycle() : null
+    const targetCycleId = cycleId ?? activeCycle?.id ?? null
     const storedMajorCode = normalizeMajorCode(majorCode, major || '')
 
     if (!title || !category) {
@@ -356,11 +413,13 @@ router.post('/', requireRole(['teacher']), async (req: AuthRequest, res) => {
     }
 
     const requestedMaxStudents = maxStudents ?? 1
-    const capacityError = validateTopicStudentCount(requestedMaxStudents, await getTopicLimitForCycle(cycleId))
+    const capacityError = validateTopicStudentCount(requestedMaxStudents, await getTopicLimitForCycle(targetCycleId))
     if (capacityError) return error(res, capacityError, 400)
+    const teacherCapacityError = await validateTeacherTopicQuota(targetCycleId == null ? null : Number(targetCycleId), req.user!.id, requestedMaxStudents)
+    if (teacherCapacityError) return error(res, teacherCapacityError, 400)
 
     // 专业/研究方向必须属于目标周期（配置）内；cycleId 缺失回退当前进行中周期
-    const cfgMsg = await assertInCycleConfig(category, storedMajorCode, cycleId)
+    const cfgMsg = await assertInCycleConfig(category, storedMajorCode, targetCycleId)
     if (cfgMsg) return error(res, cfgMsg, 400)
 
     const id = uuidv4()
@@ -369,7 +428,7 @@ router.post('/', requireRole(['teacher']), async (req: AuthRequest, res) => {
     await query(`
       INSERT INTO topics (id, title, description, category, difficulty, max_students, status, teacher_id, tags, requirements, schedules, attachments, cycle_id, major, major_code)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [id, title, description, category, difficulty || 'medium', Number(requestedMaxStudents), status || 'draft', req.user!.id, JSON.stringify(tags || []), requirements, JSON.stringify(schedules || []), JSON.stringify(attachments || []), cycleId || null, major || null, storedMajorCode || null])
+    `, [id, title, description, category, difficulty || 'medium', Number(requestedMaxStudents), status || 'draft', req.user!.id, JSON.stringify(tags || []), requirements, JSON.stringify(schedules || []), JSON.stringify(attachments || []), targetCycleId || null, major || null, storedMajorCode || null])
 
     console.log('[POST /api/topics] 课题创建成功')
     success(res, { id }, '课题创建成功')
@@ -400,6 +459,8 @@ router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
     if (capacityChanged || isBeingPublished) {
       const capacityError = validateTopicStudentCount(nextMaxStudents, await getTopicLimitForCycle(topic.cycle_id))
       if (capacityError) return error(res, capacityError, 400)
+      const teacherCapacityError = await validateTeacherTopicQuota(topic.cycle_id == null ? null : Number(topic.cycle_id), req.user!.id, nextMaxStudents, topic.id)
+      if (teacherCapacityError) return error(res, teacherCapacityError, 400)
     }
 
     // 已正式发布的选题锁定：教师不可再编辑（如需修改由管理员“撤回发布”后编辑）

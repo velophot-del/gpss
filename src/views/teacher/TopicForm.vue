@@ -78,8 +78,17 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item label="招收人数" prop="maxStudents">
-              <el-input-number v-model="form.maxStudents" :min="1" :max="topicStudentLimit" controls-position="right" />
+              <el-input-number v-model="form.maxStudents" :min="1" :max="maxStudentsForCurrentTopic" :disabled="quotaExhausted" controls-position="right" />
+              <div class="form-tip quota-tip" v-if="teacherQuota">
+                <span>本周期教师总名额：{{ teacherQuota.teacherLimit || '不限额' }}</span>
+                <span>当前已分配：{{ teacherQuota.allocatedCapacity }} 人</span>
+                <span v-if="teacherQuota.teacherLimit > 0" :class="{ 'quota-over': remainingCapacityAfterSetting < 0 }">
+                  设置后剩余：{{ remainingCapacityAfterSetting }} 人
+                </span>
+                <span v-else>设置后剩余：不限额</span>
+              </div>
               <span class="form-tip">本周期单个课题上限为 {{ topicStudentLimit }} 人；已存在课题不会因调整上限自动变化</span>
+              <span v-if="quotaExhausted" class="form-tip quota-over">本周期教师可分配名额已用完，不能新增课题。</span>
             </el-form-item>
           </el-col>
         </el-row>
@@ -230,6 +239,28 @@ const locked = ref(false)
 // 当期“毕业专业 + 研究方向”选项（来自周期配置；缺失回退默认）
 const cycleCfg = ref<{ majors: MajorConfig[]; researchCategories: Record<string, string[]>; topicStudentLimit?: number } | null>(null)
 const topicStudentLimit = computed(() => cycleCfg.value?.topicStudentLimit ?? 10)
+type TeacherQuota = {
+  cycleId: number | null
+  teacherLimit: number
+  allocatedCapacity: number
+  currentTopicCapacity: number
+  otherAllocatedCapacity: number
+}
+const teacherQuota = ref<TeacherQuota | null>(null)
+const remainingCapacityAfterSetting = computed(() => {
+  if (!teacherQuota.value || teacherQuota.value.teacherLimit <= 0) return 0
+  return teacherQuota.value.teacherLimit - teacherQuota.value.otherAllocatedCapacity - Number(form.maxStudents || 0)
+})
+const maxStudentsForCurrentTopic = computed(() => {
+  if (!teacherQuota.value || teacherQuota.value.teacherLimit <= 0) return topicStudentLimit.value
+  const quotaMaximum = teacherQuota.value.teacherLimit - teacherQuota.value.otherAllocatedCapacity
+  return Math.min(topicStudentLimit.value, Math.max(teacherQuota.value.currentTopicCapacity, quotaMaximum, 0))
+})
+const quotaExhausted = computed(() => Boolean(
+  teacherQuota.value
+  && teacherQuota.value.teacherLimit > 0
+  && maxStudentsForCurrentTopic.value < 1,
+))
 const majors = computed<MajorConfig[]>(() =>
   cycleCfg.value?.majors?.length ? cycleCfg.value.majors : FALLBACK_MAJORS
 )
@@ -264,6 +295,11 @@ watch(() => form.major, (val) => {
   if (suppressCategoryReset.value) return
   const list = researchCategories.value[val] || []
   if (form.category && !list.includes(form.category)) form.category = ''
+})
+
+watch(maxStudentsForCurrentTopic, (limit) => {
+  if (!isEdit || limit < 1 || form.maxStudents <= limit) return
+  form.maxStudents = limit
 })
 
 const rules: FormRules = {
@@ -365,6 +401,9 @@ async function handleSubmit(action: 'submit' | 'draft') {
   if (action === 'submit' && !cycleStore.currentCycle) {
     return ElMessage.warning('当前没有活跃的选题周期，请联系管理员创建周期后再提交课题')
   }
+  if (quotaExhausted.value || remainingCapacityAfterSetting.value < 0) {
+    return ElMessage.warning('本周期教师剩余名额不足，不能继续增加招生人数')
+  }
 
   submitting.value = true
 
@@ -393,7 +432,7 @@ async function handleSubmit(action: 'submit' | 'draft') {
       schedules: scheduleJson.length > 0 ? scheduleJson : undefined,
       attachments: attachments.value.length > 0 ? attachments.value : undefined,
       tags: form.tags.length > 0 ? form.tags : undefined,
-      cycleId: action === 'submit' ? cycleStore.currentCycle.id : undefined
+      cycleId: cycleStore.currentCycle?.id
     }
 
     if (isEdit) {
@@ -410,6 +449,18 @@ async function handleSubmit(action: 'submit' | 'draft') {
     ElMessage.error(e.message || e.response?.data?.message || '提交失败，请检查表单内容')
   } finally {
     submitting.value = false
+  }
+}
+
+async function loadTeacherQuota() {
+  try {
+    const res: any = await topicApi.getTeacherQuota(isEdit ? route.params.id as string : undefined)
+    teacherQuota.value = res?.data || null
+    if (!isEdit && teacherQuota.value?.teacherLimit && maxStudentsForCurrentTopic.value >= 1) {
+      form.maxStudents = Math.min(form.maxStudents, maxStudentsForCurrentTopic.value)
+    }
+  } catch (e) {
+    teacherQuota.value = null
   }
 }
 
@@ -472,6 +523,7 @@ onMounted(async () => {
       loading.value = false
     }
   }
+  await loadTeacherQuota()
 })
 </script>
 
@@ -481,6 +533,17 @@ onMounted(async () => {
   color: #909399;
   margin-left: 8px;
   line-height: 1.4;
+}
+
+.quota-tip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 6px 0 0;
+}
+
+.quota-over {
+  color: #f56c6c;
 }
 
 .schedule-item {

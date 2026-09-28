@@ -57,7 +57,8 @@ export const topicApi = {
 
   // 教师我的课题
   getMyTopics: (params?: { keyword?: string; status?: string }) =>
-    request.get('/topics/teacher/mine', { params })
+    request.get('/topics/teacher/mine', { params }),
+  getTeacherQuota: (topicId?: string) => request.get('/topics/teacher/quota', { params: topicId ? { topicId } : undefined })
 }
 
 // ===== 申请相关 =====

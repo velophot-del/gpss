@@ -12,6 +12,13 @@ export function validateTopicStudentCount(value: unknown, limit: number): string
   return null
 }
 
+export function validateTeacherTopicCapacity(value: unknown, teacherLimit: number, allocatedCapacity: number): string | null {
+  if (teacherLimit <= 0) return null
+  const count = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN
+  if (!Number.isFinite(count) || count + allocatedCapacity <= teacherLimit) return null
+  return `本周期教师招生总人数不能超过${teacherLimit}人（其他课题已分配${allocatedCapacity}人）`
+}
+
 export function validateTopicStudentLimitSetting(value: unknown): string | null {
   const limit = typeof value === 'number' || typeof value === 'string' ? Number(value) : NaN
   return Number.isInteger(limit) && limit >= 1 && limit <= 10

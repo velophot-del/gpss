@@ -36,6 +36,7 @@ assert.doesNotMatch(applicationsRoute, /activeCycle\.phase !== 'student_apply'/)
 const cycleStore = read('src/stores/cycle.ts')
 assert.match(cycleStore, /student_selection: 'student_apply'/)
 assert.match(cycleStore, /phases\.student_apply\?\.start \|\| phases\.student_selection\?\.start/)
+assert.match(cycleStore, /topicStudentLimit: Number\(phases\.topic_student_limit/)
 
 const teacherTopicsRoute = read('server/src/routes/topics.ts')
 assert.match(teacherTopicsRoute, /AS apply_count/)

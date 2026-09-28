@@ -42,6 +42,7 @@ export interface SelectionCycle {
   adjustmentStart: string     // 调剂开始
   adjustmentEnd: string       // 调剂截止
   teacherStudentLimit?: number // 每位教师指导学生人数上限
+  topicStudentLimit?: number   // 单个课题招收人数上限
   status: CycleStatus
   createdAt: string
 }

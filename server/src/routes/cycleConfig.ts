@@ -60,11 +60,17 @@ router.get('/', async (_req: AuthRequest, res) => {
 // GET /api/cycle-config/:cycleId - 按周期读取（管理员编辑回填）
 router.get('/:cycleId', requireRole(['admin']), async (req: AuthRequest, res) => {
   try {
-    const [majors, researchCategories] = await Promise.all([
+    const [majors, researchCategories, cycle] = await Promise.all([
       getCycleMajors(req.params.cycleId),
       getCycleResearchCategories(req.params.cycleId),
+      query<any>('SELECT phases_config FROM cycles WHERE id = ?', [req.params.cycleId]).then(rows => rows[0]),
     ])
-    success(res, { majors, researchCategories })
+    if (!cycle) return error(res, '选题周期不存在', 404)
+    success(res, {
+      majors,
+      researchCategories,
+      topicStudentLimit: getTopicStudentLimit(safeParseJson(cycle.phases_config, {})),
+    })
   } catch (err: any) {
     console.error('读取周期配置失败:', err)
     error(res, '服务器内部错误', 500)

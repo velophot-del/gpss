@@ -392,11 +392,14 @@ function showCreateDialog() {
 async function showEditDialog(row: any) {
   editingId.value = row.id
   resetCfg()
+  let configuredTopicStudentLimit: number | null = null
   // 从周期配置读取“毕业专业 + 研究方向”（未配置时后端回退默认 4 专业）
   try {
     const r: any = await cycleConfigApi.getByCycle(row.id)
     const majors = r?.data?.majors || []
     const cats = r?.data?.researchCategories || {}
+    const configuredLimit = Number(r?.data?.topicStudentLimit)
+    configuredTopicStudentLimit = Number.isInteger(configuredLimit) && configuredLimit >= 1 ? configuredLimit : null
     cfgMajorsDraft.value = majors.map((m: any) => ({ code: String(m.code || ''), name: String(m.name || '') }))
     for (const [code, list] of Object.entries(cats)) cfgResearchDraft[code] = Array.isArray(list) ? [...list.map(String)] : []
   } catch (e) {
@@ -411,7 +414,7 @@ async function showEditDialog(row: any) {
     status: row.status || 'upcoming',
     description: row.description || '',
     teacherStudentLimit: Number(phases.teacher_student_limit ?? row.teacherStudentLimit ?? 0) || 0,
-    topicStudentLimit: Number(phases.topic_student_limit ?? 10) || 10,
+    topicStudentLimit: Number(phases.topic_student_limit ?? configuredTopicStudentLimit ?? row.topicStudentLimit ?? 10) || 10,
     topicPublishStart: phases.topic_publish?.start || row.topicPublishStart || '',
     topicPublishEnd: phases.topic_publish?.end || row.topicPublishEnd || '',
     studentApplyStart: phases.student_apply?.start || row.studentApplyStart || '',
