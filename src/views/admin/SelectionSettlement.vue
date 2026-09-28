@@ -2,8 +2,8 @@
   <div class="page-container">
     <div class="card-container">
       <div class="page-header">
-        <div><h2 class="section-title">录取结算</h2><p>查看教师名单提交进度，并在统一结算前退回修改。</p></div>
-        <div><el-button @click="load">刷新</el-button><el-button type="primary" :loading="running" @click="runSettlement">{{ data?.settlement?.status === 'failed' ? '重试结算' : '立即检查' }}</el-button></div>
+        <div><h2 class="section-title">录取结算</h2><p>查看教师名单提交进度；可退回单个课题，或将本轮全部恢复为未处理状态。</p></div>
+        <div><el-button @click="load">刷新</el-button><el-button type="danger" plain :loading="resetting" :disabled="!cycleId" @click="resetCycle">恢复本轮未处理</el-button><el-button type="primary" :loading="running" @click="runSettlement">{{ data?.settlement?.status === 'failed' ? '重试结算' : '立即检查' }}</el-button></div>
       </div>
 
       <el-alert v-if="!cycleId" title="当前没有进行中的选题周期" type="warning" :closable="false" show-icon />
@@ -46,6 +46,7 @@ const cycleStore = useCycleStore()
 const data = ref<any>(null)
 const loading = ref(false)
 const running = ref(false)
+const resetting = ref(false)
 const filter = ref('all')
 const cycleId = computed(() => cycleStore.currentCycle?.id)
 const requiredCount = computed(() => data.value?.topics?.filter((item: any) => item.batch_status !== 'not_required').length || 0)
@@ -76,6 +77,19 @@ async function runSettlement() {
   try { await selectionAdminApi.run(cycleId.value); ElMessage.success('统一录取检查已完成'); await load() }
   catch (error: any) { ElMessage.error(error?.response?.data?.message || '当前不能执行结算') }
   finally { running.value = false }
+}
+async function resetCycle() {
+  if (!cycleId.value) return
+  try {
+    await ElMessageBox.confirm('将清除本周期所有教师遴选草稿、提交状态和统一结算结果；已录取、未录取、候补及因高志愿退出的申请会恢复为“待审核”。系统会保留管理员操作审计记录。', '恢复本轮未处理状态', { type: 'warning', confirmButtonText: '继续恢复', cancelButtonText: '取消' })
+    const { value } = await ElMessageBox.prompt('请输入恢复原因。此操作仅限本周期尚未进入调剂阶段。', '填写恢复原因', { inputPattern: /\S+/, inputErrorMessage: '必须填写恢复原因', confirmButtonText: '确认恢复' })
+    resetting.value = true
+    await selectionAdminApi.reset(cycleId.value, value)
+    ElMessage.success('本轮教师遴选已恢复为未处理状态')
+    await load()
+  } catch (error: any) {
+    if (error !== 'cancel' && error !== 'close') ElMessage.error(error?.response?.data?.message || '恢复失败')
+  } finally { resetting.value = false }
 }
 function formatDate(value?: string | null) { return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-' }
 function statusLabel(status: string) { return ({ draft: '未提交', submitted: '教师提交', auto_submitted: '系统提交', settled: '已结算', not_required: '无需提交' } as any)[status] || status }

@@ -23,24 +23,25 @@
             <el-alert :type="batchAlertType" :closable="false" show-icon class="state-alert">
               <template #title>{{ batchStatusLabel }}</template>
             </el-alert>
+            <el-alert v-if="blockedCount" type="warning" :closable="false" show-icon class="state-alert" :title="`有 ${blockedCount} 名学生已被更高志愿拟录取或候补：当前课题的原有意见已暂停生效，不占用名额，也不能修改。`" />
 
             <div class="rank-columns">
               <section class="rank-card">
                 <h3>拟录取顺序</h3>
                 <el-empty v-if="!proposedItems.length" description="尚未设置拟录取" :image-size="48" />
-                <div v-for="(item, index) in proposedItems" :key="item.id" class="rank-row" :draggable="!readOnly"
+                <div v-for="(item, index) in proposedItems" :key="item.id" class="rank-row" :draggable="!readOnly && !hasBlockedRank('proposed')"
                   @dragstart="onDragStart('proposed', index)" @dragover.prevent @drop="onDrop('proposed', index)">
                   <span class="rank-number">{{ index + 1 }}</span><span>{{ item.studentName }}</span><small>{{ formatPriority(item.priority) }}</small>
-                  <div class="rank-actions"><el-button link :disabled="readOnly || index === 0" @click="move('proposed', index, -1)">上移</el-button><el-button link :disabled="readOnly || index === proposedItems.length - 1" @click="move('proposed', index, 1)">下移</el-button></div>
+                  <small v-if="item.blockedByHigherPriority">已暂停</small><div class="rank-actions"><el-button link :disabled="readOnly || hasBlockedRank('proposed') || index === 0" @click="move('proposed', index, -1)">上移</el-button><el-button link :disabled="readOnly || hasBlockedRank('proposed') || index === proposedItems.length - 1" @click="move('proposed', index, 1)">下移</el-button></div>
                 </div>
               </section>
               <section class="rank-card">
                 <h3>候补顺序</h3>
                 <el-empty v-if="!reserveItems.length" description="尚未设置候补" :image-size="48" />
-                <div v-for="(item, index) in reserveItems" :key="item.id" class="rank-row" :draggable="!readOnly"
+                <div v-for="(item, index) in reserveItems" :key="item.id" class="rank-row" :draggable="!readOnly && !hasBlockedRank('reserve')"
                   @dragstart="onDragStart('reserve', index)" @dragover.prevent @drop="onDrop('reserve', index)">
                   <span class="rank-number reserve">{{ index + 1 }}</span><span>{{ item.studentName }}</span><small>{{ formatPriority(item.priority) }}</small>
-                  <div class="rank-actions"><el-button link :disabled="readOnly || index === 0" @click="move('reserve', index, -1)">上移</el-button><el-button link :disabled="readOnly || index === reserveItems.length - 1" @click="move('reserve', index, 1)">下移</el-button></div>
+                  <small v-if="item.blockedByHigherPriority">已暂停</small><div class="rank-actions"><el-button link :disabled="readOnly || hasBlockedRank('reserve') || index === 0" @click="move('reserve', index, -1)">上移</el-button><el-button link :disabled="readOnly || hasBlockedRank('reserve') || index === reserveItems.length - 1" @click="move('reserve', index, 1)">下移</el-button></div>
                 </div>
               </section>
             </div>
@@ -53,13 +54,13 @@
               <el-table-column prop="major" label="专业" min-width="130" />
               <el-table-column prop="motivation" label="申请理由" min-width="180" show-overflow-tooltip />
               <el-table-column label="学生申请状态" width="130" align="center"><template #default="{ row }"><el-tag :type="applicationStatusType[row.status] || 'info'">{{ applicationStatusLabel[row.status] || row.status }}</el-tag></template></el-table-column>
-              <el-table-column label="遴选草稿" width="110" align="center"><template #default="{ row }"><el-tag v-if="row.status === 'accepted'" type="success">既有录取</el-tag><el-tag v-else :type="decisionType[row.decision] || 'info'">{{ decisionLabel[row.decision] || '未处理' }}</el-tag></template></el-table-column>
+              <el-table-column label="遴选草稿" width="150" align="center"><template #default="{ row }"><el-tag v-if="row.status === 'accepted'" type="success">既有录取</el-tag><el-tooltip v-else-if="row.blockedByHigherPriority" :content="`第${row.blockingPriority}志愿《${row.blockingTopicTitle}》已${decisionLabel[row.blockingDecision]}`"><el-tag type="warning">高志愿暂停</el-tag></el-tooltip><el-tag v-else :type="decisionType[row.decision] || 'info'">{{ decisionLabel[row.decision] || '未处理' }}</el-tag></template></el-table-column>
               <el-table-column label="操作" min-width="310" fixed="right"><template #default="{ row }">
                 <el-button-group v-if="['pending', 'submitted', 'pending_review'].includes(row.status)">
-                  <el-button size="small" type="success" :plain="row.decision !== 'proposed'" :disabled="readOnly" @click="setDecision(row.id, 'proposed')">拟录取</el-button>
-                  <el-button size="small" type="warning" :plain="row.decision !== 'reserve'" :disabled="readOnly" @click="setDecision(row.id, 'reserve')">候补</el-button>
-                  <el-button size="small" type="danger" :plain="row.decision !== 'reject'" :disabled="readOnly" @click="setDecision(row.id, 'reject')">不录取</el-button>
-                  <el-button size="small" :disabled="readOnly || !row.decision" @click="setDecision(row.id, null)">清除</el-button>
+                  <el-button size="small" type="success" :plain="row.decision !== 'proposed'" :disabled="readOnly || row.blockedByHigherPriority" @click="setDecision(row.id, 'proposed')">拟录取</el-button>
+                  <el-button size="small" type="warning" :plain="row.decision !== 'reserve'" :disabled="readOnly || row.blockedByHigherPriority" @click="setDecision(row.id, 'reserve')">候补</el-button>
+                  <el-button size="small" type="danger" :plain="row.decision !== 'reject'" :disabled="readOnly || row.blockedByHigherPriority" @click="setDecision(row.id, 'reject')">不录取</el-button>
+                  <el-button size="small" :disabled="readOnly || row.blockedByHigherPriority || !row.decision" @click="setDecision(row.id, null)">清除</el-button>
                 </el-button-group>
               </template></el-table-column>
             </el-table>
@@ -128,7 +129,8 @@ const saving = computed(() => draftStore.savingTopicIds.includes(activeTopicId.v
 const submitting = computed(() => draftStore.submittingTopicIds.includes(activeTopicId.value))
 const isTeacherReview = computed(() => cycleStore.currentPhase === 'teacher_review')
 const readOnly = computed(() => !isTeacherReview.value || !currentDraft.value || currentDraft.value.batch.status !== 'draft')
-const undecidedCount = computed(() => currentDraft.value?.applications.filter(item => ['pending', 'submitted', 'pending_review'].includes(item.status) && !item.decision).length || 0)
+const undecidedCount = computed(() => currentDraft.value?.applications.filter(item => ['pending', 'submitted', 'pending_review'].includes(item.status) && !item.decision && !item.blockedByHigherPriority).length || 0)
+const blockedCount = computed(() => currentDraft.value?.applications.filter(item => item.blockedByHigherPriority).length || 0)
 const batchStatusLabel = computed(() => ({ draft: '草稿可继续修改，学生看不到当前决定', submitted: '已提交，等待统一结算', auto_submitted: '已到截止时间，系统已自动提交', settled: '统一录取已完成' }[currentDraft.value?.batch.status || 'draft']))
 const batchAlertType = computed(() => currentDraft.value?.batch.status === 'settled' ? 'success' : currentDraft.value?.batch.status === 'draft' ? 'info' : 'warning')
 const decisionLabel: Record<string, string> = { proposed: '拟录取', reserve: '候补', reject: '不录取' }
@@ -150,13 +152,14 @@ onMounted(async () => {
 })
 
 async function loadTopic(topicId: string | number) { activeTopicId.value = String(topicId); await draftStore.load(activeTopicId.value) }
-function decisionCount(decision: SelectionDraftDecision) { return currentDraft.value?.applications.filter(item => item.decision === decision).length || 0 }
+function decisionCount(decision: SelectionDraftDecision) { return currentDraft.value?.applications.filter(item => item.effectiveDecision === decision).length || 0 }
+function hasBlockedRank(decision: 'proposed' | 'reserve') { return currentDraft.value?.applications.some(item => item.decision === decision && item.blockedByHigherPriority) || false }
 function setDecision(applicationId: string, decision: SelectionDraftDecision | null) { draftStore.setDecision(activeTopicId.value, applicationId, decision) }
 function formatDateTime(value: string) { return dayjs(value).format('YYYY-MM-DD HH:mm') }
 
-function onDragStart(decision: 'proposed' | 'reserve', index: number) { if (!readOnly.value) dragState.value = { decision, index } }
+function onDragStart(decision: 'proposed' | 'reserve', index: number) { if (!readOnly.value && !hasBlockedRank(decision)) dragState.value = { decision, index } }
 function onDrop(decision: 'proposed' | 'reserve', index: number) {
-  if (!dragState.value || dragState.value.decision !== decision || readOnly.value) return
+  if (!dragState.value || dragState.value.decision !== decision || readOnly.value || hasBlockedRank(decision)) return
   const list = (decision === 'proposed' ? proposedItems.value : reserveItems.value).map(item => item.id)
   const [moved] = list.splice(dragState.value.index, 1)
   list.splice(index, 0, moved)

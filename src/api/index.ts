@@ -97,6 +97,7 @@ export const selectionDraftApi = {
 export const selectionAdminApi = {
   getProgress: (cycleId: string | number) => request.get(`/admin/selection-settlement/${cycleId}`),
   unlock: (topicId: string, reason: string) => request.post(`/admin/selection-topics/${topicId}/unlock`, { reason }),
+  reset: (cycleId: string | number, reason: string) => request.post(`/admin/selection-settlement/${cycleId}/reset`, { confirmation: 'RESET', reason }),
   run: (cycleId: string | number) => request.post(`/admin/selection-settlement/${cycleId}/run`),
 }
 

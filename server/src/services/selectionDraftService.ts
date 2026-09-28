@@ -5,6 +5,7 @@ import type { SessionUser } from '../utils/policies.js'
 import { getReviewDeadline, getTeacherStudentLimit } from '../utils/policies.js'
 import { safeParseJson } from '../utils/json.js'
 import type { SelectionDecision } from './selectionMatcher.js'
+import { buildPriorityBlocks, type PriorityDecisionCandidate } from './selectionPriorityService.js'
 import { requestSettlementIfReady } from './selectionSettlementService.js'
 
 export class SelectionDraftError extends Error {
@@ -72,7 +73,24 @@ function validateRanks(items: DraftItemInput[]) {
   }
 }
 
-async function validateDraftCapacity(conn: Connection, topic: any, batchId: string, items: DraftItemInput[]) {
+async function loadPriorityCandidates(conn: Connection, cycleId: number): Promise<PriorityDecisionCandidate[]> {
+  const [rows] = await conn.query<any[]>(`
+    SELECT a.id AS application_id, a.student_id, a.topic_id, a.priority, t.title AS topic_title, t.teacher_id, sdi.decision
+    FROM applications a JOIN topics t ON t.id = a.topic_id
+    LEFT JOIN selection_batches sb ON sb.cycle_id = t.cycle_id AND sb.topic_id = t.id
+    LEFT JOIN selection_draft_items sdi ON sdi.batch_id = sb.id AND sdi.application_id = a.id
+    WHERE t.cycle_id = ?
+  `, [cycleId])
+  return rows.map(row => ({ applicationId: row.application_id, studentId: row.student_id, topicId: row.topic_id,
+    priority: Number(row.priority), decision: row.decision || null, topicTitle: row.topic_title, teacherId: row.teacher_id }))
+}
+
+function withCurrentDraft(candidates: PriorityDecisionCandidate[], topicId: string, items: DraftItemInput[]) {
+  const itemById = new Map(items.map(item => [item.applicationId, item]))
+  return candidates.map(candidate => candidate.topicId !== topicId ? candidate : { ...candidate, decision: itemById.get(candidate.applicationId)?.decision || null })
+}
+
+async function validateDraftCapacity(conn: Connection, topic: any, items: DraftItemInput[]) {
   validateRanks(items)
   if (items.length) {
     const [applications] = await conn.query<any[]>(
@@ -88,22 +106,16 @@ async function validateDraftCapacity(conn: Connection, topic: any, batchId: stri
     [topic.id],
   )
   const topicAccepted = Number(acceptedRows[0]?.cnt || 0)
-  const proposed = items.filter(item => item.decision === 'proposed').length
+  const candidates = withCurrentDraft(await loadPriorityCandidates(conn, Number(topic.cycle_id)), topic.id, items)
+  const blocks = buildPriorityBlocks(candidates)
+  const proposed = items.filter(item => item.decision === 'proposed' && !blocks.has(item.applicationId)).length
   if (topicAccepted + proposed > Number(topic.max_students)) throw new SelectionDraftError(`拟录取人数超过课题名额（${topic.max_students}人）`)
 
   const config = safeParseJson<Record<string, any>>(topic.phases_config, {})
   const teacherLimit = getTeacherStudentLimit(config)
   if (teacherLimit > 0) {
-    const [counts] = await conn.query<any[]>(`
-      SELECT
-        (SELECT COUNT(DISTINCT a.student_id) FROM applications a JOIN topics t ON t.id = a.topic_id
-         WHERE t.teacher_id = ? AND t.cycle_id = ? AND a.status = 'accepted') AS accepted_count,
-        (SELECT COUNT(*) FROM selection_draft_items sdi
-         JOIN selection_batches sb ON sb.id = sdi.batch_id
-         JOIN topics t ON t.id = sb.topic_id
-         WHERE t.teacher_id = ? AND sb.cycle_id = ? AND sdi.decision = 'proposed' AND sb.id != ?) AS other_proposed
-    `, [topic.teacher_id, topic.cycle_id, topic.teacher_id, topic.cycle_id, batchId])
-    const total = Number(counts[0]?.accepted_count || 0) + Number(counts[0]?.other_proposed || 0) + proposed
+    const effectiveProposed = candidates.filter(candidate => candidate.teacherId === topic.teacher_id && candidate.decision === 'proposed' && !blocks.has(candidate.applicationId)).length
+    const total = topicAccepted + effectiveProposed
     if (total > teacherLimit) throw new SelectionDraftError(`该教师拟录取总人数 ${total} 人，超过指导上限 ${teacherLimit} 人`)
   }
 }
@@ -133,6 +145,15 @@ export async function getSelectionDraft(topicId: string, actor: SessionUser): Pr
     WHERE a.topic_id = ?
     ORDER BY a.priority, a.created_at, a.id
   `, [batch?.id || '', topic.id])
+  const priorityRows = await query<any>(`
+    SELECT a.id AS application_id, a.student_id, a.priority, t.title AS topic_title, sdi.decision
+    FROM applications a JOIN topics t ON t.id = a.topic_id
+    LEFT JOIN selection_batches sb ON sb.cycle_id = t.cycle_id AND sb.topic_id = t.id
+    LEFT JOIN selection_draft_items sdi ON sdi.batch_id = sb.id AND sdi.application_id = a.id
+    WHERE t.cycle_id = ?
+  `, [topic.cycle_id])
+  const priorityBlocks = buildPriorityBlocks(priorityRows.map(row => ({ applicationId: row.application_id, studentId: row.student_id,
+    priority: Number(row.priority), decision: row.decision || null, topicTitle: row.topic_title })))
   const config = safeParseJson<Record<string, any>>(topic.phases_config, {})
   const [counts] = await query<any>(`
     SELECT
@@ -152,12 +173,17 @@ export async function getSelectionDraft(topicId: string, actor: SessionUser): Pr
       submittedAt: batch?.submitted_at || null,
       autoSubmittedAt: batch?.auto_submitted_at || null,
     },
-    applications: applications.map(item => ({
+    applications: applications.map(item => {
+      const block = priorityBlocks.get(item.id)
+      return {
       id: item.id, studentId: item.student_id, studentName: item.student_name, studentCode: item.student_code,
       className: item.class_name, major: item.major, priority: Number(item.priority), status: item.status,
       motivation: item.motivation, gpa: item.gpa, appliedAt: item.created_at, decision: item.decision || null,
       decisionRank: item.decision_rank == null ? null : Number(item.decision_rank), comment: item.comment || '',
-    })),
+      effectiveDecision: block ? null : item.decision || null,
+      blockedByHigherPriority: Boolean(block), blockingPriority: block?.blockingPriority || null,
+      blockingDecision: block?.blockingDecision || null, blockingTopicTitle: block?.blockingTopicTitle || null,
+    }}),
     deadline: deadline?.toISOString() || '',
     teacherStudentLimit: getTeacherStudentLimit(config),
     teacherAcceptedCount: Number(counts[0]?.accepted_count || 0),
@@ -178,7 +204,18 @@ export async function saveSelectionDraft(topicId: string, actor: SessionUser, ex
     }
     if (batch.status !== 'draft') throw new SelectionDraftError('名单已提交，需由管理员退回后才能修改', 409)
     if (Number(batch.version) !== Number(expectedVersion)) throw new SelectionDraftError('草稿已被其他页面更新，请刷新后重试', 409)
-    await validateDraftCapacity(conn, topic, batch.id, items)
+    const [existingRows] = await conn.query<any[]>('SELECT application_id, decision, decision_rank, comment FROM selection_draft_items WHERE batch_id = ?', [batch.id])
+    const blocks = buildPriorityBlocks(withCurrentDraft(await loadPriorityCandidates(conn, Number(topic.cycle_id)), topic.id, items))
+    const existingById = new Map(existingRows.map(row => [row.application_id, row]))
+    const nextById = new Map(items.map(item => [item.applicationId, item]))
+    for (const [applicationId] of blocks) {
+      const existing = existingById.get(applicationId)
+      const next = nextById.get(applicationId)
+      if (String(existing?.decision || '') !== String(next?.decision || '') || Number(existing?.decision_rank || 0) !== Number(next?.decisionRank || 0) || String(existing?.comment || '') !== String(next?.comment || '')) {
+        throw new SelectionDraftError('该学生已被更高志愿拟录取或候补，当前志愿结果暂停生效，不能修改', 409)
+      }
+    }
+    await validateDraftCapacity(conn, topic, items)
     await conn.query('DELETE FROM selection_draft_items WHERE batch_id = ?', [batch.id])
     for (const item of items) {
       await conn.query(`
@@ -207,7 +244,7 @@ export async function submitSelectionBatch(topicId: string, actor: SessionUser, 
     if (batch.status !== 'draft') throw new SelectionDraftError('该课题名单已经提交', 409)
     if (Number(batch.version) !== Number(expectedVersion)) throw new SelectionDraftError('草稿已被其他页面更新，请刷新后重试', 409)
     const [draftRows] = await conn.query<any[]>('SELECT application_id, decision, decision_rank, comment FROM selection_draft_items WHERE batch_id = ?', [batch.id])
-    await validateDraftCapacity(conn, topic, batch.id, draftRows.map(row => ({ applicationId: row.application_id, decision: row.decision, decisionRank: row.decision_rank, comment: row.comment })))
+    await validateDraftCapacity(conn, topic, draftRows.map(row => ({ applicationId: row.application_id, decision: row.decision, decisionRank: row.decision_rank, comment: row.comment })))
     await conn.query(`UPDATE selection_batches SET status = 'submitted', version = version + 1, submitted_by = ?, submitted_at = NOW() WHERE id = ?`, [actor.id, batch.id])
     await conn.query(`INSERT INTO operation_logs (user_id, action, target_type, target_id, detail)
       VALUES (?, 'selection_batch_submitted', 'topic', ?, ?)`, [actor.id, topic.id, JSON.stringify({ version: expectedVersion + 1 })])

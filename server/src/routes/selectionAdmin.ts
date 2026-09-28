@@ -78,6 +78,71 @@ router.post('/selection-topics/:topicId/unlock', async (req: AuthRequest, res) =
   }
 })
 
+router.post('/selection-settlement/:cycleId/reset', async (req: AuthRequest, res) => {
+  try {
+    const cycleId = Number(req.params.cycleId)
+    const reason = String(req.body?.reason || '').trim()
+    if (req.body?.confirmation !== 'RESET') return error(res, '请确认恢复操作')
+    if (!reason) return error(res, '请填写恢复原因')
+
+    const result = await transaction(async conn => {
+      const [cycles] = await conn.query<any[]>('SELECT id, name, phase FROM cycles WHERE id = ? FOR UPDATE', [cycleId])
+      const cycle = cycles[0]
+      if (!cycle) throw new SelectionSettlementError('选题周期不存在', 404)
+      if (cycle.phase !== 'teacher_review') throw new SelectionSettlementError('仅教师遴选阶段可以恢复本轮操作')
+
+      const [adjustmentRows] = await conn.query<any[]>(`
+        SELECT 1 FROM adjustment_volunteers WHERE cycle_id = ? LIMIT 1
+      `, [cycleId])
+      const [adjustmentSettlements] = await conn.query<any[]>(`
+        SELECT 1 FROM adjustment_settlements WHERE cycle_id = ? LIMIT 1
+      `, [cycleId])
+      if (adjustmentRows.length || adjustmentSettlements.length) {
+        throw new SelectionSettlementError('本周期已进入调剂流程，不能恢复遴选结果')
+      }
+
+      const [applications] = await conn.query<any[]>(`
+        SELECT a.id, a.status, a.reviewed_at
+        FROM applications a JOIN topics t ON t.id = a.topic_id
+        WHERE t.cycle_id = ? FOR UPDATE
+      `, [cycleId])
+      const resetIds = applications
+        .filter(item => ['accepted', 'rejected', 'waitlisted'].includes(item.status) || (item.status === 'withdrawn' && item.reviewed_at))
+        .map(item => item.id)
+      const [draftCountRows] = await conn.query<any[]>(`
+        SELECT COUNT(*) AS cnt FROM selection_draft_items sdi
+        JOIN selection_batches sb ON sb.id = sdi.batch_id WHERE sb.cycle_id = ?
+      `, [cycleId])
+      const [batchCountRows] = await conn.query<any[]>('SELECT COUNT(*) AS cnt FROM selection_batches WHERE cycle_id = ?', [cycleId])
+
+      if (resetIds.length) {
+        await conn.query(`UPDATE applications
+          SET status = 'pending_review', teacher_comment = NULL, reviewed_by = NULL, reviewed_at = NULL
+          WHERE id IN (?)`, [resetIds])
+      }
+      await conn.query(`UPDATE topics SET status = 'published'
+        WHERE cycle_id = ? AND status = 'full'`, [cycleId])
+      await conn.query(`DELETE sdi FROM selection_draft_items sdi
+        JOIN selection_batches sb ON sb.id = sdi.batch_id WHERE sb.cycle_id = ?`, [cycleId])
+      await conn.query('DELETE FROM selection_batches WHERE cycle_id = ?', [cycleId])
+      await conn.query('DELETE FROM selection_settlements WHERE cycle_id = ?', [cycleId])
+      await conn.query(`DELETE FROM notifications
+        WHERE related_type = 'cycle' AND related_id = ?
+          AND type IN ('selection_accepted', 'selection_unmatched', 'selection_settled')`, [String(cycleId)])
+      await conn.query(`INSERT INTO operation_logs (user_id, action, target_type, target_id, detail, ip_address)
+        VALUES (?, 'selection_cycle_reset', 'cycle', ?, ?, ?)`, [req.user!.id, String(cycleId), JSON.stringify({
+          reason, resetApplications: resetIds.length, deletedDraftItems: Number(draftCountRows[0]?.cnt || 0), deletedBatches: Number(batchCountRows[0]?.cnt || 0),
+        }), req.ip || null])
+      return { resetApplications: resetIds.length, deletedDraftItems: Number(draftCountRows[0]?.cnt || 0), deletedBatches: Number(batchCountRows[0]?.cnt || 0) }
+    })
+    success(res, result, '本轮教师遴选已恢复为未处理状态')
+  } catch (cause: any) {
+    if (cause instanceof SelectionSettlementError) return error(res, cause.message, cause.statusCode)
+    console.error('恢复教师遴选失败:', cause)
+    error(res, '服务器内部错误', 500)
+  }
+})
+
 router.post('/selection-settlement/:cycleId/run', async (req: AuthRequest, res) => {
   try {
     const cycleId = Number(req.params.cycleId)

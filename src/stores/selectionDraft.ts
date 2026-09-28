@@ -42,7 +42,7 @@ export const useSelectionDraftStore = defineStore('selectionDraft', () => {
 
   function setDecision(topicId: string, applicationId: string, decision: SelectionDraftDecision | null) {
     const item = drafts.value[topicId]?.applications.find(application => application.id === applicationId)
-    if (!item || item.status === 'accepted') return
+    if (!item || item.status === 'accepted' || item.blockedByHigherPriority) return
     item.decision = decision
     item.decisionRank = decision === 'proposed' || decision === 'reserve'
       ? drafts.value[topicId].applications.filter(application => application.decision === decision).length
@@ -53,6 +53,7 @@ export const useSelectionDraftStore = defineStore('selectionDraft', () => {
 
   function reorder(topicId: string, decision: 'proposed' | 'reserve', orderedIds: string[]) {
     const applications = drafts.value[topicId]?.applications || []
+    if (applications.some(item => item.blockedByHigherPriority && item.decision === decision)) return
     orderedIds.forEach((id, index) => {
       const item = applications.find(application => application.id === id && application.decision === decision)
       if (item) item.decisionRank = index + 1

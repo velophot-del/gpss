@@ -293,6 +293,11 @@ export interface SelectionDraftApplication {
   decision: SelectionDraftDecision | null
   decisionRank: number | null
   comment: string
+  effectiveDecision: SelectionDraftDecision | null
+  blockedByHigherPriority: boolean
+  blockingPriority: number | null
+  blockingDecision: 'proposed' | 'reserve' | null
+  blockingTopicTitle: string | null
 }
 
 export interface SelectionDraftView {
