@@ -2,8 +2,8 @@
   <div class="page-container">
     <div class="card-container">
       <div class="page-header">
-        <div><h2 class="section-title">录取结算</h2><p>查看教师名单提交进度；可退回单个课题，或将本轮全部恢复为未处理状态。</p></div>
-        <div><el-button @click="load">刷新</el-button><el-button type="danger" plain :loading="resetting" :disabled="!cycleId" @click="resetCycle">恢复本轮未处理</el-button><el-button type="primary" :loading="running" @click="runSettlement">{{ data?.settlement?.status === 'failed' ? '重试结算' : '立即检查' }}</el-button></div>
+        <div><h2 class="section-title">录取结算</h2><p>查看教师名单提交进度，并按课题退回或恢复未处理状态。</p></div>
+        <div><el-button @click="load">刷新</el-button><el-button type="primary" :loading="running" @click="runSettlement">{{ data?.settlement?.status === 'failed' ? '重试结算' : '立即检查' }}</el-button></div>
       </div>
 
       <el-alert v-if="!cycleId" title="当前没有进行中的选题周期" type="warning" :closable="false" show-icon />
@@ -28,7 +28,7 @@
           <el-table-column label="草稿进度" width="110"><template #default="{ row }">{{ row.decided_count }}/{{ row.application_count }}</template></el-table-column>
           <el-table-column label="状态" width="120"><template #default="{ row }"><el-tag :type="statusType(row.batch_status)">{{ statusLabel(row.batch_status) }}</el-tag></template></el-table-column>
           <el-table-column label="最后保存" width="170"><template #default="{ row }">{{ formatDate(row.last_saved_at) }}</template></el-table-column>
-          <el-table-column label="操作" width="120"><template #default="{ row }"><el-button v-if="['submitted','auto_submitted'].includes(row.batch_status)" link type="warning" :disabled="data?.settlement?.status === 'completed' || data?.settlement?.status === 'running'" @click="unlock(row)">退回修改</el-button></template></el-table-column>
+          <el-table-column label="操作" width="190"><template #default="{ row }"><el-button v-if="['submitted','auto_submitted'].includes(row.batch_status)" link type="warning" :disabled="data?.settlement?.status === 'completed' || data?.settlement?.status === 'running'" @click="unlock(row)">退回修改</el-button><el-button link type="danger" :loading="resettingTopicId === row.id" :disabled="data?.settlement?.status === 'completed' || data?.settlement?.status === 'running'" @click="resetTopic(row)">恢复未处理</el-button></template></el-table-column>
         </el-table>
       </template>
     </div>
@@ -46,7 +46,7 @@ const cycleStore = useCycleStore()
 const data = ref<any>(null)
 const loading = ref(false)
 const running = ref(false)
-const resetting = ref(false)
+const resettingTopicId = ref('')
 const filter = ref('all')
 const cycleId = computed(() => cycleStore.currentCycle?.id)
 const requiredCount = computed(() => data.value?.topics?.filter((item: any) => item.batch_status !== 'not_required').length || 0)
@@ -78,18 +78,17 @@ async function runSettlement() {
   catch (error: any) { ElMessage.error(error?.response?.data?.message || '当前不能执行结算') }
   finally { running.value = false }
 }
-async function resetCycle() {
-  if (!cycleId.value) return
+async function resetTopic(row: any) {
   try {
-    await ElMessageBox.confirm('将清除本周期所有教师遴选草稿、提交状态和统一结算结果；已录取、未录取、候补及因高志愿退出的申请会恢复为“待审核”。系统会保留管理员操作审计记录。', '恢复本轮未处理状态', { type: 'warning', confirmButtonText: '继续恢复', cancelButtonText: '取消' })
-    const { value } = await ElMessageBox.prompt('请输入恢复原因。此操作仅限志愿填报或教师遴选阶段，且本周期尚未进入调剂。', '填写恢复原因', { inputPattern: /\S+/, inputErrorMessage: '必须填写恢复原因', confirmButtonText: '确认恢复' })
-    resetting.value = true
-    await selectionAdminApi.reset(cycleId.value, value)
-    ElMessage.success('本轮教师遴选已恢复为未处理状态')
+    await ElMessageBox.confirm(`将清除“${row.title}”的教师遴选草稿和提交状态；该课题已产生的录取、未录取或候补结果会恢复为“待审核”。其他课题不受影响。`, '恢复该课题未处理状态', { type: 'warning', confirmButtonText: '继续恢复', cancelButtonText: '取消' })
+    const { value } = await ElMessageBox.prompt('请输入恢复原因。统一结算已开始或已完成时不能恢复。', '填写恢复原因', { inputPattern: /\S+/, inputErrorMessage: '必须填写恢复原因', confirmButtonText: '确认恢复' })
+    resettingTopicId.value = row.id
+    await selectionAdminApi.resetTopic(row.id, value)
+    ElMessage.success('该课题已恢复为未处理状态')
     await load()
   } catch (error: any) {
     if (error !== 'cancel' && error !== 'close') ElMessage.error(error?.response?.data?.message || '恢复失败')
-  } finally { resetting.value = false }
+  } finally { resettingTopicId.value = '' }
 }
 function formatDate(value?: string | null) { return value ? dayjs(value).format('YYYY-MM-DD HH:mm') : '-' }
 function statusLabel(status: string) { return ({ draft: '未提交', submitted: '教师提交', auto_submitted: '系统提交', settled: '已结算', not_required: '无需提交' } as any)[status] || status }
