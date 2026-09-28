@@ -81,7 +81,7 @@ async function runSettlement() {
 async function resetTopic(row: any) {
   try {
     await ElMessageBox.confirm(`将清除“${row.title}”的教师遴选草稿和提交状态；该课题已产生的录取、未录取或候补结果会恢复为“待审核”。其他课题不受影响。`, '恢复该课题未处理状态', { type: 'warning', confirmButtonText: '继续恢复', cancelButtonText: '取消' })
-    const { value } = await ElMessageBox.prompt('请输入恢复原因。统一结算已开始或已完成时不能恢复。', '填写恢复原因', { inputPattern: /\S+/, inputErrorMessage: '必须填写恢复原因', confirmButtonText: '确认恢复' })
+    const { value } = await ElMessageBox.prompt('请输入恢复原因。统一结算开始前的任意阶段均可恢复；结算开始或完成后不能恢复。', '填写恢复原因', { inputPattern: /\S+/, inputErrorMessage: '必须填写恢复原因', confirmButtonText: '确认恢复' })
     resettingTopicId.value = row.id
     await selectionAdminApi.resetTopic(row.id, value)
     ElMessage.success('该课题已恢复为未处理状态')

@@ -86,7 +86,7 @@ router.post('/selection-topics/:topicId/reset', async (req: AuthRequest, res) =>
 
     const result = await transaction(async conn => {
       const [topics] = await conn.query<any[]>(`
-        SELECT t.id, t.cycle_id, t.status, c.phase, ss.status AS settlement_status
+        SELECT t.id, t.cycle_id, t.status, ss.status AS settlement_status
         FROM topics t JOIN cycles c ON c.id = t.cycle_id
         LEFT JOIN selection_settlements ss ON ss.cycle_id = t.cycle_id
         WHERE t.id = ? FOR UPDATE
@@ -95,10 +95,6 @@ router.post('/selection-topics/:topicId/reset', async (req: AuthRequest, res) =>
       if (!topic) throw new SelectionSettlementError('课题不存在或未关联选题周期', 404)
       if (['running', 'completed'].includes(topic.settlement_status)) throw new SelectionSettlementError('统一结算已开始或已完成，不能恢复单个课题')
       const cycleId = Number(topic.cycle_id)
-      const cycle = { phase: topic.phase }
-      if (!['student_selection', 'teacher_review'].includes(cycle.phase)) {
-        throw new SelectionSettlementError('仅志愿填报或教师遴选阶段可以恢复课题操作')
-      }
 
       const [applications] = await conn.query<any[]>(`
         SELECT id, status, reviewed_at FROM applications WHERE topic_id = ? FOR UPDATE
