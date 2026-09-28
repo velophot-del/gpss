@@ -89,7 +89,9 @@ router.post('/selection-settlement/:cycleId/reset', async (req: AuthRequest, res
       const [cycles] = await conn.query<any[]>('SELECT id, name, phase FROM cycles WHERE id = ? FOR UPDATE', [cycleId])
       const cycle = cycles[0]
       if (!cycle) throw new SelectionSettlementError('选题周期不存在', 404)
-      if (cycle.phase !== 'teacher_review') throw new SelectionSettlementError('仅教师遴选阶段可以恢复本轮操作')
+      if (!['student_selection', 'teacher_review'].includes(cycle.phase)) {
+        throw new SelectionSettlementError('仅志愿填报或教师遴选阶段可以恢复本轮操作')
+      }
 
       const [adjustmentRows] = await conn.query<any[]>(`
         SELECT 1 FROM adjustment_volunteers WHERE cycle_id = ? LIMIT 1

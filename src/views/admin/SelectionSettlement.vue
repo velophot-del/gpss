@@ -82,7 +82,7 @@ async function resetCycle() {
   if (!cycleId.value) return
   try {
     await ElMessageBox.confirm('将清除本周期所有教师遴选草稿、提交状态和统一结算结果；已录取、未录取、候补及因高志愿退出的申请会恢复为“待审核”。系统会保留管理员操作审计记录。', '恢复本轮未处理状态', { type: 'warning', confirmButtonText: '继续恢复', cancelButtonText: '取消' })
-    const { value } = await ElMessageBox.prompt('请输入恢复原因。此操作仅限本周期尚未进入调剂阶段。', '填写恢复原因', { inputPattern: /\S+/, inputErrorMessage: '必须填写恢复原因', confirmButtonText: '确认恢复' })
+    const { value } = await ElMessageBox.prompt('请输入恢复原因。此操作仅限志愿填报或教师遴选阶段，且本周期尚未进入调剂。', '填写恢复原因', { inputPattern: /\S+/, inputErrorMessage: '必须填写恢复原因', confirmButtonText: '确认恢复' })
     resetting.value = true
     await selectionAdminApi.reset(cycleId.value, value)
     ElMessage.success('本轮教师遴选已恢复为未处理状态')
