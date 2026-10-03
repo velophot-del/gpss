@@ -29,6 +29,7 @@ export interface SelectionDraftView {
   teacherStudentLimit: number
   teacherAcceptedCount: number
   teacherProposedCount: number
+  settlementWarning?: string
 }
 
 async function loadTopicContext(conn: Connection, topicId: string, lock = false) {
@@ -67,8 +68,8 @@ function validateRanks(items: DraftItemInput[]) {
   }
   for (const decision of ['proposed', 'reserve'] as const) {
     const ranks = items.filter(item => item.decision === decision).map(item => Number(item.decisionRank)).sort((a, b) => a - b)
-    if (ranks.some((rank, index) => !Number.isInteger(rank) || rank !== index + 1)) {
-      throw new SelectionDraftError(`${decision === 'proposed' ? '拟录取' : '候补'}顺序必须从 1 开始且连续`)
+    if (ranks.some((rank, index) => !Number.isSafeInteger(rank) || rank < 1 || (index > 0 && rank === ranks[index - 1]))) {
+      throw new SelectionDraftError(`${decision === 'proposed' ? '拟录取' : '候补'}顺序必须是互不重复的正整数`)
     }
   }
 }
@@ -186,8 +187,8 @@ export async function getSelectionDraft(topicId: string, actor: SessionUser): Pr
     }}),
     deadline: deadline?.toISOString() || '',
     teacherStudentLimit: getTeacherStudentLimit(config),
-    teacherAcceptedCount: Number(counts[0]?.accepted_count || 0),
-    teacherProposedCount: Number(counts[0]?.proposed_count || 0),
+    teacherAcceptedCount: Number(counts?.accepted_count || 0),
+    teacherProposedCount: Number(counts?.proposed_count || 0),
   }
 }
 
@@ -250,6 +251,14 @@ export async function submitSelectionBatch(topicId: string, actor: SessionUser, 
       VALUES (?, 'selection_batch_submitted', 'topic', ?, ?)`, [actor.id, topic.id, JSON.stringify({ version: expectedVersion + 1 })])
     return Number(topic.cycle_id)
   })
-  await requestSettlementIfReady(cycleId, 'all_submitted')
-  return getSelectionDraft(topicId, actor)
+  let settlementWarning: string | undefined
+  try {
+    await requestSettlementIfReady(cycleId, 'all_submitted')
+  } catch (cause) {
+    console.error('名单已提交，但统一结算未完成:', cause)
+    settlementWarning = '名单已提交，但统一结算暂未完成，请联系管理员检查结算状态。'
+  }
+  const view = await getSelectionDraft(topicId, actor)
+  if (settlementWarning) view.settlementWarning = settlementWarning
+  return view
 }

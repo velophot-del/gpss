@@ -35,9 +35,15 @@ export const useSelectionDraftStore = defineStore('selectionDraft', () => {
 
   function normalizeRanks(topicId: string, decision: 'proposed' | 'reserve') {
     const applications = drafts.value[topicId]?.applications || []
-    applications.filter(item => item.decision === decision)
+    const ranked = applications.filter(item => item.decision === decision)
       .sort((a, b) => (a.decisionRank || Number.MAX_SAFE_INTEGER) - (b.decisionRank || Number.MAX_SAFE_INTEGER))
-      .forEach((item, index) => { item.decisionRank = index + 1 })
+    const reservedRanks = new Set(ranked.filter(item => item.blockedByHigherPriority).map(item => item.decisionRank))
+    let rank = 1
+    for (const item of ranked) {
+      if (item.blockedByHigherPriority) continue
+      while (reservedRanks.has(rank)) rank++
+      item.decisionRank = rank++
+    }
   }
 
   function setDecision(topicId: string, applicationId: string, decision: SelectionDraftDecision | null) {

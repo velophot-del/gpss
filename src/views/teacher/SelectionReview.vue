@@ -183,8 +183,9 @@ async function submitDraft() {
   if (!draft) return
   try {
     await ElMessageBox.confirm(`拟录取 ${decisionCount('proposed')} 人，候补 ${decisionCount('reserve')} 人，未处理 ${undecidedCount.value} 人。提交后只能由管理员退回。`, '确认提交名单', { type: 'warning', confirmButtonText: '确认提交' })
-    await draftStore.submit(activeTopicId.value)
-    ElMessage.success('名单已提交，等待统一结算')
+    const result = await draftStore.submit(activeTopicId.value)
+    if (result.settlementWarning) ElMessage.warning(result.settlementWarning)
+    else ElMessage.success(result.batch.status === 'settled' ? '名单已提交，统一结算已完成' : '名单已提交，等待统一结算')
   }
   catch (error: any) {
     if (error === 'cancel' || error === 'close') return

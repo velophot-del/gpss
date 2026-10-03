@@ -309,6 +309,7 @@ export interface SelectionDraftView {
   teacherStudentLimit: number
   teacherAcceptedCount: number
   teacherProposedCount: number
+  settlementWarning?: string
 }
 
 export interface SelectionRecord {
