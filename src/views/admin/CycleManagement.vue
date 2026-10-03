@@ -34,13 +34,14 @@
             <el-button link type="primary" icon="Edit" size="small" @click="showEditDialog(row)">编辑</el-button>
             <el-dropdown trigger="click">
               <el-button link type="warning" icon="Switch" size="small">
-                切换状态
+                手动切换状态
               </el-button>
               <template #dropdown>
                 <el-dropdown-menu>
                   <el-dropdown-item @click="changeStatus(row.id, 'active')">设为当前</el-dropdown-item>
                   <el-dropdown-item @click="changeStatus(row.id, 'selection')">进入选课</el-dropdown-item>
                   <el-dropdown-item @click="changeStatus(row.id, 'review')">进入审核</el-dropdown-item>
+                  <el-dropdown-item @click="changeStatus(row.id, 'review', 'result_announce')">进入结果公示</el-dropdown-item>
                   <el-dropdown-item @click="changeStatus(row.id, 'adjustment')">进入调剂</el-dropdown-item>
                   <el-dropdown-item @click="changeStatus(row.id, 'completed')">结束</el-dropdown-item>
                 </el-dropdown-menu>
@@ -82,6 +83,17 @@
               <el-radio value="upcoming">未开始</el-radio>
               <el-radio value="active">立即启用（进行中）</el-radio>
             </el-radio-group>
+          </el-form-item>
+          <el-form-item label="阶段切换方式">
+            <el-radio-group v-model="form.phaseSwitchMode">
+              <el-radio value="auto">按时间自动切换</el-radio>
+              <el-radio value="manual">管理员手动切换</el-radio>
+            </el-radio-group>
+            <div class="cycle-cfg-hint">手动模式保持所选阶段；截止自动提交与结算仍按截止时间执行。</div>
+          </el-form-item>
+          <el-form-item label="课题名额合计冲突">
+            <el-switch v-model="form.ignoreCapacityConflicts" active-text="本周期忽略" inactive-text="校验" />
+            <div class="cycle-cfg-hint">仅跳过课题设置名额合计冲突，最终录取仍遵守教师指导人数和单课题名额上限。</div>
           </el-form-item>
           <el-form-item label="教师指导人数上限">
             <el-input-number v-model="form.teacherStudentLimit" :min="0" :max="200" :step="1" style="width: 100%" />
@@ -174,6 +186,17 @@
               <el-radio value="adjustment">调剂中</el-radio>
               <el-radio value="completed">已结束</el-radio>
             </el-radio-group>
+          </el-form-item>
+          <el-form-item label="阶段切换方式">
+            <el-radio-group v-model="form.phaseSwitchMode">
+              <el-radio value="auto">按时间自动切换</el-radio>
+              <el-radio value="manual">管理员手动切换</el-radio>
+            </el-radio-group>
+            <div class="cycle-cfg-hint">手动模式保持所选阶段；截止自动提交与结算仍按截止时间执行。</div>
+          </el-form-item>
+          <el-form-item label="课题名额合计冲突">
+            <el-switch v-model="form.ignoreCapacityConflicts" active-text="本周期忽略" inactive-text="校验" />
+            <div class="cycle-cfg-hint">仅跳过课题设置名额合计冲突，最终录取仍遵守教师指导人数和单课题名额上限。</div>
           </el-form-item>
           <el-form-item label="教师指导人数上限">
             <el-input-number v-model="form.teacherStudentLimit" :min="0" :max="200" :step="1" style="width: 100%" />
@@ -299,6 +322,8 @@ const form = reactive({
   year: '',
   status: 'upcoming' as string,
   description: '',
+  phaseSwitchMode: 'auto',
+  ignoreCapacityConflicts: false,
   teacherStudentLimit: 0,
   topicStudentLimit: 10,
   topicPublishStart: '',
@@ -380,6 +405,7 @@ function showCreateDialog() {
   editingId.value = null
   Object.assign(form, {
     name: '', year: '', status: 'upcoming', description: '',
+    phaseSwitchMode: 'auto', ignoreCapacityConflicts: false,
     teacherStudentLimit: 0, topicStudentLimit: 10,
     topicPublishStart: '', topicPublishEnd: '',
     studentApplyStart: '', studentApplyEnd: '',
@@ -413,6 +439,8 @@ async function showEditDialog(row: any) {
     year: row.year,
     status: row.status || 'upcoming',
     description: row.description || '',
+    phaseSwitchMode: phases.phase_switch_mode || row.phaseSwitchMode || 'auto',
+    ignoreCapacityConflicts: phases.ignore_capacity_conflicts === true || row.ignoreCapacityConflicts === true,
     teacherStudentLimit: Number(phases.teacher_student_limit ?? row.teacherStudentLimit ?? 0) || 0,
     topicStudentLimit: Number(phases.topic_student_limit ?? configuredTopicStudentLimit ?? row.topicStudentLimit ?? 10) || 10,
     topicPublishStart: phases.topic_publish?.start || row.topicPublishStart || '',
@@ -448,6 +476,8 @@ async function handleCreate() {
       startDate: form.topicPublishStart || null,
       endDate: form.adjustmentEnd || null,
       phasesConfig: {
+        phase_switch_mode: form.phaseSwitchMode,
+        ignore_capacity_conflicts: form.ignoreCapacityConflicts,
         topic_publish: { start: form.topicPublishStart, end: form.topicPublishEnd },
         student_apply: { start: form.studentApplyStart, end: form.studentApplyEnd },
         teacher_review: { start: form.teacherReviewStart, end: form.teacherReviewEnd },
@@ -468,7 +498,7 @@ async function handleCreate() {
   }
 }
 
-async function changeStatus(id: string, status: any) {
+async function changeStatus(id: string, status: any, selectedPhase?: string) {
   try {
     const target = cycleStore.cycles.find((c: any) => c.id === id)
     if (target) {
@@ -482,10 +512,11 @@ async function changeStatus(id: string, status: any) {
       }
       await cycleApi.update(id, {
         status,
-        phase: statusToPhaseMap[status] || 'topic_publish'
+        phase: selectedPhase || statusToPhaseMap[status] || 'topic_publish',
+        phasesConfig: { phase_switch_mode: 'manual' }
       })
       configurationError.value = ''
-      ElMessage.success(`状态已更新为「${cycleStatusLabel[status] || status}」`)
+      ElMessage.success(`已切换为手动模式，状态更新为「${cycleStatusLabel[status] || status}」`)
       await fetchCycles()
     }
   } catch (e: any) {
@@ -519,11 +550,15 @@ async function handleEdit() {
       name: form.name,
       year: form.year,
       status: form.status,
-      phase: statusToPhaseMap[form.status] || 'topic_publish',
+      phase: form.status === cycleStore.cycles.find((c: any) => c.id === editingId.value)?.status
+        ? cycleStore.cycles.find((c: any) => c.id === editingId.value)?.phase
+        : statusToPhaseMap[form.status] || 'topic_publish',
       description: form.description || null,
       startDate: form.topicPublishStart || null,
       endDate: form.adjustmentEnd || null,
       phasesConfig: {
+        phase_switch_mode: form.phaseSwitchMode,
+        ignore_capacity_conflicts: form.ignoreCapacityConflicts,
         topic_publish: { start: form.topicPublishStart, end: form.topicPublishEnd },
         student_apply: { start: form.studentApplyStart, end: form.studentApplyEnd },
         teacher_review: { start: form.teacherReviewStart, end: form.teacherReviewEnd },

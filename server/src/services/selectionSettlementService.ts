@@ -16,6 +16,7 @@ export class SelectionSettlementError extends Error {
 export async function getSelectionConfigurationError(cycleId: number, config: unknown): Promise<string | null> {
   const deadline = getReviewDeadline(config)
   if (!deadline) return '教师遴选阶段必须配置有效的审核截止时间'
+  if ((config as Record<string, unknown>)?.ignore_capacity_conflicts === true) return null
   const teacherLimit = getTeacherStudentLimit(config)
   if (teacherLimit <= 0) return null
   const conflicts = await query<any>(`
@@ -123,7 +124,7 @@ async function applySettlement(conn: Connection, cycleId: number, trigger: Settl
   }
   const topics: SettlementTopic[] = topicRows.map(row => ({ topicId: row.id, teacherId: row.teacher_id, capacity: Number(row.max_students) }))
   const teacherLimit = getTeacherStudentLimit(config)
-  if (teacherLimit > 0) {
+  if (teacherLimit > 0 && config.ignore_capacity_conflicts !== true) {
     const capacityByTeacher = new Map<string, number>()
     for (const topic of topics) capacityByTeacher.set(topic.teacherId, (capacityByTeacher.get(topic.teacherId) || 0) + topic.capacity)
     for (const [teacherId, capacity] of capacityByTeacher) {

@@ -1,3 +1,4 @@
+import { parseScheduleDate } from './cycleSchedule.js'
 import path from 'path'
 import { safeParseJson } from './json.js'
 
@@ -194,8 +195,8 @@ export function getReviewDeadline(config: unknown): Date | null {
       ? (value as Record<string, unknown>).end
       : value
     if (typeof end === 'string' && end.trim()) {
-      const date = new Date(end)
-      if (!Number.isNaN(date.getTime())) return date
+      const date = parseScheduleDate(end)
+      if (date) return date
     }
   }
   return null
@@ -207,8 +208,8 @@ export function getAdjustmentDeadline(config: unknown): Date | null {
   const end = adjustment && typeof adjustment === 'object' && !Array.isArray(adjustment)
     ? (adjustment as Record<string, unknown>).end : null
   if (typeof end !== 'string' || !end.trim()) return null
-  const date = new Date(end)
-  return Number.isNaN(date.getTime()) ? null : date
+  const date = parseScheduleDate(end)
+  return date
 }
 
 export function resolveAdjustmentSource(

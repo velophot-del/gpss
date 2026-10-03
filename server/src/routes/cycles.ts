@@ -95,6 +95,8 @@ router.put('/:id', requireRole(['admin']), async (req: AuthRequest, res) => {
     if (phasesConfig && typeof phasesConfig === 'object' && !Array.isArray(phasesConfig)) {
       Object.assign(merged, phasesConfig)
     }
+    if (!['auto', 'manual'].includes(merged.phase_switch_mode ?? 'auto')) return error(res, '阶段切换方式无效', 400)
+    if (merged.ignore_capacity_conflicts !== undefined && typeof merged.ignore_capacity_conflicts !== 'boolean') return error(res, '忽略人数冲突必须为布尔值', 400)
     const phasesConfigFinal = JSON.stringify(merged)
 
     if (phasesConfig && typeof phasesConfig === 'object' && Object.prototype.hasOwnProperty.call(phasesConfig, 'topic_student_limit')) {

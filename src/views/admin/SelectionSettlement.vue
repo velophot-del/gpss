@@ -15,6 +15,7 @@
           <div><span>结算状态</span><strong>{{ settlementLabel }}</strong></div>
           <div><span>定时任务最后检查</span><strong>{{ formatDate(data?.worker?.checkedAt) }}</strong></div>
         </div>
+        <el-alert v-if="data?.worker?.errors?.length" :title="data.worker.errors.join('；')" type="error" :closable="false" show-icon class="alert" />
         <el-alert v-if="data?.configurationError" :title="data.configurationError" type="error" :closable="false" show-icon class="alert" />
         <el-alert v-if="data?.settlement?.error_message" :title="data.settlement.error_message" type="error" :closable="false" show-icon class="alert" />
         <el-alert v-if="data?.settlement?.status === 'completed'" :title="resultSummary" type="success" :closable="false" show-icon class="alert" />

@@ -20,6 +20,8 @@ function enrichCycle(raw: any): any {
   const { phases_config, start_date, end_date, created_at, updated_at, ...clean } = raw
   return {
     ...clean,
+    phaseSwitchMode: phases.phase_switch_mode === 'manual' ? 'manual' : 'auto',
+    ignoreCapacityConflicts: phases.ignore_capacity_conflicts === true,
     topicPublishStart: phases.topic_publish?.start || phases.topic_submission?.start || '',
     topicPublishEnd: phases.topic_publish?.end || phases.topic_submission?.end || '',
     studentApplyStart: phases.student_apply?.start || phases.student_selection?.start || '',
