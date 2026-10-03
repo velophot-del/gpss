@@ -221,7 +221,9 @@ onBeforeRouteLeave(async () => {
   if (hasUnsavedChanges.value) draftStore.drafts[activeTopicId.value] = JSON.parse(savedViews.value[activeTopicId.value])
   return true
 })
-async function beforeTopicLeave() {
+async function beforeTopicLeave(nextId?: string | number) {
+  // 外部选中值同步不属于用户切换，不能被加载保护阻止。
+  if (nextId !== undefined && String(nextId) === activeTopicId.value) return true
   if (busy.value) return false
   switchingTopic.value = true
   try {

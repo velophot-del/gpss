@@ -52,3 +52,13 @@ test('名单处理期间不能切换课题、编辑或再次保存',async()=>{
  h.drafts.savingTopicIds.push('t1');s.setDecision('a','reserve');await s.loadTopic('t2');await s.saveDraft()
  assert.equal(s.activeTopicId.value,'t1');assert.equal(h.drafts.drafts.t1.applications[0].decision,null);assert.equal(h.saveCount(),0)
 })
+
+test('加载和手机切换期间，标签必须能同步外部已选课题',async()=>{
+ const h=setup();await h.start();const s=h.state
+ h.drafts.loadingTopicIds.push('t1')
+ assert.equal(await s.beforeTopicLeave('t1'),true)
+ assert.equal(await s.beforeTopicLeave('t2'),false)
+ h.drafts.loadingTopicIds.length=0;s.switchingTopic.value=true;s.activeTopicId.value='t2'
+ assert.equal(await s.beforeTopicLeave('t2'),true)
+ assert.equal(await s.beforeTopicLeave('t1'),false)
+})
