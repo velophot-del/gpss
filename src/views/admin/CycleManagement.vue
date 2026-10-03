@@ -6,6 +6,8 @@
         <template #default><el-button link type="danger" @click="router.push('/admin/selection-settlement')">前往录取结算查看配置</el-button></template>
       </el-alert>
 
+      <el-alert title="进行中周期手动切换时，同时忽略该周期的课题名额合计冲突；实际录取仍受教师指导人数上限约束。" type="info" :closable="false" show-icon class="config-alert" />
+
       <el-button type="primary" icon="Plus" style="margin-bottom: 20px;" @click="showCreateDialog">
         创建新周期
       </el-button>
@@ -513,7 +515,10 @@ async function changeStatus(id: string, status: any, selectedPhase?: string) {
       await cycleApi.update(id, {
         status,
         phase: selectedPhase || statusToPhaseMap[status] || 'topic_publish',
-        phasesConfig: { phase_switch_mode: 'manual' }
+        phasesConfig: {
+          phase_switch_mode: 'manual',
+          ignore_capacity_conflicts: target.ignoreCapacityConflicts === true || ['active', 'selection', 'review', 'adjustment'].includes(target.status)
+        }
       })
       configurationError.value = ''
       ElMessage.success(`已切换为手动模式，状态更新为「${cycleStatusLabel[status] || status}」`)
