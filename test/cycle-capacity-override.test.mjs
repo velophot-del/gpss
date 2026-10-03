@@ -33,6 +33,7 @@ const apply=new Function('getReviewDeadline','getTeacherStudentLimit','safeParse
 test('settlement aggregate barrier respects the cycle override',async()=>{
  async function attempt(override){
   const conn={query:async sql=>{
+   if(sql.includes('SELECT id FROM selection_batches')) return [[]]
    if(sql.includes('FROM cycles')) return [[{id:1,phase:'teacher_review',phases_config:JSON.stringify({...base,ignore_capacity_conflicts:override})}]]
    if(sql.includes('unsubmitted') || sql.includes('sb.status IS NULL')) return [[]]
    if(sql.includes('SELECT DISTINCT t.id')) return [[{id:'a',teacher_id:'t',max_students:10,status:'published'}]]

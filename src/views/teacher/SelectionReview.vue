@@ -19,7 +19,9 @@
               <div><span>拟录取</span><strong>{{ decisionCount('proposed') }}</strong></div>
               <div><span>候补</span><strong>{{ decisionCount('reserve') }}</strong></div>
               <div><span>未处理</span><strong>{{ undecidedCount }}</strong></div>
-              <div><span>教师指导上限</span><strong>{{ currentDraft.teacherStudentLimit || '未设置' }}</strong></div>
+              <div><span>指导上限（跨全部课题）</span><strong>{{ currentDraft.teacherStudentLimit || '未设置' }}</strong></div>
+              <div><span>已正式录取</span><strong>{{ currentDraft.teacherAcceptedCount }}</strong></div>
+              <div><span>剩余名额</span><strong>{{ currentDraft.teacherStudentLimit > 0 ? Math.max(0, currentDraft.teacherStudentLimit - currentDraft.teacherAcceptedCount) : '未设上限' }}</strong></div>
               <div><span>审核截止</span><strong class="deadline">{{ currentDraft.deadline ? formatDateTime(currentDraft.deadline) : '未配置' }}</strong></div>
             </div>
 
@@ -27,7 +29,7 @@
               <template #title>{{ batchStatusLabel }}</template>
             </el-alert>
 
-            <el-alert type="info" :closable="false" show-icon class="state-alert" title="拟录取与候补均为接收意见，不占正式名额；请审核全部愿意接收的学生。先按志愿轮次，同志愿内拟录取优先候补，再按教师排序。高志愿最终未录取后，低志愿自动参与递补。" />
+            <el-alert type="info" :closable="false" show-icon class="state-alert" title="仅第一志愿可拟录取，其他志愿请选择候补。系统先录取第一志愿，教师所有课题合计未满指导上限时按志愿逐轮递补已选候补。提交时未处理学生自动归为本课题不录取；拟录取不等于正式录取。" />
             <div class="rank-columns">
               <section class="rank-card">
                 <h3>拟录取顺序</h3>
@@ -74,7 +76,7 @@
                   <el-tag :type="row.status === 'accepted' ? 'success' : decisionType[row.decision] || 'info'">{{ row.status === 'accepted' ? '既有录取' : decisionLabel[row.decision] || '未处理' }}</el-tag></div>
                 <details class="student-motivation"><summary>查看申请理由</summary><p>{{ row.motivation || '未填写申请理由' }}</p></details>
                 <div v-if="['pending', 'submitted', 'pending_review'].includes(row.status)" class="student-decision-actions" :aria-label="`${row.studentName}的审核操作`">
-                  <el-button type="success" :plain="row.decision !== 'proposed'" :aria-pressed="row.decision === 'proposed'" :disabled="editingDisabled" @click="setDecision(row.id, 'proposed')">拟录取</el-button>
+                  <el-button type="success" :plain="row.decision !== 'proposed'" :aria-pressed="row.decision === 'proposed'" :disabled="editingDisabled || row.priority !== 1" @click="setDecision(row.id, 'proposed')">拟录取</el-button>
                   <el-button type="warning" :plain="row.decision !== 'reserve'" :aria-pressed="row.decision === 'reserve'" :disabled="editingDisabled" @click="setDecision(row.id, 'reserve')">候补</el-button>
                   <el-button type="danger" :plain="row.decision !== 'reject'" :aria-pressed="row.decision === 'reject'" :disabled="editingDisabled" @click="setDecision(row.id, 'reject')">不录取</el-button>
                   <el-button :disabled="editingDisabled || !row.decision" @click="setDecision(row.id, null)">清除</el-button>
@@ -92,7 +94,7 @@
               <el-table-column label="遴选草稿" width="150" align="center"><template #default="{ row }"><el-tag v-if="row.status === 'accepted'" type="success">既有录取</el-tag><el-tag v-else :type="decisionType[row.decision] || 'info'">{{ decisionLabel[row.decision] || '未处理' }}</el-tag></template></el-table-column>
               <el-table-column label="操作" min-width="310" fixed="right"><template #default="{ row }">
                 <el-button-group v-if="['pending', 'submitted', 'pending_review'].includes(row.status)">
-                  <el-button size="small" type="success" :plain="row.decision !== 'proposed'" :disabled="editingDisabled" @click="setDecision(row.id, 'proposed')">拟录取</el-button>
+                  <el-button size="small" type="success" :plain="row.decision !== 'proposed'" :disabled="editingDisabled || row.priority !== 1" @click="setDecision(row.id, 'proposed')">拟录取</el-button>
                   <el-button size="small" type="warning" :plain="row.decision !== 'reserve'" :disabled="editingDisabled" @click="setDecision(row.id, 'reserve')">候补</el-button>
                   <el-button size="small" type="danger" :plain="row.decision !== 'reject'" :disabled="editingDisabled" @click="setDecision(row.id, 'reject')">不录取</el-button>
                   <el-button size="small" :disabled="editingDisabled || !row.decision" @click="setDecision(row.id, null)">清除</el-button>
@@ -246,7 +248,7 @@ async function loadTopic(topicId: string | number) {
   finally { switchingTopic.value = false }
 }
 function decisionCount(decision: SelectionDraftDecision) { return currentDraft.value?.applications.filter(item => item.decision === decision).length || 0 }
-function setDecision(applicationId: string, decision: SelectionDraftDecision | null) { if (editingDisabled.value) return; draftStore.setDecision(activeTopicId.value, applicationId, decision) }
+function setDecision(applicationId: string, decision: SelectionDraftDecision | null) { if (editingDisabled.value) return; if (decision === 'proposed' && currentDraft.value?.applications.find(item => item.id === applicationId)?.priority !== 1) { ElMessage.warning('拟录取只允许第一志愿，其他志愿请选择候补'); return }; draftStore.setDecision(activeTopicId.value, applicationId, decision) }
 function formatDateTime(value: string) { return dayjs(value).format('YYYY-MM-DD HH:mm') }
 
 function onDragStart(decision: 'proposed' | 'reserve', index: number) { if (!editingDisabled.value && !isMobile.value) dragState.value = { decision, index } }
@@ -281,7 +283,7 @@ async function submitDraft() {
   const draft = currentDraft.value
   if (!draft) { confirmingSubmit.value = false; return }
   try {
-    await ElMessageBox.confirm(`拟录取 ${decisionCount('proposed')} 人，候补 ${decisionCount('reserve')} 人，未处理 ${undecidedCount.value} 人。提交后只能由管理员退回。`, '确认提交名单', { type: 'warning', customClass: 'selection-confirm', confirmButtonText: '确认提交' })
+    await ElMessageBox.confirm(`拟录取 ${decisionCount('proposed')} 人，候补 ${decisionCount('reserve')} 人，未处理 ${undecidedCount.value} 人将自动归为本课题不录取。旧版低志愿拟录取会转为候补。提交后只能由管理员退回。`, '确认提交名单', { type: 'warning', customClass: 'selection-confirm', confirmButtonText: '确认提交' })
     const result = await draftStore.submit(activeTopicId.value)
     rememberSaved(activeTopicId.value)
     if (result.settlementWarning) ElMessage.warning(result.settlementWarning)

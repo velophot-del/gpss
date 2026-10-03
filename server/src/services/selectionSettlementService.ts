@@ -1,3 +1,4 @@
+import { finalizeSelectionDecisions } from './selectionSubmissionService.js'
 import type { Connection } from 'mysql2/promise'
 import { v4 as uuidv4 } from 'uuid'
 import { getConnection, query, transaction } from '../config/database.js'
@@ -74,6 +75,8 @@ async function autoSubmitPendingBatches(conn: Connection, cycleId: number) {
         status = IF(status = 'draft', 'auto_submitted', status)
     `, [uuidv4(), cycleId, topic.id])
   }
+  const [batches] = await conn.query<any[]>("SELECT id FROM selection_batches WHERE cycle_id = ? AND status IN ('submitted','auto_submitted')", [cycleId])
+  for (const batch of batches) await finalizeSelectionDecisions(conn, batch.id)
   if (topics.length) {
     await conn.query(`INSERT INTO operation_logs (action, target_type, target_id, detail)
       VALUES ('selection_batches_auto_submitted', 'cycle', ?, ?)`, [String(cycleId), JSON.stringify({ topicCount: topics.length })])
@@ -113,6 +116,8 @@ async function applySettlement(conn: Connection, cycleId: number, trigger: Settl
   `, [cycleId])
   if (unsubmitted.length) throw new SelectionSettlementError('仍有课题名单未提交，暂不能统一结算')
 
+  const [submittedBatches] = await conn.query<any[]>("SELECT id FROM selection_batches WHERE cycle_id = ? AND status IN ('submitted','auto_submitted')", [cycleId])
+  for (const batch of submittedBatches) await finalizeSelectionDecisions(conn, batch.id)
   const [topicRows] = await conn.query<any[]>(`
     SELECT DISTINCT t.id, t.teacher_id, t.max_students, t.status
     FROM topics t JOIN applications a ON a.topic_id = t.id

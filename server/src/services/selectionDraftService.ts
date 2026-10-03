@@ -1,3 +1,4 @@
+import { finalizeSelectionDecisions } from './selectionSubmissionService.js'
 import type { Connection } from 'mysql2/promise'
 import { v4 as uuidv4 } from 'uuid'
 import { query, transaction } from '../config/database.js'
@@ -77,10 +78,11 @@ async function validateDraftItems(conn: Connection, topic: any, items: DraftItem
   validateRanks(items)
   if (items.length) {
     const [applications] = await conn.query<any[]>(
-      `SELECT id FROM applications
+      `SELECT id, priority FROM applications
        WHERE topic_id = ? AND id IN (?) AND status IN ('pending', 'submitted', 'pending_review')`,
       [topic.id, items.map(item => item.applicationId)],
     )
+    if (items.some(item => item.decision === 'proposed' && Number(applications.find(application => application.id === item.applicationId)?.priority) !== 1)) throw new SelectionDraftError('拟录取只允许第一志愿，其他志愿请选择候补')
     if (applications.length !== items.length) throw new SelectionDraftError('草稿包含不属于本课题或不可处理的申请')
   }
 }
@@ -120,6 +122,15 @@ export async function getSelectionDraft(topicId: string, actor: SessionUser): Pr
        WHERE t.teacher_id = ? AND sb.cycle_id = ? AND sdi.decision = 'proposed') AS proposed_count
   `, [topic.teacher_id, topic.cycle_id, topic.teacher_id, topic.cycle_id])
 
+  if (!batch || batch.status === 'draft') {
+    let reserveRank = Math.max(0, ...applications.filter(item => item.decision === 'reserve').map(item => Number(item.decision_rank) || 0))
+    for (const item of applications) {
+      if (item.decision === 'proposed' && Number(item.priority) !== 1 && ['pending', 'submitted', 'pending_review'].includes(item.status)) {
+        item.decision = 'reserve'
+        item.decision_rank = ++reserveRank
+      }
+    }
+  }
   return {
     topic: { id: topic.id, title: topic.title, maxStudents: Number(topic.max_students), teacherId: topic.teacher_id, cycleId: Number(topic.cycle_id) },
     batch: {
@@ -187,6 +198,7 @@ export async function submitSelectionBatch(topicId: string, actor: SessionUser, 
     }
     if (batch.status !== 'draft') throw new SelectionDraftError('该课题名单已经提交', 409)
     if (Number(batch.version) !== Number(expectedVersion)) throw new SelectionDraftError('草稿已被其他页面更新，请刷新后重试', 409)
+    await finalizeSelectionDecisions(conn, batch.id)
     const [draftRows] = await conn.query<any[]>('SELECT application_id, decision, decision_rank, comment FROM selection_draft_items WHERE batch_id = ?', [batch.id])
     await validateDraftItems(conn, topic, draftRows.map(row => ({ applicationId: row.application_id, decision: row.decision, decisionRank: row.decision_rank, comment: row.comment })))
     await conn.query(`UPDATE selection_batches SET status = 'submitted', version = version + 1, submitted_by = ?, submitted_at = NOW() WHERE id = ?`, [actor.id, batch.id])

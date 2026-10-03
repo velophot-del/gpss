@@ -17,7 +17,7 @@ function service({ failSettlement = false } = {}) {
   const conn = { query: async (sql, params) => {
     if (sql.includes('FROM topics t JOIN cycles')) return [[topic]]
     if (sql.includes('SELECT * FROM selection_batches')) return [[{ id: 'b', version: 0, status: 'draft' }]]
-    if (sql.includes('SELECT id FROM applications')) return [params[1].map(id => ({ id }))]
+    if (sql.includes('SELECT id, priority FROM applications')) return [params[1].map(id => ({ id, priority:1 }))]
     if (sql.includes('COUNT(DISTINCT student_id)')) return [[{ cnt: 0 }]]
     return [[]]
   } }
@@ -31,6 +31,7 @@ function service({ failSettlement = false } = {}) {
     uuid: createRequire(new URL('../server/package.json', import.meta.url))('uuid'),
     '../utils/policies.js': policies,
     '../utils/json.js': { safeParseJson: () => ({}) },
+    './selectionSubmissionService.js': { finalizeSelectionDecisions: async () => 0 },
     './selectionPriorityService.js': { buildPriorityBlocks: () => new Map() },
     './selectionSettlementService.js': { requestSettlementIfReady: async () => { if (failSettlement) throw new Error('结算暂不可用') } },
   })
