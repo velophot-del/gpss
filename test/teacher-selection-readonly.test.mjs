@@ -7,7 +7,7 @@ const readMethod = draftService.slice(draftService.indexOf('export async functio
 
 assert.doesNotMatch(page, /canViewApplications/)
 assert.match(page, /<el-alert v-if="!isTeacherReview"/)
-assert.match(page, /<el-tabs v-if="myTopics\.length" v-model="activeTopicId"/)
+assert.match(page, /<el-tabs v-if="myTopics\.length" :model-value="activeTopicId"/)
 assert.match(page, /const readOnly = computed\(\(\) => !isTeacherReview\.value/)
 assert.doesNotMatch(page, /if \(!isTeacherReview\.value\) return/)
 assert.match(page, /学生申请状态/)
