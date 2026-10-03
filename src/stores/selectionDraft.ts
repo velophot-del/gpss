@@ -37,18 +37,12 @@ export const useSelectionDraftStore = defineStore('selectionDraft', () => {
     const applications = drafts.value[topicId]?.applications || []
     const ranked = applications.filter(item => item.decision === decision)
       .sort((a, b) => (a.decisionRank || Number.MAX_SAFE_INTEGER) - (b.decisionRank || Number.MAX_SAFE_INTEGER))
-    const reservedRanks = new Set(ranked.filter(item => item.blockedByHigherPriority).map(item => item.decisionRank))
-    let rank = 1
-    for (const item of ranked) {
-      if (item.blockedByHigherPriority) continue
-      while (reservedRanks.has(rank)) rank++
-      item.decisionRank = rank++
-    }
+    ranked.forEach((item, index) => { item.decisionRank = index + 1 })
   }
 
   function setDecision(topicId: string, applicationId: string, decision: SelectionDraftDecision | null) {
     const item = drafts.value[topicId]?.applications.find(application => application.id === applicationId)
-    if (!item || item.status === 'accepted' || item.blockedByHigherPriority) return
+    if (!item || item.status === 'accepted') return
     item.decision = decision
     item.decisionRank = decision === 'proposed' || decision === 'reserve'
       ? drafts.value[topicId].applications.filter(application => application.decision === decision).length
@@ -59,7 +53,6 @@ export const useSelectionDraftStore = defineStore('selectionDraft', () => {
 
   function reorder(topicId: string, decision: 'proposed' | 'reserve', orderedIds: string[]) {
     const applications = drafts.value[topicId]?.applications || []
-    if (applications.some(item => item.blockedByHigherPriority && item.decision === decision)) return
     orderedIds.forEach((id, index) => {
       const item = applications.find(application => application.id === id && application.decision === decision)
       if (item) item.decisionRank = index + 1

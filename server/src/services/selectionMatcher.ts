@@ -49,11 +49,6 @@ function candidateOrder(a: SettlementCandidate, b: SettlementCandidate): number 
     a.applicationId.localeCompare(b.applicationId)
 }
 
-function prefers(candidate: SettlementCandidate, current: HeldAssignment): boolean {
-  return candidate.priority < current.priority ||
-    (candidate.priority === current.priority && candidate.topicId.localeCompare(current.topicId) < 0)
-}
-
 export function buildSettlementPlan(input: SettlementInput): SettlementPlan {
   const topicById = new Map(input.topics.map(topic => [topic.topicId, topic]))
   const applicationIds = new Set<string>()
@@ -62,7 +57,7 @@ export function buildSettlementPlan(input: SettlementInput): SettlementPlan {
     const candidateTopic = topicById.get(candidate.topicId)
     if (!candidateTopic) throw new Error(`申请所属课题不存在：${candidate.topicId}`)
     if (candidateTopic.teacherId !== candidate.teacherId) throw new Error(`申请教师与课题不一致：${candidate.applicationId}`)
-    if (!Number.isInteger(candidate.priority) || candidate.priority < 1) throw new Error(`志愿序号无效：${candidate.applicationId}`)
+    if (!Number.isInteger(candidate.priority) || candidate.priority < 1 || candidate.priority > 6) throw new Error(`志愿序号无效：${candidate.applicationId}`)
     applicationIds.add(candidate.applicationId)
   }
 
@@ -86,59 +81,22 @@ export function buildSettlementPlan(input: SettlementInput): SettlementPlan {
     remainingSeats.set(topic.topicId, remaining)
   }
 
-  const sequences = new Map<string, SettlementCandidate[]>()
-  for (const topic of input.topics) {
-    sequences.set(topic.topicId, input.candidates
-      .filter(candidate => candidate.topicId === topic.topicId && (candidate.decision === 'proposed' || candidate.decision === 'reserve'))
-      .sort(candidateOrder))
-  }
-
-  const nextIndex = new Map(input.topics.map(topic => [topic.topicId, 0]))
   const heldByStudent = new Map<string, HeldAssignment>()
   const heldByTopic = new Map<string, Set<string>>(input.topics.map(topic => [topic.topicId, new Set<string>()]))
-  const queue = input.topics.map(topic => topic.topicId).sort()
-  const queued = new Set(queue)
+  const candidates = input.candidates
+    .filter(candidate => candidate.decision === 'proposed' || candidate.decision === 'reserve')
+    .sort((a, b) => a.priority - b.priority || candidateOrder(a, b))
 
-  const enqueue = (topicId: string) => {
-    const held = heldByTopic.get(topicId)?.size || 0
-    const sequence = sequences.get(topicId) || []
-    if (held < (remainingSeats.get(topicId) || 0) && (nextIndex.get(topicId) || 0) < sequence.length && !queued.has(topicId)) {
-      queue.push(topicId)
-      queue.sort()
-      queued.add(topicId)
-    }
-  }
-
-  while (queue.length) {
-    const topicId = queue.shift()!
-    queued.delete(topicId)
-    const topic = topicById.get(topicId)!
-    const sequence = sequences.get(topicId) || []
-    const held = heldByTopic.get(topicId)!
-
-    while (held.size < (remainingSeats.get(topicId) || 0)) {
-      const index = nextIndex.get(topicId) || 0
-      const candidate = sequence[index]
-      if (!candidate) break
-      nextIndex.set(topicId, index + 1)
-      if (lockedStudents.has(candidate.studentId)) continue
-
-      const current = heldByStudent.get(candidate.studentId)
-      if (current && !prefers(candidate, current)) continue
-
-      const currentTeacherCount = teacherCounts.get(topic.teacherId) || 0
-      const freesSameTeacherSeat = current?.teacherId === topic.teacherId ? 1 : 0
-      if (input.teacherLimit > 0 && currentTeacherCount - freesSameTeacherSeat >= input.teacherLimit) continue
-
-      if (current) {
-        heldByTopic.get(current.topicId)?.delete(current.applicationId)
-        teacherCounts.set(current.teacherId, (teacherCounts.get(current.teacherId) || 1) - 1)
-        enqueue(current.topicId)
-      }
-      held.add(candidate.applicationId)
-      heldByStudent.set(candidate.studentId, candidate)
-      teacherCounts.set(topic.teacherId, (teacherCounts.get(topic.teacherId) || 0) + 1)
-    }
+  // Complete each preference round before considering a lower preference.
+  for (const candidate of candidates) {
+    if (lockedStudents.has(candidate.studentId) || heldByStudent.has(candidate.studentId)) continue
+    const held = heldByTopic.get(candidate.topicId)!
+    if (held.size >= remainingSeats.get(candidate.topicId)!) continue
+    const teacherCount = teacherCounts.get(candidate.teacherId) || 0
+    if (input.teacherLimit > 0 && teacherCount >= input.teacherLimit) continue
+    held.add(candidate.applicationId)
+    heldByStudent.set(candidate.studentId, candidate)
+    teacherCounts.set(candidate.teacherId, teacherCount + 1)
   }
 
   const accepted = new Set([...heldByStudent.values()].map(item => item.applicationId))
