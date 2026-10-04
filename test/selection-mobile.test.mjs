@@ -62,3 +62,29 @@ test('加载和手机切换期间，标签必须能同步外部已选课题',asy
  assert.equal(await s.beforeTopicLeave('t2'),true)
  assert.equal(await s.beforeTopicLeave('t1'),false)
 })
+
+test('第二至第六志愿无法在遴选页面设为拟录取，第一志愿仍可操作',async()=>{
+ const h=setup();await h.start();const s=h.state
+ for (const priority of [2,3,4,5,6]) {
+  const row=h.drafts.drafts.t1.applications.find(x=>x.id==='b')
+  row.priority=priority;row.decision='reserve'
+  s.setDecision('b','proposed')
+  assert.equal(row.decision,'reserve')
+ }
+ s.setDecision('a','proposed')
+ assert.equal(h.drafts.drafts.t1.applications.find(x=>x.id==='a').decision,'proposed')
+})
+
+test('桌面与手机低志愿行不渲染拟录取按钮',async()=>{
+ const {compile}=require('@vue/compiler-dom')
+ const buttons=source.match(/<el-button\b[^>]*@click="setDecision\(row.id, 'proposed'\)"[^>]*>拟录取<\/el-button>/g)
+ assert.equal(buttons.length,2)
+ for (const template of buttons) {
+  const render=new Function('Vue',compile(template).code)({...vue,resolveComponent:()=> 'button'})
+  for(const priority of [2,3,4,5,6]) {
+   const vnode=render({row:{id:'b',priority,decision:'reserve'},editingDisabled:false,setDecision(){}},[])
+   assert.equal(vnode.type,vue.Comment)
+  }
+  assert.notEqual(render({row:{id:'a',priority:1},editingDisabled:false,setDecision(){}},[]).type,vue.Comment)
+ }
+})

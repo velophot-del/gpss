@@ -76,7 +76,7 @@
                   <el-tag :type="row.status === 'accepted' ? 'success' : decisionType[row.decision] || 'info'">{{ row.status === 'accepted' ? '既有录取' : decisionLabel[row.decision] || '未处理' }}</el-tag></div>
                 <details class="student-motivation"><summary>查看申请理由</summary><p>{{ row.motivation || '未填写申请理由' }}</p></details>
                 <div v-if="['pending', 'submitted', 'pending_review'].includes(row.status)" class="student-decision-actions" :aria-label="`${row.studentName}的审核操作`">
-                  <el-button type="success" :plain="row.decision !== 'proposed'" :aria-pressed="row.decision === 'proposed'" :disabled="editingDisabled || row.priority !== 1" @click="setDecision(row.id, 'proposed')">拟录取</el-button>
+                  <el-button v-if="row.priority === 1" type="success" :plain="row.decision !== 'proposed'" :aria-pressed="row.decision === 'proposed'" :disabled="editingDisabled || row.priority !== 1" @click="setDecision(row.id, 'proposed')">拟录取</el-button>
                   <el-button type="warning" :plain="row.decision !== 'reserve'" :aria-pressed="row.decision === 'reserve'" :disabled="editingDisabled" @click="setDecision(row.id, 'reserve')">候补</el-button>
                   <el-button type="danger" :plain="row.decision !== 'reject'" :aria-pressed="row.decision === 'reject'" :disabled="editingDisabled" @click="setDecision(row.id, 'reject')">不录取</el-button>
                   <el-button :disabled="editingDisabled || !row.decision" @click="setDecision(row.id, null)">清除</el-button>
@@ -94,7 +94,7 @@
               <el-table-column label="遴选草稿" width="150" align="center"><template #default="{ row }"><el-tag v-if="row.status === 'accepted'" type="success">既有录取</el-tag><el-tag v-else :type="decisionType[row.decision] || 'info'">{{ decisionLabel[row.decision] || '未处理' }}</el-tag></template></el-table-column>
               <el-table-column label="操作" min-width="310" fixed="right"><template #default="{ row }">
                 <el-button-group v-if="['pending', 'submitted', 'pending_review'].includes(row.status)">
-                  <el-button size="small" type="success" :plain="row.decision !== 'proposed'" :disabled="editingDisabled || row.priority !== 1" @click="setDecision(row.id, 'proposed')">拟录取</el-button>
+                  <el-button v-if="row.priority === 1" size="small" type="success" :plain="row.decision !== 'proposed'" :disabled="editingDisabled || row.priority !== 1" @click="setDecision(row.id, 'proposed')">拟录取</el-button>
                   <el-button size="small" type="warning" :plain="row.decision !== 'reserve'" :disabled="editingDisabled" @click="setDecision(row.id, 'reserve')">候补</el-button>
                   <el-button size="small" type="danger" :plain="row.decision !== 'reject'" :disabled="editingDisabled" @click="setDecision(row.id, 'reject')">不录取</el-button>
                   <el-button size="small" :disabled="editingDisabled || !row.decision" @click="setDecision(row.id, null)">清除</el-button>
