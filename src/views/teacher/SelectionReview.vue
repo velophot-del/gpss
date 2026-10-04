@@ -11,10 +11,11 @@
         <div class="teacher-quota-grid">
           <div><span>指导上限</span><strong>{{ teacherQuota.limit === null ? '读取中' : teacherQuota.limit > 0 ? teacherQuota.limit + ' 人' : '未设上限' }}</strong></div>
           <div><span>拟录取总人数</span><strong>{{ teacherQuota.proposed === null ? '待获取' : teacherQuota.proposed + ' 人' }}</strong></div>
+          <div><span>递补总人数</span><strong>{{ teacherQuota.reserve === null ? '待获取' : teacherQuota.reserve + ' 人' }}</strong></div>
           <div><span>已录取人数</span><strong>{{ teacherQuota.accepted === null ? '待获取' : teacherQuota.accepted + ' 人' }}</strong></div>
           <div><span>剩余名额</span><strong>{{ teacherQuota.limit === 0 ? '未设上限' : teacherQuota.remaining === null ? '待获取' : teacherQuota.remaining + ' 人' }}</strong></div>
         </div>
-        <p>剩余名额＝指导上限－本教师本周期全部课题的拟录取人数，包含当前未保存修改；候补不计入拟录取。</p>
+        <p>剩余名额＝指导上限－本教师本周期全部课题的拟录取人数，包含当前未保存修改；候补不计入拟录取。递补总人数为所有课题候补名单的去重学生数，不代表已递补录取。</p>
         <p v-if="teacherQuota.remaining !== null && teacherQuota.remaining < 0" class="quota-warning">拟录取人数已超出指导上限 {{ -teacherQuota.remaining }} 人，请调整名单；最终实际录取仍受指导上限约束。</p>
       </section>
 
@@ -200,7 +201,21 @@ const teacherQuota = computed(() => {
       proposed += countProposed(view) - countProposed(saved)
     }
   }
-  return { limit, accepted, proposed, remaining: limit !== null && limit > 0 && proposed !== null ? limit - proposed : null }
+  const reserveCounts = currentDraft.value?.teacherReserveStudentCounts
+  let reserve: number | null = null
+  if (reserveCounts) {
+    const adjusted = { ...reserveCounts }
+    for (const [topicId, view] of Object.entries(draftStore.drafts)) {
+      if (view.topic.teacherId !== currentDraft.value?.topic.teacherId || view.topic.cycleId !== currentDraft.value?.topic.cycleId || !savedViews.value[topicId]) continue
+      const saved: SelectionDraftView = JSON.parse(savedViews.value[topicId])
+      const before = new Set(saved.applications.filter(item => item.decision === 'reserve').map(item => item.studentId))
+      const after = new Set(view.applications.filter(item => item.decision === 'reserve').map(item => item.studentId))
+      for (const id of before) if (!after.has(id)) adjusted[id] = (adjusted[id] || 0) - 1
+      for (const id of after) if (!before.has(id)) adjusted[id] = (adjusted[id] || 0) + 1
+    }
+    reserve = Object.values(adjusted).filter(count => count > 0).length
+  }
+  return { limit, accepted, proposed, reserve, remaining: limit !== null && limit > 0 && proposed !== null ? limit - proposed : null }
 })
 const proposedItems = computed(() => activeTopicId.value ? draftStore.ordered(activeTopicId.value, 'proposed') : [])
 const reserveItems = computed(() => activeTopicId.value ? draftStore.ordered(activeTopicId.value, 'reserve') : [])
@@ -348,7 +363,7 @@ async function showStudentDetail(studentId: string) {
 .teacher-quota { margin:18px 0; padding:18px; border:1px solid #b9d6f2; border-radius:12px; background:#f0f7ff; }
 .teacher-quota h3 { margin:0 0 14px; color:#17324d; font-size:17px; }
 .teacher-quota h3 small { margin-left:8px; font-size:13px; font-weight:400; }
-.teacher-quota-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+.teacher-quota-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; }
 .teacher-quota-grid > div { background:#fff; padding:12px; border-radius:8px; }
 .teacher-quota-grid span { display:block; color:#475569; font-size:13px; }
 .teacher-quota-grid strong { display:block; margin-top:8px; font-size:26px; color:#17324d; overflow-wrap:anywhere; }

@@ -29,6 +29,7 @@ export interface SelectionDraftView {
   teacherStudentLimit: number
   teacherAcceptedCount: number
   teacherProposedCount: number
+  teacherReserveStudentCounts: Record<string, number>
   settlementWarning?: string
 }
 
@@ -122,6 +123,14 @@ export async function getSelectionDraft(topicId: string, actor: SessionUser): Pr
        WHERE t.teacher_id = ? AND sb.cycle_id = ? AND sdi.decision = 'proposed' AND a.priority = 1) AS proposed_count
   `, [topic.teacher_id, topic.cycle_id, topic.teacher_id, topic.cycle_id])
 
+  const reserveCounts = await query<any>(`
+    SELECT a.student_id, COUNT(*) AS reserve_application_count
+    FROM selection_draft_items sdi JOIN selection_batches sb ON sb.id = sdi.batch_id
+    JOIN topics t ON t.id = sb.topic_id JOIN applications a ON a.id = sdi.application_id
+    WHERE t.teacher_id = ? AND sb.cycle_id = ?
+      AND (sdi.decision = 'reserve' OR (sdi.decision = 'proposed' AND a.priority > 1))
+    GROUP BY a.student_id
+  `, [topic.teacher_id, topic.cycle_id])
   if (!batch || batch.status === 'draft') {
     let reserveRank = Math.max(0, ...applications.filter(item => item.decision === 'reserve').map(item => Number(item.decision_rank) || 0))
     for (const item of applications) {
@@ -154,6 +163,7 @@ export async function getSelectionDraft(topicId: string, actor: SessionUser): Pr
     teacherStudentLimit: getTeacherStudentLimit(config),
     teacherAcceptedCount: Number(counts?.accepted_count || 0),
     teacherProposedCount: Number(counts?.proposed_count || 0),
+    teacherReserveStudentCounts: Object.fromEntries(reserveCounts.map(row => [row.student_id, Number(row.reserve_application_count)])),
   }
 }
 

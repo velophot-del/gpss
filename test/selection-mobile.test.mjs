@@ -120,3 +120,17 @@ test('剩余名额按跨课题拟录取合计计算，并实时计入未保存�
  view.teacherProposedCount=18
  assert.equal(s.teacherQuota.value.remaining,-3)
 })
+
+test('递补总人数跨课题去重，保留其他课题候补并响应未保存操作',async()=>{
+ const h=setup();await h.start();const s=h.state;const view=h.drafts.drafts.t1
+ view.teacherReserveStudentCounts={b:2,other:1}
+ assert.equal(s.teacherQuota.value.reserve,2)
+ s.setDecision('b','reject')
+ assert.equal(s.teacherQuota.value.reserve,2)
+ s.setDecision('a','reserve')
+ assert.equal(s.teacherQuota.value.reserve,3)
+ s.setDecision('a',null)
+ assert.equal(s.teacherQuota.value.reserve,2)
+ view.teacherReserveStudentCounts={b:1,other:1}
+ assert.equal(s.teacherQuota.value.reserve,1)
+})

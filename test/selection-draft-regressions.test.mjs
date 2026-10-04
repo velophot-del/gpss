@@ -24,6 +24,7 @@ function service({ failSettlement = false } = {}) {
   return load('../server/src/services/selectionDraftService.ts', {
     '../config/database.js': { transaction: fn => fn(conn), query: async sql => {
       if (sql.includes('FROM topics t LEFT JOIN cycles')) return [topic]
+      if (sql.includes('AS reserve_application_count')) return [{ student_id: 's1', reserve_application_count: 2 }, { student_id: 's2', reserve_application_count: 1 }]
       if (sql.includes('AS accepted_count')) return [{ accepted_count: 3, proposed_count: 2 }]
       if (sql.includes('SELECT * FROM selection_batches')) return [{ id: 'b', status: 'submitted', version: 1 }]
       return []
@@ -40,6 +41,7 @@ test('草稿返回数据库中的教师人数', async () => {
   const view = await service().getSelectionDraft('t', { id: 'teacher', role: 'teacher' })
   assert.equal(view.teacherAcceptedCount, 3)
   assert.equal(view.teacherProposedCount, 2)
+  assert.deepEqual(view.teacherReserveStudentCounts, { s1: 2, s2: 1 })
 })
 test('修改完整候选名单后正常重排且兼容旧间隔排名', async () => {
   const { createPinia, setActivePinia } = require('pinia')
