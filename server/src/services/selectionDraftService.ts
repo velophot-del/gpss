@@ -117,9 +117,9 @@ export async function getSelectionDraft(topicId: string, actor: SessionUser): Pr
     SELECT
       (SELECT COUNT(DISTINCT a.student_id) FROM applications a JOIN topics t ON t.id = a.topic_id
        WHERE t.teacher_id = ? AND t.cycle_id = ? AND a.status = 'accepted') AS accepted_count,
-      (SELECT COUNT(*) FROM selection_draft_items sdi JOIN selection_batches sb ON sb.id = sdi.batch_id
-       JOIN topics t ON t.id = sb.topic_id
-       WHERE t.teacher_id = ? AND sb.cycle_id = ? AND sdi.decision = 'proposed') AS proposed_count
+      (SELECT COUNT(DISTINCT a.student_id) FROM selection_draft_items sdi JOIN selection_batches sb ON sb.id = sdi.batch_id
+       JOIN topics t ON t.id = sb.topic_id JOIN applications a ON a.id = sdi.application_id
+       WHERE t.teacher_id = ? AND sb.cycle_id = ? AND sdi.decision = 'proposed' AND a.priority = 1) AS proposed_count
   `, [topic.teacher_id, topic.cycle_id, topic.teacher_id, topic.cycle_id])
 
   if (!batch || batch.status === 'draft') {

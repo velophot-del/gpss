@@ -6,6 +6,18 @@
         <el-button :disabled="busy" @click="refreshAll">刷新状态</el-button>
       </div>
 
+      <section class="teacher-quota" aria-label="本周期教师指导名额" aria-live="polite">
+        <h3>本周期教师名额 <small>所有课题合计</small></h3>
+        <div class="teacher-quota-grid">
+          <div><span>指导上限</span><strong>{{ teacherQuota.limit === null ? '读取中' : teacherQuota.limit > 0 ? teacherQuota.limit + ' 人' : '未设上限' }}</strong></div>
+          <div><span>拟录取总人数</span><strong>{{ teacherQuota.proposed === null ? '待获取' : teacherQuota.proposed + ' 人' }}</strong></div>
+          <div><span>已录取人数</span><strong>{{ teacherQuota.accepted === null ? '待获取' : teacherQuota.accepted + ' 人' }}</strong></div>
+          <div><span>剩余名额</span><strong>{{ teacherQuota.limit === 0 ? '未设上限' : teacherQuota.remaining === null ? '待获取' : teacherQuota.remaining + ' 人' }}</strong></div>
+        </div>
+        <p>剩余名额＝指导上限－本教师本周期全部课题的拟录取人数，包含当前未保存修改；候补不计入拟录取。</p>
+        <p v-if="teacherQuota.remaining !== null && teacherQuota.remaining < 0" class="quota-warning">拟录取人数已超出指导上限 {{ -teacherQuota.remaining }} 人，请调整名单；最终实际录取仍受指导上限约束。</p>
+      </section>
+
       <el-alert v-if="!isTeacherReview" :title="`当前为${cycleStore.phaseInfo.label}`" description="当前阶段为只读状态，可查看课题、学生申报状态和学生信息；遴选操作仅在教师遴选阶段开放。" type="info" :closable="false" show-icon class="state-alert" />
       <el-empty v-if="!myTopics.length" description="暂无可查看课题" />
       <el-select v-if="isMobile && myTopics.length" :model-value="activeTopicId" aria-label="选择课题" class="mobile-topic-select" :disabled="busy" @change="loadTopic">
@@ -19,9 +31,6 @@
               <div><span>拟录取</span><strong>{{ decisionCount('proposed') }}</strong></div>
               <div><span>候补</span><strong>{{ decisionCount('reserve') }}</strong></div>
               <div><span>未处理</span><strong>{{ undecidedCount }}</strong></div>
-              <div><span>指导上限（跨全部课题）</span><strong>{{ currentDraft.teacherStudentLimit || '未设置' }}</strong></div>
-              <div><span>已正式录取</span><strong>{{ currentDraft.teacherAcceptedCount }}</strong></div>
-              <div><span>剩余名额</span><strong>{{ currentDraft.teacherStudentLimit > 0 ? Math.max(0, currentDraft.teacherStudentLimit - currentDraft.teacherAcceptedCount) : '未设上限' }}</strong></div>
               <div><span>审核截止</span><strong class="deadline">{{ currentDraft.deadline ? formatDateTime(currentDraft.deadline) : '未配置' }}</strong></div>
             </div>
 
@@ -145,7 +154,7 @@ import { useTopicStore } from '../../stores/topic'
 import { useStudentStore } from '../../stores/student'
 import { useSelectionDraftStore } from '../../stores/selectionDraft'
 import { useCycleStore } from '../../stores/cycle'
-import type { SelectionDraftDecision } from '../../types'
+import type { SelectionDraftView, SelectionDraftDecision } from '../../types'
 import { formatPriority, priorityTagType } from '../../utils/volunteerRules'
 
 const topicStore = useTopicStore()
@@ -176,6 +185,23 @@ const dragState = ref<{ decision: 'proposed' | 'reserve'; index: number } | null
 
 const myTopics = computed(() => topicStore.topics)
 const currentDraft = computed(() => draftStore.drafts[activeTopicId.value])
+const teacherQuota = computed(() => {
+  const limitValue = currentDraft.value?.teacherStudentLimit ?? cycleStore.currentCycle?.teacherStudentLimit
+  const acceptedValue = currentDraft.value?.teacherAcceptedCount
+  const limit = typeof limitValue === 'number' && Number.isFinite(limitValue) ? limitValue : null
+  const accepted = typeof acceptedValue === 'number' && Number.isFinite(acceptedValue) ? acceptedValue : null
+  const total = currentDraft.value?.teacherProposedCount
+  let proposed: number | null = typeof total === 'number' && Number.isFinite(total) ? total : null
+  if (proposed !== null) {
+    const countProposed = (view: SelectionDraftView) => new Set(view.applications.filter(item => item.decision === 'proposed' && item.priority === 1).map(item => item.studentId)).size
+    for (const [topicId, view] of Object.entries(draftStore.drafts)) {
+      if (view.topic.teacherId !== currentDraft.value?.topic.teacherId || view.topic.cycleId !== currentDraft.value?.topic.cycleId || !savedViews.value[topicId]) continue
+      const saved: SelectionDraftView = JSON.parse(savedViews.value[topicId])
+      proposed += countProposed(view) - countProposed(saved)
+    }
+  }
+  return { limit, accepted, proposed, remaining: limit !== null && limit > 0 && proposed !== null ? limit - proposed : null }
+})
 const proposedItems = computed(() => activeTopicId.value ? draftStore.ordered(activeTopicId.value, 'proposed') : [])
 const reserveItems = computed(() => activeTopicId.value ? draftStore.ordered(activeTopicId.value, 'reserve') : [])
 const loading = computed(() => draftStore.loadingTopicIds.includes(activeTopicId.value))
@@ -319,6 +345,18 @@ async function showStudentDetail(studentId: string) {
 </script>
 
 <style scoped>
+.teacher-quota { margin:18px 0; padding:18px; border:1px solid #b9d6f2; border-radius:12px; background:#f0f7ff; }
+.teacher-quota h3 { margin:0 0 14px; color:#17324d; font-size:17px; }
+.teacher-quota h3 small { margin-left:8px; font-size:13px; font-weight:400; }
+.teacher-quota-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; }
+.teacher-quota-grid > div { background:#fff; padding:12px; border-radius:8px; }
+.teacher-quota-grid span { display:block; color:#475569; font-size:13px; }
+.teacher-quota-grid strong { display:block; margin-top:8px; font-size:26px; color:#17324d; overflow-wrap:anywhere; }
+.teacher-quota .quota-warning { color:#b45309; font-weight:600; }
+.teacher-quota p { margin:12px 0 0; color:#475569; font-size:13px; line-height:1.6; }
+@media (max-width:768px) { .teacher-quota-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:480px) { .teacher-quota { padding:12px; } .teacher-quota-grid { gap:6px; } .teacher-quota-grid > div { padding:9px 6px; } .teacher-quota-grid strong { font-size:21px; } }
+
 .page-header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; }
 .page-header p { color:#64748b; margin-top:6px; }
 .topic-tabs { margin-top:18px; }

@@ -88,3 +88,35 @@ test('桌面与手机低志愿行不渲染拟录取按钮',async()=>{
   assert.notEqual(render({row:{id:'a',priority:1},editingDisabled:false,setDecision(){}},[]).type,vue.Comment)
  }
 })
+
+test('教师人数摘要在课题名单为空时仍显示，录取数据未知时不伪装为零',async()=>{
+ const {compile}=require('@vue/compiler-dom')
+ const render=new Function('Vue',compile(parse(source).descriptor.template.content).code)({...vue,resolveComponent:name=>name})
+ const h=setup();await h.start();h.state.topicStore.topics.length=0
+ h.drafts.drafts.t1.teacherStudentLimit=15;h.drafts.drafts.t1.teacherAcceptedCount=3;h.drafts.drafts.t1.teacherProposedCount=3
+ const textOf=v=>typeof v==='string'?v:Array.isArray(v)?v.map(textOf).join(''):v?.children && typeof v.children!=='object'?String(v.children):Array.isArray(v?.children)?textOf(v.children):''
+ const tree=render(vue.proxyRefs(h.state),[])
+ const text=textOf(tree)
+ assert.match(text,/指导上限/);assert.match(text,/已录取人数/);assert.match(text,/剩余名额/)
+ assert.match(text,/15/);assert.match(text,/12/)
+ h.drafts.drafts.t1.teacherAcceptedCount=undefined
+ assert.equal(h.state.teacherQuota.value.accepted,null)
+ assert.equal(h.state.teacherQuota.value.remaining,12)
+ h.drafts.drafts.t1.teacherProposedCount=undefined
+ assert.equal(h.state.teacherQuota.value.remaining,null)
+})
+
+
+test('剩余名额按跨课题拟录取合计计算，并实时计入未保存操作',async()=>{
+ const h=setup();await h.start();const s=h.state
+ const view=h.drafts.drafts.t1
+ view.teacherStudentLimit=15;view.teacherAcceptedCount=2;view.teacherProposedCount=10
+ assert.equal(s.teacherQuota.value.remaining,5)
+ s.setDecision('a','proposed')
+ assert.equal(s.teacherQuota.value.proposed,11)
+ assert.equal(s.teacherQuota.value.remaining,4)
+ s.setDecision('a','reserve')
+ assert.equal(s.teacherQuota.value.remaining,5)
+ view.teacherProposedCount=18
+ assert.equal(s.teacherQuota.value.remaining,-3)
+})
