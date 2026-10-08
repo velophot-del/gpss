@@ -155,35 +155,48 @@ router.get('/adjustment-settlement/:cycleId', async (req: AuthRequest, res) => {
     const [cycle] = await query<any>('SELECT id,name,phase,phases_config FROM cycles WHERE id=?', [cycleId])
     if (!cycle) return error(res, '选题周期不存在', 404)
     const deadline = getAdjustmentDeadline(safeParseJson(cycle.phases_config, {}))
-    const [eligible] = await query<any>('SELECT COUNT(DISTINCT student_id) students, COUNT(*) volunteers FROM adjustment_volunteers WHERE cycle_id=?', [cycleId])
-    const topics = await query<any>(`SELECT t.id,t.title,u.real_name teacher_name,COUNT(DISTINCT av.id) volunteer_count,COUNT(DISTINCT adi.volunteer_id) decided_count,ab.status batch_status,ab.version,ab.submitted_at FROM topics t JOIN users u ON u.id=t.teacher_id LEFT JOIN adjustment_volunteers av ON av.topic_id=t.id AND av.cycle_id=t.cycle_id AND av.status='submitted' LEFT JOIN adjustment_batches ab ON ab.cycle_id=t.cycle_id AND ab.topic_id=t.id LEFT JOIN adjustment_draft_items adi ON adi.batch_id=ab.id AND adi.volunteer_id=av.id WHERE t.cycle_id=? GROUP BY t.id,t.title,u.real_name,ab.status,ab.version,ab.submitted_at HAVING volunteer_count>0 ORDER BY u.real_name,t.title`, [cycleId])
+    const [eligible] = await query<any>(`SELECT COUNT(DISTINCT a.student_id) students FROM applications a
+      JOIN topics t ON t.id=a.topic_id WHERE t.cycle_id=? AND NOT EXISTS (
+        SELECT 1 FROM applications accepted JOIN topics accepted_topic ON accepted_topic.id=accepted.topic_id
+        WHERE accepted.student_id=a.student_id AND accepted_topic.cycle_id=? AND accepted.status='accepted'
+      )`, [cycleId, cycleId])
+    const [volunteers] = await query<any>(`SELECT COUNT(*) AS total,COUNT(DISTINCT student_id) AS students
+      FROM adjustment_volunteers WHERE cycle_id=?`, [cycleId])
+    const topics = await query<any>(`SELECT t.id,t.title,u.real_name teacher_name,t.max_students,
+        COUNT(DISTINCT av.id) volunteer_count,
+        COUNT(DISTINCT CASE WHEN av.status='accepted' THEN av.student_id END) adjustment_accepted_count,
+        COUNT(DISTINCT CASE WHEN a.status='accepted' THEN a.student_id END) current_accepted_count
+      FROM topics t JOIN users u ON u.id=t.teacher_id
+      LEFT JOIN adjustment_volunteers av ON av.topic_id=t.id AND av.cycle_id=t.cycle_id
+      LEFT JOIN applications a ON a.topic_id=t.id AND a.status='accepted'
+      WHERE t.cycle_id=?
+      GROUP BY t.id,t.title,u.real_name,t.max_students
+      HAVING volunteer_count>0 ORDER BY u.real_name,t.title`, [cycleId])
     const [settlement] = await query<any>('SELECT * FROM adjustment_settlements WHERE cycle_id=?', [cycleId])
-    success(res, { cycle: { id: cycle.id, name: cycle.name, phase: cycle.phase, deadline: deadline?.toISOString() || null }, configurationError: deadline ? null : '当前周期未配置有效的调剂截止时间', counts: { students: Number(eligible?.students || 0), volunteers: Number(eligible?.volunteers || 0) }, topics, settlement: settlement ? { ...settlement, result_json: safeParseJson(settlement.result_json, null) } : null })
+    const result = settlement ? safeParseJson<Record<string, any> | null>(settlement.result_json, null) : null
+    success(res, {
+      cycle: { id: cycle.id, name: cycle.name, phase: cycle.phase, deadline: deadline?.toISOString() || null },
+      configurationError: deadline ? null : '当前周期未配置有效的调剂截止时间',
+      counts: {
+        students: Number(eligible?.students || 0), volunteers: Number(volunteers?.total || 0),
+        submittedStudents: Number(volunteers?.students || 0), accepted: Number(result?.accepted || 0),
+        unmatchedStudents: Number(result?.unmatchedStudents || 0),
+      }, topics,
+      settlement: settlement ? { ...settlement, result_json: result } : null,
+    })
   } catch (cause) { console.error('读取调剂结算进度失败:', cause); error(res, '服务器内部错误', 500) }
 })
 
 router.post('/adjustment-topics/:topicId/unlock', async (req: AuthRequest, res) => {
-  try {
-    const reason = String(req.body?.reason || '').trim()
-    if (!reason) return error(res, '请填写退回原因')
-    await transaction(async conn => {
-      const [rows] = await conn.query<any[]>(`SELECT ab.*,asr.status settlement_status FROM adjustment_batches ab LEFT JOIN adjustment_settlements asr ON asr.cycle_id=ab.cycle_id WHERE ab.topic_id=? FOR UPDATE`, [req.params.topicId])
-      const batch=rows[0]
-      if (!batch) throw new AdjustmentSettlementError('该课题尚无调剂遴选批次',404)
-      if (['running','completed'].includes(batch.settlement_status)) throw new AdjustmentSettlementError('结算已开始或完成，不能退回')
-      if (!['submitted','auto_submitted'].includes(batch.status)) throw new AdjustmentSettlementError('只有已提交名单可以退回')
-      await conn.query(`UPDATE adjustment_batches SET status='draft',version=version+1,submitted_by=NULL,submitted_at=NULL,auto_submitted_at=NULL WHERE id=?`,[batch.id])
-      await conn.query(`INSERT INTO operation_logs (user_id, action, target_type, target_id, detail, ip_address) VALUES (?, 'adjustment_batch_unlocked', 'topic', ?, ?, ?)`, [req.user!.id, req.params.topicId, JSON.stringify({ reason, cycleId: batch.cycle_id }), req.ip || null])
-    })
-    success(res, null, '已退回教师修改')
-  } catch (cause:any) { if(cause instanceof AdjustmentSettlementError) return error(res,cause.message,cause.statusCode); error(res,cause?.message || '服务器内部错误',500) }
+  return error(res, '调剂阶段不再由教师遴选名单，旧批次仅保留为历史记录', 410)
 })
 
 router.post('/adjustment-settlement/:cycleId/run', async (req: AuthRequest, res) => {
   try {
     const [settlement] = await query<any>('SELECT status FROM adjustment_settlements WHERE cycle_id=?',[Number(req.params.cycleId)])
-    const result = await requestAdjustmentSettlementIfReady(Number(req.params.cycleId), settlement?.status === 'failed' ? 'admin_retry' : 'all_submitted')
-    if (result.status === 'waiting') return error(res, `仍有 ${result.pendingTopics} 个课题未提交，且尚未到截止时间`,409)
+    if (settlement?.status !== 'failed') return error(res, '系统将在调剂截止后自动匹配；仅失败结算可在截止后重试', 409)
+    const result = await requestAdjustmentSettlementIfReady(Number(req.params.cycleId), 'admin_retry')
+    if (result.status === 'waiting') return error(res, '尚未到调剂截止时间，暂不能重试',409)
     success(res,result,'调剂统一结算已完成')
   } catch(cause:any) { if(cause instanceof AdjustmentSettlementError) return error(res,cause.message,cause.statusCode); error(res,cause?.message || '服务器内部错误',500) }
 })

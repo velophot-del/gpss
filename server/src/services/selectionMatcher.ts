@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto'
+
 export type SelectionDecision = 'proposed' | 'reserve' | 'reject'
 
 export interface SettlementCandidate {
@@ -130,5 +132,185 @@ export function buildSettlementPlan(input: SettlementInput): SettlementPlan {
     rejectedApplicationIds: [...rejected].sort(),
     unmatchedStudentIds,
     topicAcceptedCounts,
+  }
+}
+
+export interface AdjustmentVolunteerCandidate {
+  applicationId: string
+  studentId: string
+  topicId: string
+  teacherId: string
+  priority: number
+}
+
+export interface AdjustmentMatchingTopic {
+  topicId: string
+  teacherId: string
+  capacity: number
+}
+
+export interface AdjustmentLockedAssignment {
+  applicationId: string
+  studentId: string
+  topicId: string
+  teacherId: string
+}
+
+export interface AdjustmentMatchingInput {
+  cycleId: number | string
+  volunteers: AdjustmentVolunteerCandidate[]
+  topics: AdjustmentMatchingTopic[]
+  lockedAssignments: AdjustmentLockedAssignment[]
+  teacherLimit: number
+}
+
+export interface AdjustmentMatchingPlan {
+  acceptedApplicationIds: string[]
+  withdrawnApplicationIds: string[]
+  rejectedApplicationIds: string[]
+  unmatchedStudentIds: string[]
+  topicAcceptedCounts: Record<string, number>
+  lotteryVersion: string
+}
+
+export const ADJUSTMENT_LOTTERY_VERSION = 'sha256-teacher-priority-v1'
+
+function adjustmentLotteryRank(cycleId: number | string, teacherId: string, studentId: string) {
+  return createHash('sha256').update(`${cycleId}:${teacherId}:${studentId}`).digest('hex')
+}
+
+/**
+ * Match students to their highest available adjustment preference. Candidates
+ * rejected by a topic or shared teacher quota continue with their next choice.
+ */
+export function buildAdjustmentMatchingPlan(input: AdjustmentMatchingInput): AdjustmentMatchingPlan {
+  const topicById = new Map(input.topics.map(topic => [topic.topicId, topic]))
+  if (topicById.size !== input.topics.length) throw new Error('调剂课题重复')
+
+  const applicationIds = new Set<string>()
+  const studentTopicPairs = new Set<string>()
+  const studentPriorities = new Set<string>()
+  for (const candidate of input.volunteers) {
+    if (applicationIds.has(candidate.applicationId)) throw new Error(`重复调剂志愿：${candidate.applicationId}`)
+    applicationIds.add(candidate.applicationId)
+    const topic = topicById.get(candidate.topicId)
+    if (!topic || topic.teacherId !== candidate.teacherId) throw new Error(`调剂志愿课题无效：${candidate.applicationId}`)
+    if (!Number.isInteger(candidate.priority) || candidate.priority < 1 || candidate.priority > 6) {
+      throw new Error(`调剂志愿序号无效：${candidate.applicationId}`)
+    }
+    const pairKey = `${candidate.studentId}\u0000${candidate.topicId}`
+    const priorityKey = `${candidate.studentId}\u0000${candidate.priority}`
+    if (studentTopicPairs.has(pairKey) || studentPriorities.has(priorityKey)) throw new Error(`学生调剂志愿重复：${candidate.studentId}`)
+    studentTopicPairs.add(pairKey)
+    studentPriorities.add(priorityKey)
+  }
+
+  const lockedStudents = new Set<string>()
+  const lockedByTopic = new Map<string, number>()
+  const lockedByTeacher = new Map<string, number>()
+  for (const assignment of input.lockedAssignments) {
+    if (lockedStudents.has(assignment.studentId)) throw new Error(`学生存在多个锁定录取：${assignment.studentId}`)
+    const topic = topicById.get(assignment.topicId)
+    if (!topic || topic.teacherId !== assignment.teacherId) throw new Error(`锁定录取课题无效：${assignment.applicationId}`)
+    lockedStudents.add(assignment.studentId)
+    lockedByTopic.set(assignment.topicId, (lockedByTopic.get(assignment.topicId) || 0) + 1)
+    lockedByTeacher.set(assignment.teacherId, (lockedByTeacher.get(assignment.teacherId) || 0) + 1)
+  }
+
+  const remainingByTopic = new Map<string, number>()
+  for (const topic of input.topics) {
+    if (!Number.isInteger(topic.capacity) || topic.capacity < 0) throw new Error(`课题容量无效：${topic.topicId}`)
+    const remaining = topic.capacity - (lockedByTopic.get(topic.topicId) || 0)
+    if (remaining < 0) throw new Error(`课题已有录取超过容量：${topic.topicId}`)
+    remainingByTopic.set(topic.topicId, remaining)
+  }
+  for (const [teacherId, count] of lockedByTeacher) {
+    if (input.teacherLimit > 0 && count > input.teacherLimit) throw new Error(`教师已有录取超过指导上限：${teacherId}`)
+  }
+
+  const preferences = new Map<string, AdjustmentVolunteerCandidate[]>()
+  for (const candidate of input.volunteers) {
+    if (lockedStudents.has(candidate.studentId)) continue
+    const list = preferences.get(candidate.studentId) || []
+    list.push(candidate)
+    preferences.set(candidate.studentId, list)
+  }
+  for (const list of preferences.values()) list.sort((a, b) => a.priority - b.priority || a.topicId.localeCompare(b.topicId))
+
+  const nextChoice = new Map([...preferences.keys()].map(studentId => [studentId, 0]))
+  const heldByStudent = new Map<string, AdjustmentVolunteerCandidate>()
+  while (true) {
+    const proposals: AdjustmentVolunteerCandidate[] = []
+    for (const studentId of [...preferences.keys()].sort()) {
+      if (heldByStudent.has(studentId)) continue
+      const list = preferences.get(studentId)!
+      const index = nextChoice.get(studentId) || 0
+      if (index >= list.length) continue
+      proposals.push(list[index])
+      nextChoice.set(studentId, index + 1)
+    }
+    if (!proposals.length) break
+
+    const applicantsByTeacher = new Map<string, Map<string, AdjustmentVolunteerCandidate>>()
+    for (const candidate of [...heldByStudent.values(), ...proposals]) {
+      const applicants = applicantsByTeacher.get(candidate.teacherId) || new Map<string, AdjustmentVolunteerCandidate>()
+      applicants.set(candidate.studentId, candidate)
+      applicantsByTeacher.set(candidate.teacherId, applicants)
+    }
+
+    const nextHeld = new Map<string, AdjustmentVolunteerCandidate>()
+    for (const [teacherId, applicants] of applicantsByTeacher) {
+      let teacherSeats = input.teacherLimit > 0
+        ? input.teacherLimit - (lockedByTeacher.get(teacherId) || 0)
+        : Number.POSITIVE_INFINITY
+      const ordered = [...applicants.values()].sort((a, b) =>
+        adjustmentLotteryRank(input.cycleId, teacherId, a.studentId).localeCompare(adjustmentLotteryRank(input.cycleId, teacherId, b.studentId)) ||
+        a.studentId.localeCompare(b.studentId) || a.applicationId.localeCompare(b.applicationId))
+      const topicCounts = new Map<string, number>()
+      for (const candidate of ordered) {
+        const heldCount = topicCounts.get(candidate.topicId) || 0
+        if (teacherSeats <= 0 || heldCount >= (remainingByTopic.get(candidate.topicId) || 0)) continue
+        topicCounts.set(candidate.topicId, heldCount + 1)
+        teacherSeats -= 1
+        nextHeld.set(candidate.studentId, candidate)
+      }
+    }
+    heldByStudent.clear()
+    for (const [studentId, candidate] of nextHeld) heldByStudent.set(studentId, candidate)
+  }
+
+  const acceptedIds = new Set([...heldByStudent.values()].map(candidate => candidate.applicationId))
+  const placedStudents = new Set([...lockedStudents, ...heldByStudent.keys()])
+  const withdrawn: string[] = []
+  const rejected: string[] = []
+  for (const candidate of input.volunteers) {
+    if (acceptedIds.has(candidate.applicationId)) continue
+    if (placedStudents.has(candidate.studentId)) withdrawn.push(candidate.applicationId)
+    else rejected.push(candidate.applicationId)
+  }
+
+  const topicAcceptedCounts: Record<string, number> = {}
+  for (const topic of input.topics) {
+    const count = (lockedByTopic.get(topic.topicId) || 0) +
+      [...heldByStudent.values()].filter(candidate => candidate.topicId === topic.topicId).length
+    if (count > topic.capacity) throw new Error(`调剂结算超过课题容量：${topic.topicId}`)
+    topicAcceptedCounts[topic.topicId] = count
+  }
+  const acceptedByTeacher = new Map<string, number>(lockedByTeacher)
+  for (const candidate of heldByStudent.values()) {
+    acceptedByTeacher.set(candidate.teacherId, (acceptedByTeacher.get(candidate.teacherId) || 0) + 1)
+  }
+  for (const [teacherId, count] of acceptedByTeacher) {
+    if (input.teacherLimit > 0 && count > input.teacherLimit) throw new Error(`调剂结算超过教师指导上限：${teacherId}`)
+  }
+
+  return {
+    acceptedApplicationIds: [...acceptedIds].sort(),
+    withdrawnApplicationIds: withdrawn.sort(),
+    rejectedApplicationIds: rejected.sort(),
+    unmatchedStudentIds: [...new Set(input.volunteers.map(candidate => candidate.studentId))]
+      .filter(studentId => !placedStudents.has(studentId)).sort(),
+    topicAcceptedCounts,
+    lotteryVersion: ADJUSTMENT_LOTTERY_VERSION,
   }
 }

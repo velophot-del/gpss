@@ -11,8 +11,6 @@ import {
   AdjustmentDraftError,
   getAdjustmentDraft,
   getAdjustmentTeacherTopics,
-  saveAdjustmentDraft,
-  submitAdjustmentBatch,
 } from '../services/adjustmentDraftService.js'
 import { AdjustmentSettlementError } from '../services/adjustmentSettlementService.js'
 
@@ -55,18 +53,11 @@ router.get('/topics/:topicId/draft', requireRole(['teacher']), async (req: AuthR
 })
 
 router.put('/topics/:topicId/draft', requireRole(['teacher']), async (req: AuthRequest, res) => {
-  try {
-    const version = Number(req.body?.version)
-    if (!Array.isArray(req.body?.items)) return error(res, '草稿内容无效')
-    success(res, await saveAdjustmentDraft(req.params.topicId, req.user!, version, req.body.items), '调剂遴选草稿已保存')
-  } catch (cause) { handleError(res, cause) }
+  return error(res, '调剂阶段不再由教师遴选名单，系统将在截止后自动匹配', 410)
 })
 
 router.post('/topics/:topicId/submit', requireRole(['teacher']), async (req: AuthRequest, res) => {
-  try {
-    const version = Number(req.body?.version)
-    success(res, await submitAdjustmentBatch(req.params.topicId, req.user!, version), '课题名单已提交，等待统一结算')
-  } catch (cause) { handleError(res, cause) }
+  return error(res, '调剂阶段不再由教师遴选名单，系统将在截止后自动匹配', 410)
 })
 
 export default router

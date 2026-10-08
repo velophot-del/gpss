@@ -2,7 +2,7 @@
   <div class="page-container adjustment-page">
     <div class="card-container">
       <div class="page-heading">
-        <div><h2 class="section-title">调剂志愿</h2><p>显示本专业课题和指导教师均有剩余名额的全部已发布课题，剩余名额按本周期正式录取人数计算。请选择 3–6 项并覆盖至少两位教师。</p></div>
+        <div><h2 class="section-title">调剂志愿</h2><p>仅显示本专业已发布、课题和指导教师均未满额的选题。请选择 1–6 项并按意愿排序，截止后系统自动匹配。</p></div>
         <el-tag v-if="deadline" type="info">截止 {{ formatDeadline(deadline) }}</el-tag>
       </div>
 
@@ -12,9 +12,8 @@
 
       <div class="toolbar">
         <span>可选课题 {{ adjustmentStore.eligibleTopics.length }} 个</span>
-        <el-tag :type="selected.length >= 3 ? 'success' : 'warning'">已选 {{ selected.length }}/6</el-tag>
-        <el-tag :type="teacherCount >= 2 ? 'success' : 'warning'">覆盖教师 {{ teacherCount }}/至少 2 位</el-tag>
-        <el-button type="primary" :disabled="!adjustmentStore.mine.canEdit" :loading="saving" @click="save">保存调剂志愿</el-button>
+        <el-tag :type="selected.length >= 1 ? 'success' : 'warning'">已选 {{ selected.length }}/6（至少 1 项）</el-tag>
+        <el-button type="primary" :disabled="!adjustmentStore.mine.canEdit || selected.length === 0" :loading="saving" @click="save">保存调剂志愿</el-button>
       </div>
 
       <el-table v-loading="adjustmentStore.loading" :data="adjustmentStore.eligibleTopics" row-key="id" stripe empty-text="当前没有符合条件的课题">
@@ -47,7 +46,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useAdjustmentVolunteerStore } from '@/stores/adjustmentVolunteer'
 import { useCycleStore } from '@/stores/cycle'
@@ -58,13 +57,12 @@ const selected = ref<any[]>([])
 const saving = ref(false)
 const errorMessage = ref('')
 const deadline = ref('')
-const teacherCount = computed(() => new Set(selected.value.map(item => item.teacherGroupKey).filter(Boolean)).size)
 const isSelected = (topicId: string) => selected.value.some(item => item.topicId === topicId)
 
 function toggle(topic: any) {
   if (isSelected(topic.id)) return remove(selected.value.findIndex(item => item.topicId === topic.id))
   if (selected.value.length >= 6) return
-  selected.value.push({ topicId: topic.id, title: topic.title, teacherGroupKey: topic.teacherGroupKey, motivation: '' })
+  selected.value.push({ topicId: topic.id, title: topic.title, motivation: '' })
 }
 function move(index: number, delta: number) {
   const target = index + delta
@@ -77,8 +75,7 @@ function formatDeadline(value: string) { return new Date(value).toLocaleString('
 
 async function save() {
   errorMessage.value = ''
-  if (selected.value.length < 3 || selected.value.length > 6) return ElMessage.warning('请选择 3–6 个调剂志愿')
-  if (teacherCount.value < 2) return ElMessage.warning('调剂志愿须至少覆盖两位不同教师')
+  if (selected.value.length < 1 || selected.value.length > 6) return ElMessage.warning('请选择 1–6 个调剂志愿')
   saving.value = true
   try {
     await adjustmentStore.save(selected.value.map(item => ({ topicId: item.topicId, motivation: item.motivation })))
@@ -100,7 +97,7 @@ onMounted(async () => {
     if (!errorMessage.value) errorMessage.value = cause?.response?.data?.message || '当前无法加载可选课题'
   }
   selected.value = (adjustmentStore.mine.items || []).map((item: any) => ({
-    topicId: item.topicId, title: item.title, teacherGroupKey: item.teacherGroupKey || adjustmentStore.eligibleTopics.find((topic: any) => topic.id === item.topicId)?.teacherGroupKey,
+    topicId: item.topicId, title: item.title,
     motivation: item.motivation || '',
   }))
 })

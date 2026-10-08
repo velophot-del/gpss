@@ -97,19 +97,14 @@ export async function getMyAdjustmentVolunteers(actor: SessionUser) {
     ORDER BY av.priority
   `, [cycle.id, actor.id])
   const settlements = await query<any>('SELECT status, result_json, error_message FROM adjustment_settlements WHERE cycle_id = ?', [cycle.id])
-  const submittedBatches = await query<any>(`
-    SELECT COUNT(*) AS cnt FROM adjustment_batches b
-    JOIN adjustment_volunteers av ON av.cycle_id = b.cycle_id AND av.topic_id = b.topic_id
-    WHERE b.cycle_id = ? AND av.student_id = ? AND av.status = 'submitted' AND b.status != 'draft'
-  `, [cycle.id, actor.id])
   const deadline = getAdjustmentDeadline(safeParseJson(cycle.phases_config, {}))
   const canEdit = cycle.phase === 'adjustment' && !!deadline && Date.now() < deadline.getTime()
-    && !settlements[0]?.status?.match(/^(pending|running|failed|completed)$/) && Number(submittedBatches[0]?.cnt || 0) === 0
+    && !settlements[0]?.status?.match(/^(running|failed|completed)$/)
   return {
     cycleId: Number(cycle.id), phase: cycle.phase,
     version: items.length ? Math.max(...items.map(item => Number(item.version) || 0)) : 0,
     canEdit,
-    frozenReason: canEdit ? null : (Number(submittedBatches[0]?.cnt || 0) ? '所填课题已有教师提交名单，志愿已冻结' : ['pending', 'running', 'failed', 'completed'].includes(settlements[0]?.status) ? '调剂统一结算已开始' : deadline && Date.now() >= deadline.getTime() ? '调剂填报已截止' : '当前不在调剂阶段'),
+    frozenReason: canEdit ? null : (['running', 'failed', 'completed'].includes(settlements[0]?.status) ? '调剂统一结算已开始' : deadline && Date.now() >= deadline.getTime() ? '调剂填报已截止' : '当前不在调剂阶段'),
     items: items.map(item => ({ id: item.id, topicId: item.topic_id, title: item.title, category: item.category,
       major: item.major, priority: Number(item.priority), motivation: item.motivation || '', status: item.status, teacherGroupKey: getTeacherGroupKey(item.teacher_id) })),
     settlement: settlements[0] ? { status: settlements[0].status, result: safeParseJson(settlements[0].result_json, null) } : null,
@@ -118,7 +113,7 @@ export async function getMyAdjustmentVolunteers(actor: SessionUser) {
 
 export async function saveMyAdjustmentVolunteers(actor: SessionUser, expectedVersion: number, items: AdjustmentVolunteerInput[]) {
   if (actor.role !== 'student') throw new AdjustmentVolunteerError('只有学生可以提交调剂志愿', 403)
-  if (!Array.isArray(items) || items.length < 3 || items.length > 6) throw new AdjustmentVolunteerError('调剂志愿数量须为 3–6 个')
+  if (!Array.isArray(items) || items.length < 1 || items.length > 6) throw new AdjustmentVolunteerError('调剂志愿数量须为 1–6 个')
   if (items.some(item => !item?.topicId) || new Set(items.map(item => item.topicId)).size !== items.length) throw new AdjustmentVolunteerError('调剂志愿课题不能为空且不能重复')
   if (!Number.isInteger(expectedVersion) || expectedVersion < 0) throw new AdjustmentVolunteerError('志愿版本无效')
   const topicIds = items.map(item => String(item.topicId))
@@ -148,22 +143,14 @@ export async function saveMyAdjustmentVolunteers(actor: SessionUser, expectedVer
       ) ac ON ac.topic_id = t.id
       WHERE t.id IN (?) ORDER BY t.id FOR UPDATE
     `, [topicsToLock])
-    const [lockedBatches] = await conn.query<any[]>(`
-      SELECT DISTINCT b.topic_id, b.status FROM adjustment_batches b
-      WHERE b.cycle_id = ? AND b.topic_id IN (?) ORDER BY b.topic_id FOR UPDATE
-    `, [cycle.id, topicsToLock])
-    if (lockedBatches.some(batch => batch.status !== 'draft')) throw new AdjustmentVolunteerError('您填报的课题已有教师提交名单，志愿已冻结', 409)
     const selectedTopics = topics.filter(topic => topicIds.includes(String(topic.id)))
     if (selectedTopics.length !== items.length) throw new AdjustmentVolunteerError('有课题不存在或不可填报')
-    const teacherIds = new Set<string>()
     for (const topic of selectedTopics) {
       if (topic.status !== 'published' || Number(topic.cycle_id) !== Number(cycle.id)) throw new AdjustmentVolunteerError('只能填报本周期已发布课题')
       if (normalizeMajorCode(topic.major_code) !== majorCode) throw new AdjustmentVolunteerError('调剂课题须与您的专业一致')
       if (Number(topic.accepted_count) >= Number(topic.max_students)) throw new AdjustmentVolunteerError('有课题名额已满，请刷新后重选')
       if (!topic.teacher_id) throw new AdjustmentVolunteerError('所选课题未分配指导教师')
-      teacherIds.add(String(topic.teacher_id))
     }
-    if (teacherIds.size < 2) throw new AdjustmentVolunteerError('调剂志愿须至少覆盖两位不同教师')
 
     const eligibleIds = new Set((await readEligibleTopics(conn, Number(cycle.id), majorCode)).map(topic => String(topic.id)))
     if (selectedTopics.some(topic => !eligibleIds.has(String(topic.id)))) {

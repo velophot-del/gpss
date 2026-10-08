@@ -4,7 +4,6 @@ import { query, transaction } from '../config/database.js'
 import type { SessionUser } from '../utils/policies.js'
 import { getAdjustmentDeadline, getTeacherStudentLimit } from '../utils/policies.js'
 import { safeParseJson } from '../utils/json.js'
-import { requestAdjustmentSettlementIfReady } from './adjustmentSettlementService.js'
 
 export type AdjustmentDecision = 'proposed' | 'reserve' | 'reject'
 export type AdjustmentDraftItemInput = { volunteerId: string; decision: AdjustmentDecision | null; decisionRank?: number | null; comment?: string | null }
@@ -209,6 +208,5 @@ export async function submitAdjustmentBatch(topicId: string, actor: SessionUser,
       VALUES (?, 'adjustment_batch_submitted', 'topic', ?, ?)`, [actor.id, topic.id, JSON.stringify({ version: expectedVersion + 1 })])
     return Number(topic.cycle_id)
   })
-  await requestAdjustmentSettlementIfReady(cycleId, 'all_submitted')
   return readDraft(topicId, actor)
 }

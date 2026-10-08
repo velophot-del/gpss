@@ -5,9 +5,9 @@ import { createRequire } from 'node:module'
 import ts from 'typescript'
 const require = createRequire(import.meta.url)
 const serverRequire = createRequire(new URL('../server/package.json', import.meta.url))
-function service(teacherCount = 15, limit = 15) {
+function service(teacherCount = 15, limit = 15, topicCount = 3) {
   const cycle = { id: 1, phase: 'adjustment', phases_config: '{}' }
-  const topics = [1,2,3].map(id => ({ id: String(id), teacher_id: id === 3 ? 'b' : 'a', cycle_id: 1, major_code: '130502', status: 'published', max_students: 3, accepted_count: 1, teacher_accepted_count: id === 3 ? 0 : teacherCount }))
+  const topics = Array.from({ length: topicCount }, (_, index) => index + 1).map(id => ({ id: String(id), teacher_id: id === 3 ? 'b' : 'a', cycle_id: 1, major_code: '130502', status: 'published', max_students: 3, accepted_count: 1, teacher_accepted_count: id === 3 ? 0 : teacherCount }))
   let deleted = false
   const conn = { release() {}, async query(sql) {
     if (sql.includes('SELECT * FROM cycles')) return [[cycle]]
@@ -44,4 +44,24 @@ test('教师仍有余量时允许保存全部所选志愿', async () => {
   const s = service(14)
   await s.saveMyAdjustmentVolunteers(actor,0,[1,2,3].map(id=>({topicId:String(id)})))
   assert.equal(s.deleted(),true)
+})
+
+test('补录允许保存一个志愿，也允许只覆盖一位教师的志愿', async () => {
+  const s = service(14)
+  await s.saveMyAdjustmentVolunteers(actor,0,[{topicId:'1'}])
+  assert.equal(s.deleted(),true)
+})
+
+test('补录允许保存六个志愿', async () => {
+  const s = service(14,15,6)
+  await s.saveMyAdjustmentVolunteers(actor,0,Array.from({length:6},(_,index)=>({topicId:String(index+1)})))
+  assert.equal(s.deleted(),true)
+})
+
+test('补录拒绝空志愿和超过六项且不覆盖原志愿', async () => {
+  for (const count of [0,7]) {
+    const s = service(14,15,7)
+    await assert.rejects(s.saveMyAdjustmentVolunteers(actor,0,Array.from({length:count},(_,index)=>({topicId:String(index+1)}))), /1–6/)
+    assert.equal(s.deleted(),false)
+  }
 })

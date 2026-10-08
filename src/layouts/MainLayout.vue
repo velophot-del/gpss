@@ -86,10 +86,6 @@
             <el-icon><UserFilled /></el-icon>
             <template #title>遴选学生</template>
           </el-menu-item>
-          <el-menu-item index="/teacher/adjustment-review" v-if="cycleStore.currentPhase === 'adjustment'">
-            <el-icon><RefreshRight /></el-icon>
-            <template #title>调剂遴选</template>
-          </el-menu-item>
           <el-menu-item index="/teacher/results">
             <el-icon><TrendCharts /></el-icon>
             <template #title>选课结果</template>
