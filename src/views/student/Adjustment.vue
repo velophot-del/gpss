@@ -2,7 +2,7 @@
   <div class="page-container adjustment-page">
     <div class="card-container">
       <div class="page-heading">
-        <div><h2 class="section-title">调剂志愿</h2><p>仅显示本专业仍有名额的已发布课题。请选择 3–6 项并覆盖至少两位教师。</p></div>
+        <div><h2 class="section-title">调剂志愿</h2><p>显示本专业课题和指导教师均有剩余名额的全部已发布课题。请选择 3–6 项并覆盖至少两位教师。</p></div>
         <el-tag v-if="deadline" type="info">截止 {{ formatDeadline(deadline) }}</el-tag>
       </div>
 

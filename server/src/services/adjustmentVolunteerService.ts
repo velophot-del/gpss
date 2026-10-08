@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { query, transaction } from '../config/database.js'
 import type { SessionUser } from '../utils/policies.js'
 import { getAdjustmentDeadline, getTeacherStudentLimit } from '../utils/policies.js'
+import { getMajorCodeAliases, normalizeMajorCode } from '../utils/majorCodes.js'
 import { getStudentMajorCode } from '../utils/topicAccess.js'
 import { safeParseJson } from '../utils/json.js'
 import { getTeacherGroupKey, toStudentTopicView } from '../utils/studentTopic.js'
@@ -41,26 +42,30 @@ async function assertStudentEligible(conn: Connection, studentId: string, cycleI
     WHERE a.student_id = ? AND t.cycle_id = ? AND a.status = 'accepted' LIMIT 1
   `, [studentId, cycleId])
   if (accepted.length) throw new AdjustmentVolunteerError('您已被本周期课题录取，不能参加调剂', 403)
-  return String(majorCode || '')
+  return normalizeMajorCode(majorCode)
 }
 
 async function readEligibleTopics(conn: Connection, cycleId: number, majorCode: string) {
   const [rows] = await conn.query<any[]>(`
     SELECT t.*, u.real_name AS teacher_name, u.title AS teacher_title, u.department,
            u.email AS teacher_email, u.phone AS teacher_phone, u.avatar AS teacher_avatar,
-           COALESCE(ac.accepted_count, 0) AS accepted_count
+           COALESCE(ac.accepted_count, 0) AS accepted_count,
+           (SELECT COUNT(DISTINCT ta.student_id) FROM applications ta
+            JOIN topics tt ON tt.id = ta.topic_id
+            WHERE tt.teacher_id = t.teacher_id AND tt.cycle_id = t.cycle_id
+              AND ta.status = 'accepted') AS teacher_accepted_count
     FROM topics t JOIN users u ON u.id = t.teacher_id
     LEFT JOIN (
       SELECT topic_id, COUNT(DISTINCT student_id) AS accepted_count
       FROM applications WHERE status = 'accepted' GROUP BY topic_id
     ) ac ON ac.topic_id = t.id
-    WHERE t.cycle_id = ? AND t.major_code = ? AND t.status = 'published'
+    WHERE t.cycle_id = ? AND t.major_code IN (?) AND t.status = 'published'
       AND COALESCE(ac.accepted_count, 0) < t.max_students
     ORDER BY t.created_at DESC, t.id
-  `, [cycleId, majorCode])
+  `, [cycleId, getMajorCodeAliases(majorCode)])
   const configCycle = await conn.query<any[]>('SELECT phases_config FROM cycles WHERE id = ?', [cycleId])
   const teacherStudentLimit = getTeacherStudentLimit(safeParseJson(configCycle[0][0]?.phases_config, {}))
-  return rows.map(row => toStudentTopicView({
+  return rows.filter(row => teacherStudentLimit <= 0 || Number(row.teacher_accepted_count || 0) < teacherStudentLimit).map(row => toStudentTopicView({
     id: row.id, title: row.title, description: row.description, category: row.category,
     difficulty: row.difficulty, maxStudents: Number(row.max_students),
     currentCount: Number(row.accepted_count), status: row.status, cycleId: row.cycle_id,
@@ -153,12 +158,17 @@ export async function saveMyAdjustmentVolunteers(actor: SessionUser, expectedVer
     const teacherIds = new Set<string>()
     for (const topic of selectedTopics) {
       if (topic.status !== 'published' || Number(topic.cycle_id) !== Number(cycle.id)) throw new AdjustmentVolunteerError('只能填报本周期已发布课题')
-      if (String(topic.major_code || '') !== majorCode) throw new AdjustmentVolunteerError('调剂课题须与您的专业一致')
+      if (normalizeMajorCode(topic.major_code) !== majorCode) throw new AdjustmentVolunteerError('调剂课题须与您的专业一致')
       if (Number(topic.accepted_count) >= Number(topic.max_students)) throw new AdjustmentVolunteerError('有课题名额已满，请刷新后重选')
       if (!topic.teacher_id) throw new AdjustmentVolunteerError('所选课题未分配指导教师')
       teacherIds.add(String(topic.teacher_id))
     }
     if (teacherIds.size < 2) throw new AdjustmentVolunteerError('调剂志愿须至少覆盖两位不同教师')
+
+    const eligibleIds = new Set((await readEligibleTopics(conn, Number(cycle.id), majorCode)).map(topic => String(topic.id)))
+    if (selectedTopics.some(topic => !eligibleIds.has(String(topic.id)))) {
+      throw new AdjustmentVolunteerError('有课题或教师名额已满，请刷新后重选')
+    }
 
     await conn.query('DELETE FROM adjustment_volunteers WHERE cycle_id = ? AND student_id = ?', [cycle.id, actor.id])
     const nextVersion = version + 1

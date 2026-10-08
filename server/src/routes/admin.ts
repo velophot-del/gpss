@@ -6,6 +6,7 @@ import { success, error } from '../utils/response.js'
 import { getActiveCycle, isInProgressCycle, isStudentSelectionPhase } from '../utils/processFlow.js'
 import { getTeacherStudentLimit } from '../utils/policies.js'
 import { safeParseJson } from '../utils/json.js'
+import { normalizeMajorCode } from '../utils/majorCodes.js'
 import { canReturnVolunteerRows } from '../utils/adminVolunteerRules.js'
 
 const router = Router()
@@ -18,7 +19,7 @@ router.get('/selection-overview', async (_req: AuthRequest, res) => {
     const cycle = await getActiveCycle()
     if (!cycle) return success(res, { cycle: null, students: [], topics: [], teacherLimit: 0 })
     const students = await query<any>(`
-      SELECT u.id, u.student_id, u.real_name, u.class_name, u.major,
+      SELECT u.id, u.student_id, u.real_name, u.class_name, u.major, u.major_code,
              COUNT(a.id) AS application_count,
              SUM(a.status = 'accepted') AS accepted_count,
              SUM(a.status IN ('pending', 'submitted', 'pending_review', 'waitlisted')) AS pending_count,
@@ -29,11 +30,11 @@ router.get('/selection-overview', async (_req: AuthRequest, res) => {
         AND a.topic_id IN (SELECT id FROM topics WHERE cycle_id = ?)
       LEFT JOIN topics at ON at.id = a.topic_id
       WHERE u.role = 'student' AND u.status = 'active'
-      GROUP BY u.id, u.student_id, u.real_name, u.class_name, u.major
+      GROUP BY u.id, u.student_id, u.real_name, u.class_name, u.major, u.major_code
       ORDER BY u.student_id
     `, [cycle.id])
     const topics = await query<any>(`
-      SELECT t.id, t.title, t.category, t.major, t.teacher_id, u.real_name AS teacher_name,
+      SELECT t.id, t.title, t.category, t.major, t.major_code, t.teacher_id, u.real_name AS teacher_name,
              t.max_students, t.status,
              COUNT(a.id) AS application_count,
              SUM(a.priority = 1) AS first_choice_count,
@@ -50,11 +51,16 @@ router.get('/selection-overview', async (_req: AuthRequest, res) => {
       LEFT JOIN applications a ON a.topic_id = t.id
         AND a.status IN ('pending', 'submitted', 'pending_review', 'waitlisted', 'accepted')
       WHERE t.cycle_id = ? AND t.status IN ('published', 'full')
-      GROUP BY t.id, t.title, t.category, t.major, t.teacher_id, u.real_name, t.max_students, t.status
+      GROUP BY t.id, t.title, t.category, t.major, t.major_code, t.teacher_id, u.real_name, t.max_students, t.status
       ORDER BY t.title
     `, [cycle.id, cycle.id, cycle.id])
     const teacherLimit = getTeacherStudentLimit(safeParseJson(cycle.phases_config, {}))
-    success(res, { cycle: { id: cycle.id, name: cycle.name, phase: cycle.phase }, students, topics, teacherLimit })
+    success(res, {
+      cycle: { id: cycle.id, name: cycle.name, phase: cycle.phase },
+      students: students.map(student => ({ ...student, major_code: normalizeMajorCode(student.major_code, student.major) })),
+      topics: topics.map(topic => ({ ...topic, major_code: normalizeMajorCode(topic.major_code, topic.major) })),
+      teacherLimit,
+    })
   } catch (err) {
     console.error('获取当前周期选题监控失败:', err)
     error(res, '服务器内部错误', 500)

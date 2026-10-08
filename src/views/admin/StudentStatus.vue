@@ -234,8 +234,13 @@ function exportPressure() {
 }
 function suggestedTopics(student: any) {
   const categories = String(student.preferred_categories || '').split('、').filter(Boolean)
-  const appliedIds = String(student.applied_topic_ids || '').split(',')
-  const matches = availableTopics.value.filter((topic: any) => topic.major === student.major && !appliedIds.includes(topic.id))
+  const matches = availableTopics.value.filter((topic: any) => {
+    const studentCode = String(student.major_code || '').trim()
+    const topicCode = String(topic.major_code || '').trim()
+    return studentCode && topicCode
+      ? studentCode === topicCode
+      : Boolean(student.major) && String(topic.major || '').trim() === String(student.major).trim()
+  })
   const ranked = [...matches].sort((a: any, b: any) => Number(categories.includes(b.category)) - Number(categories.includes(a.category)))
   return ranked.slice(0, 3).map((topic: any) => topic.title).join('；') || '暂无同专业空余课题'
 }
