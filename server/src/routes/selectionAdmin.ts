@@ -7,9 +7,33 @@ import { safeParseJson } from '../utils/json.js'
 import { getDeadlineWorkerStatus } from '../services/selectionDeadlineWorker.js'
 import { getSelectionConfigurationError, requestSettlementIfReady, SelectionSettlementError } from '../services/selectionSettlementService.js'
 import { requestAdjustmentSettlementIfReady, AdjustmentSettlementError } from '../services/adjustmentSettlementService.js'
+import { AcceptedResultAdjustmentError, adjustAcceptedResult, getAcceptedResultAdjustmentOptions } from '../services/acceptedResultAdjustmentService.js'
 
 const router = Router()
 router.use(authMiddleware, requireRole(['admin']))
+
+router.get('/accepted-results/:applicationId/options', async (req: AuthRequest, res) => {
+  try {
+    success(res, await getAcceptedResultAdjustmentOptions(req.user!, req.params.applicationId))
+  } catch (cause: any) {
+    if (cause instanceof AcceptedResultAdjustmentError) return error(res, cause.message, cause.statusCode)
+    console.error('读取录取调整选项失败:', cause)
+    error(res, '服务器内部错误', 500)
+  }
+})
+
+router.post('/accepted-results/:applicationId/adjust', async (req: AuthRequest, res) => {
+  try {
+    const targetApplicationId = req.body?.targetApplicationId
+    if (targetApplicationId !== null && typeof targetApplicationId !== 'string') return error(res, '目标志愿格式无效', 400)
+    const reason = typeof req.body?.reason === 'string' ? req.body.reason : ''
+    success(res, await adjustAcceptedResult(req.user!, req.params.applicationId, targetApplicationId, reason, req.ip || null), '录取结果已调整')
+  } catch (cause: any) {
+    if (cause instanceof AcceptedResultAdjustmentError) return error(res, cause.message, cause.statusCode)
+    console.error('调整正式录取结果失败:', cause)
+    error(res, '服务器内部错误', 500)
+  }
+})
 
 router.get('/selection-settlement/:cycleId', async (req: AuthRequest, res) => {
   try {
