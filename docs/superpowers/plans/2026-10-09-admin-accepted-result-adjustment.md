@@ -102,7 +102,7 @@ Add the two typed methods to `selectionAdminApi`. Add an action on active-cycle 
 Run: `node --test test/admin-accepted-result-adjustment-ui.test.mjs`
 Expected: all UI behavior assertions pass.
 
-- [ ] **Step 5: Commit UI change**
+- [x] **Step 5: Commit UI change**
 
 ```bash
 git add src/api/index.ts src/views/admin/ApplicationData.vue test/admin-accepted-result-adjustment-ui.test.mjs package.json
