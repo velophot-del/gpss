@@ -84,7 +84,7 @@ async function initDatabase() {
       name VARCHAR(100) NOT NULL,
       description TEXT,
       year VARCHAR(10) NOT NULL,
-      status ENUM('draft', 'active', 'closed') NOT NULL DEFAULT 'draft',
+      status ENUM('draft', 'upcoming', 'active', 'selection', 'review', 'adjustment', 'process', 'completed') NOT NULL DEFAULT 'draft',
       phase ${processPhaseEnum()} NOT NULL DEFAULT 'topic_submission',
       start_date DATE,
       end_date DATE,

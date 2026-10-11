@@ -21,13 +21,13 @@ router.get('/', async (req: AuthRequest, res) => {
   }
 })
 
-// GET /api/cycles/active - 获取当前进行中的周期（active/selection/review/adjustment 均视为进行中）
+// 优先返回选题周期；选题周期结束后返回最近的毕业设计周期供全局阶段提示使用。
 router.get('/active', async (req: AuthRequest, res) => {
   try {
     const [cycle] = await query<any>(`
       SELECT * FROM cycles 
-      WHERE status IN ('active', 'selection', 'review', 'adjustment') 
-      ORDER BY created_at DESC LIMIT 1
+      WHERE status IN ('active', 'selection', 'review', 'adjustment', 'process')
+      ORDER BY CASE WHEN status = 'process' THEN 1 ELSE 0 END, created_at DESC LIMIT 1
     `)
     success(res, cycle || null)
   } catch (err: any) {
@@ -105,6 +105,17 @@ router.put('/:id', requireRole(['admin']), async (req: AuthRequest, res) => {
     }
 
     const nextPhase = phase ?? existing.phase
+    if (nextStatus === 'process' && nextPhase === 'task_book' && existing.status !== 'process') {
+      if (!['adjustment', 'completed'].includes(existing.status)) {
+        return error(res, '请在选题与调剂结束后开启毕业设计阶段', 409)
+      }
+      const [accepted] = await query<any>(`
+        SELECT COUNT(*) AS count FROM applications a
+        JOIN topics t ON t.id = a.topic_id
+        WHERE t.cycle_id = ? AND a.status = 'accepted'
+      `, [id])
+      if (Number(accepted?.count || 0) === 0) return error(res, '本周期尚无已录取学生，无法开启毕业设计阶段', 409)
+    }
     if (nextPhase === 'teacher_review') {
       if (!getReviewDeadline(merged)) return error(res, '进入教师遴选阶段前必须配置有效的审核截止时间', 409)
       const configurationError = await getSelectionConfigurationError(Number(id), merged)
@@ -144,8 +155,8 @@ router.delete('/:id', requireRole(['admin']), async (req: AuthRequest, res) => {
       return error(res, '周期不存在', 404)
     }
     // 不允许删除正在进行中的周期（有关联数据）
-    if (['active', 'selection', 'review', 'adjustment'].includes(cycle.status)) {
-      return error(res, '不能删除正在进行中的选题周期，请先将其状态改为"已结束"', 400)
+    if (['active', 'selection', 'review', 'adjustment', 'process'].includes(cycle.status)) {
+      return error(res, '不能删除进行中的毕业设计周期，请先将其归档结束', 400)
     }
     await query('DELETE FROM cycles WHERE id = ?', [id])
     success(res, null, '周期已删除')

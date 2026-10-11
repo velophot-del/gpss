@@ -193,7 +193,7 @@ const router = createRouter({
           path: 'process/task-book',
           name: 'TaskBook',
           component: () => import('../views/process/TaskBookView.vue'),
-          meta: { roles: ['student', 'teacher'] }
+          meta: { roles: ['student', 'teacher', 'admin'] }
         },
         // 开题
         {

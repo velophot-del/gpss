@@ -65,6 +65,7 @@
               <span>毕业全流程</span>
             </template>
             <el-menu-item index="/process/overview">全流程看板</el-menu-item>
+            <el-menu-item index="/process/task-book">任务书确认</el-menu-item>
             <el-menu-item index="/admin/document-templates">毕业资料库</el-menu-item>
             <el-menu-item index="/process/defense">答辩管理</el-menu-item>
             <el-menu-item index="/process/grades">成绩评定</el-menu-item>

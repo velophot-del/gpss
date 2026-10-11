@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { query } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
-import { getAcceptedSelection, getCurrentPhase, notify } from './processFlow.js'
+import { getAcceptedSelection, getCyclePhase, notify } from './processFlow.js'
 import { sendOfficialDocx, type OfficialDocumentType } from './officialDocx.js'
 
 /**
@@ -74,12 +74,10 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
   // 学生提交 / 保存草稿（按 student_id + topic_id 唯一约束 upsert）
   router.post('/', requireRole(['student']), async (req: AuthRequest, res) => {
     try {
-      const phase = await getCurrentPhase()
       const submit = req.body.submit !== false
-      if (submit && phase !== cfg.stagePhase) return error(res, `当前不在「${cfg.label}」阶段，无法提交`)
-
       const sel = await getAcceptedSelection(req.user!.id)
       if (!sel) return error(res, `您尚未确定选题，无法提交${cfg.label}`)
+      if (submit && await getCyclePhase(sel.cycle_id) !== cfg.stagePhase) return error(res, `当前不在「${cfg.label}」阶段，无法提交`)
 
       if (submit) {
         if (cfg.titleField && !req.body.title) return error(res, '请填写标题')

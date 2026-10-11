@@ -24,7 +24,7 @@ export interface User {
 }
 
 // ========== 选题周期 ==========
-export type CycleStatus = 'upcoming' | 'active' | 'selection' | 'review' | 'adjustment' | 'completed'
+export type CycleStatus = 'upcoming' | 'active' | 'selection' | 'review' | 'adjustment' | 'process' | 'completed'
 
 export interface SelectionCycle {
   id: string
@@ -590,3 +590,6 @@ export const PROCESS_PHASES: { value: string; label: string }[] = [
 export const PROCESS_PHASE_LABELS: Record<string, string> = Object.fromEntries(
   PROCESS_PHASES.map(p => [p.value, p.label])
 )
+PROCESS_PHASE_LABELS.student_apply = PROCESS_PHASE_LABELS.student_selection
+PROCESS_PHASE_LABELS.result_announce = PROCESS_PHASE_LABELS.result
+PROCESS_PHASE_LABELS.completed = PROCESS_PHASE_LABELS.ended

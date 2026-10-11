@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { query } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
-import { getAcceptedSelection, getCurrentPhase, notify } from '../utils/processFlow.js'
+import { getAcceptedSelection, getCyclePhase, notify } from '../utils/processFlow.js'
 import { presentSubmissionBase } from '../utils/submissionFlow.js'
 import { sendOfficialDocx } from '../utils/officialDocx.js'
 import { safeParseJson } from '../utils/json.js'
@@ -32,9 +32,9 @@ function present(row: any) {
 router.post('/', requireRole(['student']), async (req: AuthRequest, res) => {
   try {
     const isSubmit = req.body.submit !== false
-    if (isSubmit && await getCurrentPhase() !== 'task_book') return error(res, '当前不在「任务书」阶段，无法提交')
     const sel = await getAcceptedSelection(req.user!.id)
     if (!sel) return error(res, '您尚未正式确定课题，无法填写任务书')
+    if (isSubmit && await getCyclePhase(sel.cycle_id) !== 'task_book') return error(res, '当前不在「任务书」阶段，无法提交')
 
     const { content, mainContent, requirements, specificRequirements, submit } = req.body
     const schedule = parseSchedule(req.body.schedule)

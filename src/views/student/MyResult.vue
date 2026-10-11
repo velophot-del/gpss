@@ -1,9 +1,9 @@
 <template>
   <div class="my-result page-container">
     <div class="card-container" style="max-width: 800px;">
-      <h2 class="section-title">我的选课结果</h2>
+      <h2 class="section-title">我的选题与毕业设计</h2>
 
-      <template v-if="needsResubmit">
+      <template v-if="needsResubmit && !acceptedTopic">
         <div class="result-card warning">
           <div class="result-icon"><el-icon :size="64" color="#e6a23c"><WarningFilled /></el-icon></div>
           <h3 class="result-status">志愿已退回</h3>
@@ -25,7 +25,19 @@
             </el-descriptions-item>
             <el-descriptions-item label="确认时间">{{ formatDateTime(result.confirmedAt || result.submittedAt) }}</el-descriptions-item>
           </el-descriptions>
-          <el-alert title="请注意关注后续的开题、中期检查、答辩等通知" type="success" :closable="false" show-icon style="margin-top: 20px;" />
+          <el-descriptions :column="1" border class="result-info topic-details">
+            <el-descriptions-item label="所属毕业设计周期">{{ result.cycleName || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="选题要求"><div class="pre">{{ result.requirements || result.description || '暂无要求说明' }}</div></el-descriptions-item>
+            <el-descriptions-item label="指导教师">{{ result.teacherName || '—' }}{{ result.teacherTitle ? `（${result.teacherTitle}）` : '' }}</el-descriptions-item>
+            <el-descriptions-item v-if="result.teacherEmail" label="教师邮箱">{{ result.teacherEmail }}</el-descriptions-item>
+            <el-descriptions-item v-if="result.teacherPhone" label="教师电话">{{ result.teacherPhone }}</el-descriptions-item>
+          </el-descriptions>
+          <div v-if="result.phase !== 'ended'" class="result-actions">
+            <el-button type="primary" @click="$router.push('/process/task-book')">进入任务书</el-button>
+            <el-button @click="$router.push('/process/proposal')">开题报告</el-button>
+            <el-button @click="$router.push('/process/midterm')">中期检查</el-button>
+          </div>
+          <el-alert :title="`毕业设计阶段：${phaseLabel}。可从左侧“毕业流程”进入任务书、开题报告等环节。`" type="success" :closable="false" show-icon style="margin-top: 20px;" />
         </div>
       </template>
 
@@ -84,20 +96,24 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useUserStore } from '../../stores/user'
 import { useApplicationStore } from '../../stores/application'
 import { useCycleStore } from '../../stores/cycle'
+import { applicationApi } from '../../api'
 import dayjs from 'dayjs'
 import { CircleCheckFilled, WarningFilled, Clock } from '@element-plus/icons-vue'
+import { PROCESS_PHASE_LABELS } from '../../types'
 
 const userStore = useUserStore()
 const applicationStore = useApplicationStore()
 const cycleStore = useCycleStore()
+const acceptedTopic = ref<any>(null)
 
 onMounted(async () => {
   await Promise.all([
     applicationStore.fetchApplications(),
+    applicationApi.getAcceptedTopic().then((res: any) => { acceptedTopic.value = res.data }).catch(() => { acceptedTopic.value = null }),
     cycleStore.fetchCurrentCycle()
   ])
 })
@@ -108,7 +124,8 @@ const currentApplications = computed(() => {
     a => Number(a.cycleId) === Number(cycleStore.currentCycle?.id)
   )
 })
-const result = computed(() => currentApplications.value.find(a => a.status === 'accepted') || null)
+const result = computed(() => acceptedTopic.value || currentApplications.value.find(a => a.status === 'accepted') || null)
+const phaseLabel = computed(() => PROCESS_PHASE_LABELS[result.value?.phase] || '待开启')
 const needsResubmit = computed(() => cycleStore.currentPhase === 'student_apply' &&
   currentApplications.value.length > 0 && currentApplications.value.every(a => a.status === 'withdrawn')
 )
@@ -165,9 +182,12 @@ function formatDateTime(dateStr: string): string {
   max-width: 500px;
   margin: 0 auto;
 }
+.topic-details { text-align: left; margin-top: 20px; }
+.pre { white-space: pre-wrap; word-break: break-word; }
 
 .result-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 16px;
   margin-top: 28px;

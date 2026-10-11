@@ -6,7 +6,11 @@
       <p class="welcome-desc">{{ roleDescriptions[userStore.userRole || 'student'] }}</p>
     </div>
 
-    <div v-if="userStore.userRole === 'student'" class="focus-card card-container">
+    <div v-if="userStore.userRole === 'student' && acceptedTopic" class="focus-card card-container">
+      <div><span class="focus-label">{{ acceptedTopic.phase === 'ended' ? '毕业设计已归档' : '我的毕业设计' }}</span><h3>{{ acceptedTopic.topicTitle }}</h3><p>当前阶段：{{ processPhaseLabel }}。查看选题要求、指导教师和毕业流程待办。</p></div>
+      <el-button type="primary" @click="$router.push('/student/result')">查看我的选题</el-button>
+    </div>
+    <div v-else-if="userStore.userRole === 'student'" class="focus-card card-container">
       <div><span class="focus-label">下一步建议</span><h3>{{ myApplications.length >= 3 ? '志愿已提交，等待教师审核' : '先浏览课题，再完成 3 个志愿' }}</h3><p>{{ myApplications.length >= 3 ? '你可以在“已提交志愿”中查看凭证，在结果页查看后续状态。' : '把感兴趣的方向加入选题工作台，系统会帮你保留进度。' }}</p></div>
       <el-button type="primary" @click="$router.push(myApplications.length >= 3 ? '/student/browse?panel=submitted' : '/student/browse')">{{ myApplications.length >= 3 ? '查看提交记录' : '进入选题工作台' }}</el-button>
     </div>
@@ -84,17 +88,13 @@
         <el-card shadow="never" class="card-container timeline-card">
           <template #header>
             <div class="card-header">
-              <span class="section-title" style="border: none; padding: 0;">选题工作流程</span>
+              <span class="section-title" style="border: none; padding: 0;">毕业设计周期总流程</span>
               <el-tag size="small" v-if="cycleStore.currentCycle" style="white-space: normal; text-align: center; line-height: 1.6; height: auto; padding: 6px 10px; margin-top: 4px; margin-bottom: 4px;">{{ cycleStore.currentCycle.name }}</el-tag>
             </div>
           </template>
 
           <el-steps :active="currentStep" finish-status="success" align-center>
-            <el-step title="课题发布" />
-            <el-step title="志愿填报" />
-            <el-step title="教师遴选" />
-            <el-step title="结果公示" />
-            <el-step title="调剂补录" />
+            <el-step v-for="phase in processPhases" :key="phase.value" :title="phase.label" />
           </el-steps>
 
           <div class="timeline-detail" v-if="cycleStore.currentCycle">
@@ -196,7 +196,7 @@
     </el-row>
 
     <!-- 学生选题推荐 / 管理端综合热度 -->
-    <div v-if="userStore.userRole === 'student'" style="margin-top: 20px;">
+    <div v-if="userStore.userRole === 'student' && !acceptedTopic" style="margin-top: 20px;">
       <el-card shadow="never" class="card-container">
         <template #header>
           <div class="recommendation-header">
@@ -256,11 +256,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { useUserStore } from '../stores/user'
 import { useCycleStore } from '../stores/cycle'
+import { PROCESS_PHASES, PROCESS_PHASE_LABELS } from '../types'
 import { useTopicStore } from '../stores/topic'
 import { useApplicationStore } from '../stores/application'
 import { useStudentStore } from '../stores/student'
 import { useSelectionDraftStore } from '../stores/selectionDraft'
-import { adminApi, statisticsApi } from '../api'
+import { adminApi, statisticsApi, applicationApi } from '../api'
 import dayjs from 'dayjs'
 import {
   Timer, Document, UserFilled, CircleCheck,
@@ -273,6 +274,8 @@ const topicStore = useTopicStore()
 const applicationStore = useApplicationStore()
 const studentStore = useStudentStore()
 const selectionDraftStore = useSelectionDraftStore()
+const acceptedTopic = ref<any>(null)
+const processPhaseLabel = computed(() => PROCESS_PHASE_LABELS[acceptedTopic.value?.phase] || '待开启')
 const adminTopicCount = ref(0)
 const hotTopics = ref<any[]>([])
 const recommendedTopics = ref<any[]>([])
@@ -301,20 +304,12 @@ const roleDescriptions: Record<string, string> = {
   student: '您可以浏览课题、完善个人档案、填报志愿、查看结果等'
 }
 
+const processPhases = PROCESS_PHASES
+
 // 流程步骤
 const currentStep = computed(() => {
-  const phaseMap: Record<string, number> = {
-    topic_submission: 0,
-    topic_publish: 0,
-    student_apply: 1,
-    student_selection: 1,
-    teacher_review: 2,
-    result_announce: 3,
-    completed: 4,
-    adjustment: 4,
-    none: -1
-  }
-  return phaseMap[cycleStore.currentPhase] ?? -1
+  const phaseAliases: Record<string, string> = { student_apply: 'student_selection', result_announce: 'result', completed: 'ended' }
+  return processPhases.findIndex(phase => phase.value === (phaseAliases[cycleStore.currentPhase] || cycleStore.currentPhase))
 })
 
 const statusTypeMap: Record<string, any> = {
@@ -324,7 +319,16 @@ const statusTypeMap: Record<string, any> = {
   student_selection: 'success',
   teacher_review: 'warning',
   result_announce: 'success',
+  result: 'success',
   adjustment: 'danger',
+  task_book: 'primary',
+  proposal: 'primary',
+  midterm: 'warning',
+  thesis_design: 'warning',
+  defense: 'danger',
+  grading: 'success',
+  archive: 'info',
+  ended: 'info',
   completed: 'info',
   none: 'info'
 }
@@ -405,6 +409,9 @@ onMounted(async () => {
     topicStore.topics.length === 0 ? topicStore.fetchTopics() : Promise.resolve(),
     userStore.currentUser?.role === 'student' ? studentStore.fetchProfile() : Promise.resolve(),
     applicationStore.fetchApplications(),
+    userStore.currentUser?.role === 'student'
+      ? applicationApi.getAcceptedTopic().then((res: any) => { acceptedTopic.value = res.data }).catch(() => { acceptedTopic.value = null })
+      : Promise.resolve(),
     loadDashboardTopicData()
   ])
   if (userStore.currentUser?.role === 'teacher') {

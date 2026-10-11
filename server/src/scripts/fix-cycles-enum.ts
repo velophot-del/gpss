@@ -30,11 +30,17 @@ async function migrate() {
 
     // 1. 更新 status 字段：从 (draft, active, closed) 扩展为完整状态列表
     await conn.query(`
-      ALTER TABLE cycles 
-      MODIFY COLUMN status ENUM('draft', 'upcoming', 'active', 'selection', 'review', 'adjustment', 'completed') 
+      ALTER TABLE cycles
+      MODIFY COLUMN status ENUM('draft', 'upcoming', 'active', 'selection', 'review', 'adjustment', 'process', 'completed', 'closed')
       NOT NULL DEFAULT 'draft'
     `)
-    console.log('✓ status 字段已更新: draft/upcoming/active/selection/review/adjustment/completed')
+    await conn.query("UPDATE cycles SET status = 'completed' WHERE status = 'closed'")
+    await conn.query(`
+      ALTER TABLE cycles
+      MODIFY COLUMN status ENUM('draft', 'upcoming', 'active', 'selection', 'review', 'adjustment', 'process', 'completed')
+      NOT NULL DEFAULT 'draft'
+    `)
+    console.log('✓ status 字段已更新: draft/upcoming/active/selection/review/adjustment/process/completed')
 
     // 2. 更新 phase 字段：扩展为完整的阶段列表
     await conn.query(`
@@ -43,12 +49,7 @@ async function migrate() {
     `)
     console.log('✓ phase 字段已更新: 支持所有阶段值')
 
-    // 3. 将现有的 active 状态数据保持不变，closed -> completed（如果有）
-    const [rows] = await conn.query<any[]>("SELECT id, status FROM cycles WHERE status = 'closed'")
-    if ((rows as any[]).length > 0) {
-      await conn.query("UPDATE cycles SET status = 'completed' WHERE status = 'closed'")
-      console.log(`✓ 已将 ${(rows as any[]).length} 条 closed 状态记录转换为 completed`)
-    }
+    // 3. closed -> completed 的兼容转换已在状态扩展时完成。
 
     console.log('\n修复完成！')
   } catch (error) {

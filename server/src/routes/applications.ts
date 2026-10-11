@@ -202,6 +202,44 @@ router.get('/', async (req: AuthRequest, res) => {
   }
 })
 
+// 已录取学生可查看本人课题与导师信息；公开浏览仍隐藏教师身份。
+router.get('/accepted-topic', requireRole(['student']), async (req: AuthRequest, res) => {
+  try {
+    const [selection] = await query<any>(`
+      SELECT a.id, a.updated_at AS confirmed_at, t.id AS topic_id, t.title, t.description,
+             t.requirements, t.category, t.major, t.cycle_id, c.name AS cycle_name,
+             c.phase, u.real_name AS teacher_name, u.title AS teacher_title,
+             u.email AS teacher_email, u.phone AS teacher_phone
+      FROM applications a
+      JOIN topics t ON t.id = a.topic_id
+      LEFT JOIN cycles c ON c.id = t.cycle_id
+      LEFT JOIN users u ON u.id = t.teacher_id
+      WHERE a.student_id = ? AND a.status = 'accepted'
+      ORDER BY a.updated_at DESC LIMIT 1
+    `, [req.user!.id])
+    success(res, selection ? {
+      id: selection.id,
+      confirmedAt: selection.confirmed_at,
+      topicId: selection.topic_id,
+      topicTitle: selection.title,
+      description: selection.description,
+      requirements: selection.requirements,
+      category: selection.category,
+      major: selection.major,
+      cycleId: selection.cycle_id,
+      cycleName: selection.cycle_name,
+      phase: selection.phase,
+      teacherName: selection.teacher_name,
+      teacherTitle: selection.teacher_title,
+      teacherEmail: selection.teacher_email,
+      teacherPhone: selection.teacher_phone
+    } : null)
+  } catch (err: any) {
+    console.error('获取本人录取课题失败:', err)
+    error(res, '服务器内部错误', 500)
+  }
+})
+
 // PUT /api/applications/:id - 教师审批申请
 router.put('/:id', requireRole(['teacher']), async (req: AuthRequest, res) => {
   try {

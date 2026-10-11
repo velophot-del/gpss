@@ -35,6 +35,18 @@ async function migrate() {
   try {
     console.log('开始升级为毕业设计管理系统...')
 
+    // 毕业流程周期与新一届选题周期可并行存在。
+    await conn.query(`
+      ALTER TABLE cycles
+      MODIFY COLUMN status ENUM('draft', 'upcoming', 'active', 'selection', 'review', 'adjustment', 'process', 'completed', 'closed') NOT NULL DEFAULT 'draft'
+    `)
+    await conn.query("UPDATE cycles SET status = 'completed' WHERE status = 'closed'")
+    await conn.query(`
+      ALTER TABLE cycles
+      MODIFY COLUMN status ENUM('draft', 'upcoming', 'active', 'selection', 'review', 'adjustment', 'process', 'completed') NOT NULL DEFAULT 'draft'
+    `)
+    console.log('✅ cycles.status 已加入毕业设计中状态')
+
     // 1. 扩展 phase 枚举
     await conn.query(`
       ALTER TABLE cycles

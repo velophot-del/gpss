@@ -43,6 +43,12 @@ export async function getAcceptedSelection(studentId: string) {
   return rows[0] || null
 }
 
+export async function getCyclePhase(cycleId?: string | number | null) {
+  if (cycleId == null) return null
+  const rows = await query<any>('SELECT phase FROM cycles WHERE id = ? LIMIT 1', [cycleId])
+  return rows[0]?.phase || null
+}
+
 // 获取当前进行中的周期（active/selection/review/adjustment 任一状态）
 export async function getActiveCycle() {
   const rows = await query<any>(`

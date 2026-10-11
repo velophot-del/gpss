@@ -1,7 +1,7 @@
 <template>
   <div class="cycle-management page-container">
     <div class="card-container">
-      <h2 class="section-title">选题周期管理</h2>
+      <h2 class="section-title">毕业设计周期管理</h2>
       <el-alert v-if="configurationError" :title="configurationError" type="error" show-icon class="config-alert">
         <template #default><el-button link type="danger" @click="router.push('/admin/selection-settlement')">前往录取结算查看配置</el-button></template>
       </el-alert>
@@ -9,7 +9,7 @@
       <el-alert title="进行中周期手动切换时，同时忽略该周期的课题名额合计冲突；实际录取仍受教师指导人数上限约束。" type="info" :closable="false" show-icon class="config-alert" />
 
       <el-button type="primary" icon="Plus" style="margin-bottom: 20px;" @click="showCreateDialog">
-        创建新周期
+        创建毕业设计周期
       </el-button>
 
       <el-table :data="cycleStore.cycles" stripe v-loading="loading">
@@ -48,20 +48,26 @@
                   <el-dropdown-item @click="changeStatus(row.id, 'review')">进入审核</el-dropdown-item>
                   <el-dropdown-item @click="changeStatus(row.id, 'review', 'result_announce')">进入结果公示</el-dropdown-item>
                   <el-dropdown-item @click="changeStatus(row.id, 'adjustment')">进入调剂</el-dropdown-item>
-                  <el-dropdown-item @click="changeStatus(row.id, 'completed')">结束</el-dropdown-item>
+                  <el-dropdown-item v-if="row.phase === 'adjustment' || row.status === 'completed'" divided @click="changeStatus(row.id, 'process', 'task_book')">调剂结束，开启毕业设计（任务书）</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'process'" @click="changeStatus(row.id, 'process', 'proposal')">进入开题报告</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'process'" @click="changeStatus(row.id, 'process', 'midterm')">进入中期检查</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'process'" @click="changeStatus(row.id, 'process', 'defense')">进入答辩</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'process'" @click="changeStatus(row.id, 'process', 'grading')">进入成绩评定</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status === 'process'" @click="changeStatus(row.id, 'process', 'archive')">进入归档</el-dropdown-item>
+                  <el-dropdown-item v-if="row.status !== 'process' || row.phase === 'archive'" @click="changeStatus(row.id, 'completed')">归档结束</el-dropdown-item>
                 </el-dropdown-menu>
               </template>
             </el-dropdown>
             <el-popconfirm
-              title="确定删除此选题周期？删除后不可恢复"
+              title="确定删除此毕业设计周期？删除后不可恢复"
               confirm-button-text="确定"
               cancel-button-text="取消"
               @confirm="handleDelete(row.id)"
             >
               <template #reference>
                 <el-tooltip
-                  v-if="['active','selection','review','adjustment'].includes(row.status)"
-                  content="进行中的周期不可删除，请先将状态切换为「已结束」"
+                  v-if="['active','selection','review','adjustment','process'].includes(row.status)"
+                  content="进行中的毕业设计周期不可删除，请先归档结束"
                   placement="top"
                 >
                   <el-button link type="danger" icon="Delete" size="small" disabled>删除</el-button>
@@ -75,10 +81,10 @@
       </el-table>
 
       <!-- 创建弹窗 -->
-      <el-dialog v-model="dialogVisible" title="创建选题周期" width="680px">
+      <el-dialog v-model="dialogVisible" title="创建毕业设计周期" width="680px">
         <el-form ref="formRef" :model="form" label-width="110px" size="large">
           <el-form-item label="周期名称" required>
-            <el-input v-model="form.name" placeholder="例如：2025届本科毕业设计选题" />
+          <el-input v-model="form.name" placeholder="例如：2025届本科毕业设计周期" />
           </el-form-item>
           <el-form-item label="年度" required>
             <el-input v-model="form.year" placeholder="例如：2025" />
@@ -175,7 +181,7 @@
       </el-dialog>
 
       <!-- 编辑弹窗 -->
-      <el-dialog v-model="editDialogVisible" title="编辑选题周期" width="760px">
+      <el-dialog v-model="editDialogVisible" title="编辑毕业设计周期" width="760px">
         <el-form ref="editFormRef" :model="form" label-width="110px" size="large">
           <el-form-item label="周期名称" required>
             <el-input v-model="form.name" />
@@ -190,7 +196,8 @@
               <el-radio value="selection">选课中</el-radio>
               <el-radio value="review">审核中</el-radio>
               <el-radio value="adjustment">调剂中</el-radio>
-              <el-radio value="completed">已结束</el-radio>
+              <el-radio value="process">毕业设计中</el-radio>
+              <el-radio value="completed">已归档</el-radio>
             </el-radio-group>
           </el-form-item>
           <el-form-item label="阶段切换方式">
@@ -346,11 +353,11 @@ const form = reactive({
 
 const cycleStatusType: Record<string, string> = {
   upcoming: 'info', active: 'success', selection: 'primary',
-  review: 'warning', adjustment: 'danger', completed: 'success', draft: 'info'
+  review: 'warning', adjustment: 'danger', process: 'primary', completed: 'success', draft: 'info'
 }
 const cycleStatusLabel: Record<string, string> = {
   upcoming: '未开始', active: '进行中', selection: '选课中',
-  review: '审核中', adjustment: '调剂中', completed: '已结束', draft: '草稿'
+  review: '审核中', adjustment: '调剂中', process: '毕业设计中', completed: '已归档', draft: '草稿'
 }
 
 // ===== 周期级「毕业专业 + 研究方向」配置编辑 =====
@@ -494,7 +501,7 @@ async function handleCreate() {
         topic_student_limit: Number(form.topicStudentLimit) || 10
       }
     })
-    ElMessage.success(`选题周期创建成功（状态：${form.status === 'active' ? '已启用' : '未开始'}）`)
+    ElMessage.success(`毕业设计周期创建成功（状态：${form.status === 'active' ? '已启用' : '未开始'}）`)
     dialogVisible.value = false
     await fetchCycles()
   } catch (e: any) {
@@ -515,6 +522,7 @@ async function changeStatus(id: string, status: any, selectedPhase?: string) {
         selection: 'student_apply',
         review: 'teacher_review',
         adjustment: 'adjustment',
+        process: target.phase || 'task_book',
         completed: 'ended'
       }
       await cycleApi.update(id, {
@@ -553,6 +561,9 @@ async function handleEdit() {
       selection: 'student_apply',
       review: 'teacher_review',
       adjustment: 'adjustment',
+        process: cycleStore.cycles.find((c: any) => c.id === editingId.value)?.phase === 'ended'
+          ? 'task_book'
+          : cycleStore.cycles.find((c: any) => c.id === editingId.value)?.phase || 'task_book',
       completed: 'ended'
     }
     // 阶段时间与专业/研究方向分两次保存（后端对 phases_config 深合并，互不覆盖）
@@ -580,7 +591,7 @@ async function handleEdit() {
     })
     await cycleConfigApi.save(editingId.value, cfgPayload)
     configurationError.value = ''
-    ElMessage.success('选题周期与专业/研究方向已更新')
+    ElMessage.success('毕业设计周期与专业/研究方向已更新')
     closeEditDialog()
     editingId.value = null
     await fetchCycles()
@@ -596,7 +607,7 @@ async function handleEdit() {
 async function handleDelete(id: string) {
   try {
     await cycleApi.delete(id)
-    ElMessage.success('选题周期已删除')
+    ElMessage.success('毕业设计周期已删除')
     await fetchCycles()
   } catch (e: any) {
     console.error('删除周期失败:', e)

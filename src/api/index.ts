@@ -68,6 +68,7 @@ export const applicationApi = {
     request.post('/applications', data),
   // 获取申请列表（根据角色自动返回不同数据）
   getList: () => request.get('/applications'),
+  getAcceptedTopic: () => request.get('/applications/accepted-topic'),
   // 撤销申请
   withdraw: (id: string) => request.delete(`/applications/${id}`),
   // 教师审批
