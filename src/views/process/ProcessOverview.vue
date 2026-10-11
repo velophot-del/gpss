@@ -81,7 +81,7 @@ async function load() {
   const version = ++loadVersion
   loading.value = true
   try {
-    const [stu, apps, props_, mid, groups, grades] = await Promise.allSettled([
+    const [apps, props_, mid, groups, grades] = await Promise.allSettled([
       adminApi.getAllApplications(),
       proposalApi.getList(),
       midtermApi.getList(),

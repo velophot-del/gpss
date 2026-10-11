@@ -17,6 +17,8 @@ test('全流程看板按选定周期取阶段并过滤各项统计数据', () =>
   assert.match(overview, /selectedCycle/)
   assert.match(overview, /cycleStore\.fetchAllCycles\(\)/)
   assert.match(overview, /cycleRows\(v\(apps\)\)/)
+  const settled = overview.match(/const \[([^\]]+)\] = await Promise\.allSettled/)
+  assert.deepEqual(settled?.[1].split(',').map(name => name.trim()), ['apps', 'props_', 'mid', 'groups', 'grades'])
   for (const collection of ['props_', 'mid', 'groups', 'grades']) {
     assert.match(overview, new RegExp(`cycleRows\\(v\\(${collection}\\)\\)`))
   }
