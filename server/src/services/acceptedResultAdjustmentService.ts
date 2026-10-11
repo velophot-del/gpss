@@ -37,6 +37,7 @@ type AdjustmentPlanInput = {
   selectionSettlementStatus: string | null
   adjustmentSettlementStatus: string | null
   teacherLimit: number
+  allowAdmission?: boolean
   applications: AdjustmentApplication[]
   topics: AdjustmentTopic[]
   acceptedByTopic: Record<string, number>
@@ -54,12 +55,16 @@ export function buildAcceptedResultAdjustmentPlan(input: AdjustmentPlanInput) {
     application.studentId === input.studentId && Number(application.cycleId) === Number(input.cycleId),
   )
   const accepted = studentApplications.filter(application => application.status === 'accepted')
-  if (accepted.length !== 1 || accepted[0].id !== input.currentApplicationId) {
+  const anchor = studentApplications.find(application => application.id === input.currentApplicationId)
+  if (!anchor || accepted.length > 1 || (accepted.length === 1 && accepted[0].id !== input.currentApplicationId)
+    || (accepted.length === 0 && anchor.status !== 'rejected')) {
     throw new AcceptedResultAdjustmentError('该生当前录取结果已变化，请刷新后重试')
   }
-  const current = accepted[0]
-  const currentTopic = input.topics.find(topic => topic.id === current.topicId)
-  if (!currentTopic || Number(currentTopic.cycleId) !== Number(input.cycleId)) {
+  const current = accepted[0] || null
+  if (!current && !input.allowAdmission) throw new AcceptedResultAdjustmentError('仅调剂结算完成后可以为未录取学生补录')
+  if (!current && input.targetApplicationId === null) throw new AcceptedResultAdjustmentError('请选择补录目标志愿', 400)
+  const currentTopic = current ? input.topics.find(topic => topic.id === current.topicId) : null
+  if (current && (!currentTopic || Number(currentTopic.cycleId) !== Number(input.cycleId))) {
     throw new AcceptedResultAdjustmentError('当前录取课题不属于本周期')
   }
 
@@ -67,7 +72,7 @@ export function buildAcceptedResultAdjustmentPlan(input: AdjustmentPlanInput) {
   let targetTopic: AdjustmentTopic | null = null
   if (input.targetApplicationId !== null) {
     target = studentApplications.find(application => application.id === input.targetApplicationId) || null
-    if (!target || target.id === current.id || target.status === 'accepted' || target.status === 'cancelled') {
+    if (!target || target.id === current?.id || target.status === 'accepted' || target.status === 'cancelled') {
       throw new AcceptedResultAdjustmentError('目标志愿无效或已不属于该生本周期志愿')
     }
     targetTopic = input.topics.find(topic => topic.id === target!.topicId) || null
@@ -77,18 +82,18 @@ export function buildAcceptedResultAdjustmentPlan(input: AdjustmentPlanInput) {
     if (!['published', 'full'].includes(targetTopic.status)) {
       throw new AcceptedResultAdjustmentError('目标课题当前未开放录取')
     }
-    const topicCount = Number(input.acceptedByTopic[targetTopic.id] || 0) - (current.topicId === targetTopic.id ? 1 : 0)
+    const topicCount = Number(input.acceptedByTopic[targetTopic.id] || 0) - (current?.topicId === targetTopic.id ? 1 : 0)
     if (topicCount >= Number(targetTopic.maxStudents)) {
       throw new AcceptedResultAdjustmentError('目标课题名额已满')
     }
     const teacherCount = Number(input.acceptedByTeacher[targetTopic.teacherId] || 0)
-      - (currentTopic.teacherId === targetTopic.teacherId ? 1 : 0)
+      - (currentTopic?.teacherId === targetTopic.teacherId ? 1 : 0)
     if (input.teacherLimit > 0 && teacherCount >= input.teacherLimit) {
       throw new AcceptedResultAdjustmentError(`目标课题教师本周期指导学生已达上限（${input.teacherLimit}人）`)
     }
   }
 
-  const deltas: Record<string, number> = { [current.topicId]: -1 }
+  const deltas: Record<string, number> = current ? { [current.topicId]: -1 } : {}
   if (target) deltas[target.topicId] = (deltas[target.topicId] || 0) + 1
   const topicStatuses: Record<string, string> = {}
   for (const [topicId, delta] of Object.entries(deltas)) {
@@ -99,22 +104,22 @@ export function buildAcceptedResultAdjustmentPlan(input: AdjustmentPlanInput) {
       : 'published'
   }
 
-  const affectedTeacherIds = [...new Set([currentTopic.teacherId, ...(targetTopic ? [targetTopic.teacherId] : [])])].sort()
+  const affectedTeacherIds = [...new Set([...(currentTopic ? [currentTopic.teacherId] : []), ...(targetTopic ? [targetTopic.teacherId] : [])])].sort()
   return {
     cycleId: Number(input.cycleId),
     studentId: input.studentId,
-    oldApplicationId: current.id,
-    oldTopicId: current.topicId,
-    oldTopicTitle: currentTopic.title || '',
-    oldTeacherId: currentTopic.teacherId,
-    oldTeacherName: currentTopic.teacherName || '',
+    oldApplicationId: current?.id || null,
+    oldTopicId: current?.topicId || null,
+    oldTopicTitle: currentTopic?.title || '',
+    oldTeacherId: currentTopic?.teacherId || null,
+    oldTeacherName: currentTopic?.teacherName || '',
     newApplicationId: target?.id || null,
     newTopicId: targetTopic?.id || null,
     newTopicTitle: targetTopic?.title || '',
     newTeacherId: targetTopic?.teacherId || null,
     newTeacherName: targetTopic?.teacherName || '',
     applicationUpdates: [
-      { id: current.id, status: 'withdrawn' },
+      ...(current ? [{ id: current.id, status: 'withdrawn' }] : []),
       ...(target ? [{ id: target.id, status: 'accepted' }] : []),
     ],
     topicStatuses,
@@ -187,6 +192,7 @@ function makePlanInput(cycle: any, applications: any[], topics: any[], counts: a
     currentApplicationId: currentId, targetApplicationId: targetId, reason,
     selectionSettlementStatus: settlements.selection, adjustmentSettlementStatus: settlements.adjustment,
     teacherLimit: getTeacherStudentLimit(safeParseJson(cycle.phases_config, {})),
+    allowAdmission: cycle.phase === 'adjustment' && settlements.adjustment === 'completed',
     applications: applications.map(({ id, studentId, topicId, cycleId, priority, status }) => ({ id, studentId, topicId, cycleId, priority, status })),
     topics: topics.map(topic => ({
       id: String(topic.id), teacherId: String(topic.teacher_id), cycleId: Number(topic.cycle_id),
@@ -206,9 +212,9 @@ export async function getAcceptedResultAdjustmentOptions(actor: SessionUser, app
   if (!cycle) throw activeCycleError()
   const currentRows = await query<any>(`
     SELECT a.student_id FROM applications a JOIN topics t ON t.id = a.topic_id
-    WHERE a.id = ? AND a.status = 'accepted' AND t.cycle_id = ?
+    WHERE a.id = ? AND a.status IN ('accepted','rejected') AND t.cycle_id = ?
   `, [applicationId, cycle.id])
-  if (!currentRows[0]) throw new AcceptedResultAdjustmentError('该录取不属于当前周期或已发生变化', 404)
+  if (!currentRows[0]) throw new AcceptedResultAdjustmentError('该申请不属于当前周期或已发生变化', 404)
   const studentId = String(currentRows[0].student_id)
   const conn = await getConnection()
   let applications: any[]
@@ -220,12 +226,14 @@ export async function getAcceptedResultAdjustmentOptions(actor: SessionUser, app
     const topicIds = [...new Set(applications.map(item => item.topicId))]
     counts = await readTopicCounts(conn, Number(cycle.id), topicIds)
   } finally { conn.release() }
-  const current = applications.find(item => item.id === applicationId && item.status === 'accepted')
-  if (!current) throw new AcceptedResultAdjustmentError('该生当前录取结果已变化，请刷新后重试')
+  const current = applications.find(item => item.id === applicationId && item.status === 'accepted') || null
   const topics = counts.topics.map((topic: any) => ({ ...topic, teacher_name: applications.find((item: any) => item.teacherId === String(topic.teacher_id))?.teacherName || '' }))
   const input = makePlanInput(cycle, applications, topics, counts, settlements, applicationId, null, '管理员核验可选课题')
+  const accepted = applications.filter(item => item.status === 'accepted')
+  if ((current && accepted.length !== 1) || (!current && accepted.length)) throw new AcceptedResultAdjustmentError('该生当前录取结果已变化，请刷新后重试')
+  if (!current && !input.allowAdmission) throw new AcceptedResultAdjustmentError('仅调剂结算完成后可以为未录取学生补录')
   const limit = getTeacherStudentLimit(safeParseJson(cycle.phases_config, {}))
-  const targets = applications.filter(item => item.id !== applicationId && item.status !== 'accepted' && item.status !== 'cancelled').map(item => {
+  const targets = applications.filter(item => item.id !== current?.id && item.status !== 'accepted' && item.status !== 'cancelled').map(item => {
     const topic = topics.find((row: any) => String(row.id) === item.topicId)
     try {
       buildAcceptedResultAdjustmentPlan({ ...input, targetApplicationId: item.id })
@@ -247,12 +255,12 @@ export async function getAcceptedResultAdjustmentOptions(actor: SessionUser, app
   })
   return {
     cycle: { id: Number(cycle.id), name: String(cycle.name || ''), phase: String(cycle.phase || '') },
-    student: { id: studentId, name: current.studentName || null },
-    current: {
+    student: { id: studentId, name: applications[0]?.studentName || null },
+    current: current ? {
       applicationId: current.id, topicId: current.topicId, priority: current.priority,
       title: current.topicTitle, teacherName: current.teacherName,
-    },
-    canCancel: settlements.selection !== 'running' && settlements.adjustment !== 'running',
+    } : null,
+    canCancel: !!current && settlements.selection !== 'running' && settlements.adjustment !== 'running',
     targets,
   }
 }
@@ -268,6 +276,7 @@ export async function adjustAcceptedResult(
   targetApplicationId: string | null,
   reason: string,
   ipAddress: string | null,
+  expectedCurrentApplicationId?: string | null,
 ) {
   if (actor.role !== 'admin') throw new AcceptedResultAdjustmentError('只有管理员可以调整录取结果', 403)
   if (typeof reason !== 'string' || !reason.trim()) throw new AcceptedResultAdjustmentError('请填写录取调整原因', 400)
@@ -294,14 +303,20 @@ export async function adjustAcceptedResult(
       }
       const [initial] = await conn.query<any[]>(`
         SELECT a.student_id FROM applications a JOIN topics t ON t.id = a.topic_id
-        WHERE a.id = ? AND a.status = 'accepted' AND t.cycle_id = ?
+        WHERE a.id = ? AND a.status IN ('accepted','rejected') AND t.cycle_id = ?
       `, [applicationId, lockedCycle.id])
-      if (!initial[0]) throw new AcceptedResultAdjustmentError('该录取不属于当前周期或已发生变化', 404)
+      if (!initial[0]) throw new AcceptedResultAdjustmentError('该申请不属于当前周期或已发生变化', 404)
       const studentId = String(initial[0].student_id)
       await conn.query("SELECT id FROM users WHERE id = ? AND role = 'student' FOR UPDATE", [studentId])
       const applications = await readAcceptedResultRows(conn, studentId, Number(lockedCycle.id), true)
-      if (!applications.some(item => item.id === applicationId && item.status === 'accepted')) {
+      if (!applications.some(item => item.id === applicationId && ['accepted', 'rejected'].includes(item.status))) {
         throw new AcceptedResultAdjustmentError('该生当前录取结果已变化，请刷新后重试')
+      }
+      if (expectedCurrentApplicationId !== undefined) {
+        const accepted = applications.filter(item => item.status === 'accepted')
+        if (accepted.length > 1 || (accepted[0]?.id || null) !== expectedCurrentApplicationId) {
+          throw new AcceptedResultAdjustmentError('该生当前录取结果已变化，请刷新后重试')
+        }
       }
       const topicIds = [...new Set(applications.map(item => item.topicId))].sort()
       const counts = await readTopicCounts(conn, Number(lockedCycle.id), topicIds, true)
@@ -340,14 +355,16 @@ export async function adjustAcceptedResult(
       const newTopic = plan.newTopicId ? topics.find(topic => String(topic.id) === plan.newTopicId) : null
       const logDetails = {
         cycleId: plan.cycleId, studentId,
-        action: plan.newApplicationId ? 'transfer' : 'cancel', reason: reason.trim(),
-        before: { applicationId: plan.oldApplicationId, topicId: plan.oldTopicId, topicTitle: plan.oldTopicTitle, status: 'accepted' },
+        action: !plan.oldApplicationId ? 'admit' : plan.newApplicationId ? 'transfer' : 'cancel', reason: reason.trim(),
+        before: plan.oldApplicationId ? { applicationId: plan.oldApplicationId, topicId: plan.oldTopicId, topicTitle: plan.oldTopicTitle, status: 'accepted' } : null,
         after: plan.newApplicationId ? { applicationId: plan.newApplicationId, topicId: plan.newTopicId, topicTitle: plan.newTopicTitle, status: 'accepted' } : null,
       }
       await conn.query(`INSERT INTO operation_logs (user_id, action, target_type, target_id, detail, ip_address)
         VALUES (?, 'accepted_result_adjusted', 'student', ?, ?, ?)`,
       [actor.id, studentId, JSON.stringify(logDetails), ipAddress])
-      const studentMessage = newTopic
+      const studentMessage = !plan.oldApplicationId
+        ? `管理员已将您补录至「${plan.newTopicTitle}」。原因：${reason.trim()}`
+        : newTopic
         ? `管理员已将您的录取结果由「${plan.oldTopicTitle}」调整为「${plan.newTopicTitle}」。原因：${reason.trim()}`
         : `管理员已取消您在「${plan.oldTopicTitle}」的录取。原因：${reason.trim()}`
       await insertNotice(conn, studentId, '录取结果已调整', studentMessage, plan.cycleId)
@@ -355,7 +372,9 @@ export async function adjustAcceptedResult(
         const isNewTeacher = teacherId === plan.newTeacherId
         const teacherTopic = isNewTeacher ? newTopic : oldTopic
         if (!teacherTopic) continue
-        const content = plan.newApplicationId
+        const content = !plan.oldApplicationId
+          ? `管理员已将学生补录至「${plan.newTopicTitle}」。原因：${reason.trim()}`
+          : plan.newApplicationId
           ? `管理员已调整学生录取结果：${plan.oldTopicTitle} → ${plan.newTopicTitle}。原因：${reason.trim()}`
           : `管理员已取消学生在「${plan.oldTopicTitle}」的录取。原因：${reason.trim()}`
         await insertNotice(conn, teacherId, '学生录取结果已调整', content, plan.cycleId)

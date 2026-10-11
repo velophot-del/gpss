@@ -27,7 +27,9 @@ router.post('/accepted-results/:applicationId/adjust', async (req: AuthRequest, 
     const targetApplicationId = req.body?.targetApplicationId
     if (targetApplicationId !== null && typeof targetApplicationId !== 'string') return error(res, '目标志愿格式无效', 400)
     const reason = typeof req.body?.reason === 'string' ? req.body.reason : ''
-    success(res, await adjustAcceptedResult(req.user!, req.params.applicationId, targetApplicationId, reason, req.ip || null), '录取结果已调整')
+    const expectedCurrentApplicationId = req.body?.expectedCurrentApplicationId
+    if (expectedCurrentApplicationId !== undefined && expectedCurrentApplicationId !== null && typeof expectedCurrentApplicationId !== 'string') return error(res, '当前录取标识格式无效', 400)
+    success(res, await adjustAcceptedResult(req.user!, req.params.applicationId, targetApplicationId, reason, req.ip || null, expectedCurrentApplicationId), '录取结果已调整')
   } catch (cause: any) {
     if (cause instanceof AcceptedResultAdjustmentError) return error(res, cause.message, cause.statusCode)
     console.error('调整正式录取结果失败:', cause)

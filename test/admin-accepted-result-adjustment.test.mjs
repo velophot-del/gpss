@@ -118,9 +118,9 @@ function databaseHarness({ selectionStatus = 'completed', adjustmentStatus = 'co
       if (sql.includes('FROM cycles')) return [[this.cycle]]
       if (sql.includes('FROM selection_settlements')) return [this.selectionStatus ? [{ status: this.selectionStatus }] : []]
       if (sql.includes('FROM adjustment_settlements')) return [this.adjustmentStatus ? [{ status: this.adjustmentStatus }] : []]
-      if (sql.includes('FROM applications a JOIN topics t') && sql.includes("a.status = 'accepted'")) {
+      if (sql.includes('FROM applications a JOIN topics t') && sql.includes("a.status IN ('accepted','rejected')")) {
         const app = this.applications.find(item => item.id === params[0])
-        return app && app.status === 'accepted' ? [[{ student_id: app.student_id }]] : [[]]
+        return app && ['accepted', 'rejected'].includes(app.status) ? [[{ student_id: app.student_id }]] : [[]]
       }
       if (sql.includes('FROM applications a JOIN topics t') && sql.includes('JOIN users s')) {
         return [this.applications.map(app => {
@@ -202,4 +202,72 @@ test('录取调整选项按两类名额标示可选志愿', async () => {
   assert.match(options.targets[0].reason, /教师.*上限/)
   assert.equal(options.canCancel, true)
   assert.equal(db.logs.length, 0)
+})
+
+const unplacedInput = (overrides = {}) => makeInput({
+  allowAdmission: true,
+  applications: makeInput().applications.map(item => ({ ...item, status: 'rejected' })),
+  acceptedByTopic: { 'topic-old': 0, 'topic-new': 1 },
+  acceptedByTeacher: { 'teacher-a': 0, 'teacher-b': 1 },
+  ...overrides,
+})
+
+test('未录取学生可以补录到自己的既有志愿，包括作为入口的志愿', () => {
+  const plan = buildAcceptedResultAdjustmentPlan(unplacedInput())
+  assert.equal(plan.oldApplicationId, null)
+  assert.deepEqual(plan.applicationUpdates, [{ id: 'app-new', status: 'accepted' }])
+  assert.deepEqual(plan.affectedTeacherIds, ['teacher-b'])
+  assert.deepEqual(plan.topicStatuses, { 'topic-new': 'published' })
+  assert.equal(buildAcceptedResultAdjustmentPlan(unplacedInput({ targetApplicationId: 'app-old' })).newApplicationId, 'app-old')
+})
+
+test('未录取补录不能取消、不提前介入结算、不超容量且不绕过旧结果变化', () => {
+  assert.throws(() => buildAcceptedResultAdjustmentPlan(unplacedInput({ targetApplicationId: null })), /请选择.*志愿/)
+  assert.throws(() => buildAcceptedResultAdjustmentPlan(unplacedInput({ allowAdmission: false })), /调剂.*完成/)
+  assert.throws(() => buildAcceptedResultAdjustmentPlan(unplacedInput({ acceptedByTeacher: { 'teacher-b': 15 } })), /教师.*上限/)
+  assert.throws(() => buildAcceptedResultAdjustmentPlan(unplacedInput({ acceptedByTopic: { 'topic-new': 3 } })), /课题名额/)
+  assert.throws(() => buildAcceptedResultAdjustmentPlan(unplacedInput({ applications: makeInput().applications.map(a => ({ ...a, status: a.id === 'app-new' ? 'accepted' : 'rejected' })) })), /录取结果已变化/)
+})
+
+test('未录取补录选项包含入口志愿，成功写入录取、补录状态、日志和通知', async () => {
+  const db = databaseHarness({ oldAdjustmentStatus: 'rejected', targetAdjustmentStatus: 'rejected' })
+  db.applications.forEach(app => { app.status = 'rejected' })
+  const options = await module.exports.getAcceptedResultAdjustmentOptions(admin, 'app-old')
+  assert.equal(options.current, null)
+  assert.equal(options.canCancel, false)
+  assert.deepEqual(options.targets.map(t => t.applicationId), ['app-old', 'app-new'])
+  await module.exports.adjustAcceptedResult(admin, 'app-old', 'app-new', '经学生确认补录', null, null)
+  assert.deepEqual(db.applications.map(app => app.status), ['rejected', 'accepted'])
+  assert.equal(db.adjustmentVolunteers[1].status, 'accepted')
+  assert.equal(db.logs[0].action, 'admit')
+  assert.equal(db.logs[0].before, null)
+  assert.equal(db.notices.length, 2)
+  assert.ok(db.notices.every(n => n.content.includes('补录')))
+  await assert.rejects(module.exports.adjustAcceptedResult(admin, 'app-old', 'app-new', '重复请求', null, null), /录取结果已变化/)
+  assert.equal(db.logs.length, 1)
+})
+
+test('未录取补录容量冲突、未结算或通知失败时不留下部分结果', async () => {
+  const db = databaseHarness({ teacherBCount: 15, oldAdjustmentStatus: 'rejected', targetAdjustmentStatus: 'rejected' })
+  db.applications.forEach(app => { app.status = 'rejected' })
+  await assert.rejects(module.exports.adjustAcceptedResult(admin, 'app-old', 'app-new', '补录', null), /教师.*上限/)
+  db.teacherBCount = 1
+  db.adjustmentStatus = null
+  await assert.rejects(module.exports.adjustAcceptedResult(admin, 'app-old', 'app-new', '补录', null), /调剂.*完成/)
+  db.adjustmentStatus = 'completed'
+  const query = db.query.bind(db)
+  db.query = async (sql, params) => {
+    if (sql.includes('INSERT INTO notifications')) throw new Error('通知写入失败')
+    return query(sql, params)
+  }
+  await assert.rejects(module.exports.adjustAcceptedResult(admin, 'app-old', 'app-new', '补录', null), /通知写入失败/)
+  assert.deepEqual(db.applications.map(app => app.status), ['rejected', 'rejected'])
+  assert.deepEqual(db.adjustmentVolunteers.map(av => av.status), ['rejected', 'rejected'])
+  assert.equal(db.logs.length, 0)
+})
+
+test('面板打开后入口志愿被别人录取，补录请求必须拒绝，不能变成改录', async () => {
+  const db = databaseHarness()
+  await assert.rejects(module.exports.adjustAcceptedResult(admin, 'app-old', 'app-new', '补录', null, null), /录取结果已变化/)
+  assert.deepEqual(db.applications.map(app => app.status), ['accepted', 'withdrawn'])
 })

@@ -101,7 +101,7 @@ export const selectionAdminApi = {
   resetTopic: (topicId: string, reason: string) => request.post(`/admin/selection-topics/${topicId}/reset`, { confirmation: 'RESET', reason }),
   run: (cycleId: string | number) => request.post(`/admin/selection-settlement/${cycleId}/run`),
   getAcceptedResultOptions: (applicationId: string) => request.get(`/admin/accepted-results/${applicationId}/options`),
-  adjustAcceptedResult: (applicationId: string, data: { targetApplicationId: string | null; reason: string }) =>
+  adjustAcceptedResult: (applicationId: string, data: { targetApplicationId: string | null; reason: string; expectedCurrentApplicationId?: string | null }) =>
     request.post(`/admin/accepted-results/${applicationId}/adjust`, data),
 }
 

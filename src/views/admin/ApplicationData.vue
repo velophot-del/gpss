@@ -81,9 +81,9 @@
           <el-table-column prop="comment" label="备注" min-width="150" show-overflow-tooltip />
           <el-table-column label="操作" width="150" fixed="right">
             <template #default="{ row }">
-              <el-button v-if="adjustableAcceptedIds.has(row.id)" type="primary" link
+              <el-button v-if="adjustableAcceptedIds.has(row.id) || supplementApplicationIds.has(row.id)" type="primary" link
                 :loading="adjustmentLoadingId === row.id || adjustmentSubmitting" @click="openAcceptedResultAdjustment(row)">
-                调整录取
+                {{ row.status === 'accepted' ? '调整录取' : '补录' }}
               </el-button>
               <el-button v-if="returnableApplicationIds.has(row.id)" type="warning" link
                 :loading="returningStudentId === row.student_id" @click="returnVolunteers(row)">
@@ -95,18 +95,19 @@
       </el-card>
     </div>
 
-    <el-dialog v-model="adjustmentDialogVisible" title="调整正式录取结果" width="600px" :close-on-click-modal="false">
+    <el-dialog v-model="adjustmentDialogVisible" :title="adjustmentOptions?.current ? '调整正式录取结果' : '未录取学生补录'" width="600px" :close-on-click-modal="false">
       <template v-if="adjustmentOptions">
         <p>学生：{{ adjustmentOptions.student.name || adjustmentOptions.student.id }}（{{ adjustmentOptions.cycle.name }}）</p>
-        <p>当前录取：{{ adjustmentOptions.current.title }} — {{ adjustmentOptions.current.teacherName }}，第{{ adjustmentOptions.current.priority }}志愿</p>
+        <p v-if="adjustmentOptions.current">当前录取：{{ adjustmentOptions.current.title }} — {{ adjustmentOptions.current.teacherName }}，第{{ adjustmentOptions.current.priority }}志愿</p>
+        <p v-else>当前未录取，请从该生已有志愿中选择补录课题。</p>
         <el-form label-position="top">
-          <el-form-item label="调整为">
+          <el-form-item :label="adjustmentOptions.current ? '调整为' : '补录至'">
             <el-radio-group v-model="adjustmentTargetId" class="adjustment-targets">
               <el-radio v-for="target in adjustmentOptions.targets" :key="target.applicationId"
                 :label="target.applicationId" :value="target.applicationId" :disabled="!target.eligible">
                 {{ target.title }} — {{ target.teacherName }}（第{{ target.priority }}志愿）
                 · 课题 {{ target.acceptedCount }}/{{ target.topicLimit }}
-                · 导师 {{ target.teacherAcceptedCount }}/{{ target.teacherLimit }}
+                · 导师 {{ target.teacherAcceptedCount }}/{{ target.teacherLimit || '不限' }}
                 <span v-if="!target.eligible">· {{ target.reason }}</span>
               </el-radio>
               <el-radio v-if="adjustmentOptions.canCancel" label="__cancel__" value="__cancel__">取消该生当前录取</el-radio>
@@ -171,6 +172,21 @@ const adjustableAcceptedIds = computed(() => {
   const cycleId = Number(cycleStore.currentCycle?.id)
   if (!cycleId) return new Set<string>()
   return new Set(applications.value.filter(app => Number(app.cycle_id) === cycleId && app.status === 'accepted').map(app => app.id))
+})
+
+const supplementApplicationIds = computed(() => {
+  const ids = new Set<string>()
+  if (cycleStore.currentPhase !== 'adjustment') return ids
+  const rows = applications.value.filter(app => Number(app.cycle_id) === Number(cycleStore.currentCycle?.id))
+  const placed = new Set(rows.filter(app => app.status === 'accepted').map(app => app.student_id))
+  const shown = new Set<string>()
+  for (const app of filteredApplications.value) {
+    if (Number(app.cycle_id) !== Number(cycleStore.currentCycle?.id) || app.status !== 'rejected'
+      || placed.has(app.student_id) || shown.has(app.student_id)) continue
+    ids.add(app.id)
+    shown.add(app.student_id)
+  }
+  return ids
 })
 
 const eligibleAdjustmentTargets = computed(() => adjustmentOptions.value?.targets.filter((target: any) => target.eligible) || [])
@@ -275,17 +291,21 @@ const submitAcceptedResultAdjustment = async () => {
   if (targetId !== '__cancel__' && !eligibleAdjustmentTargets.value.some((target: any) => target.applicationId === targetId)) {
     ElMessage.warning('请选择一个可用志愿或取消录取'); return
   }
+  if (targetId === '__cancel__' && !adjustmentOptions.value?.canCancel) {
+    ElMessage.warning('未录取学生请选择补录课题'); return
+  }
   const current = adjustmentOptions.value?.current
   const target = eligibleAdjustmentTargets.value.find((item: any) => item.applicationId === targetId)
-  const after = target ? `改录至「${target.title}」（${target.teacherName}）` : '取消当前录取'
+  const after = target ? `${current ? '改录' : '补录'}至「${target.title}」（${target.teacherName}）` : '取消当前录取'
   try {
     await ElMessageBox.confirm(
-      `学生：${adjustmentOptions.value.student.name || adjustmentOptions.value.student.id}\n原结果：${current.title}（${current.teacherName}）\n调整后：${after}\n原因：${reason}`,
+      `学生：${adjustmentOptions.value.student.name || adjustmentOptions.value.student.id}\n原结果：${current ? `${current.title}（${current.teacherName}）` : '未录取'}\n调整后：${after}\n原因：${reason}`,
       '确认调整录取结果', { confirmButtonText: '确认调整', cancelButtonText: '返回修改', type: 'warning' },
     )
     adjustmentSubmitting.value = true
     await selectionAdminApi.adjustAcceptedResult(adjustmentApplicationId.value, {
       targetApplicationId: targetId === '__cancel__' ? null : targetId,
+      expectedCurrentApplicationId: current?.applicationId || null,
       reason,
     })
     adjustmentDialogVisible.value = false
