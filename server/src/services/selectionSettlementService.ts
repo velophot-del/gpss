@@ -173,7 +173,7 @@ async function applySettlement(conn: Connection, cycleId: number, trigger: Settl
   const allStudentIds = [...new Set(candidates.map(item => item.studentId))]
   for (const studentId of allStudentIds) {
     const accepted = acceptedByStudent.get(studentId)
-    if (accepted) await insertNotification(conn, studentId, 'selection_accepted', '统一录取已完成', `您已被第 ${accepted.priority} 志愿录取，请到选课结果页查看。`, cycleId)
+    if (accepted) await insertNotification(conn, studentId, 'selection_accepted', '统一录取已完成', `您已被第 ${accepted.priority} 志愿录取。请到“我的选题与毕业设计”查看课题要求和指导教师信息，并主动联系指导教师确认后续安排。`, cycleId)
     else if (plan.unmatchedStudentIds.includes(studentId)) await insertNotification(conn, studentId, 'selection_unmatched', '统一录取已完成', '本轮志愿暂未录取，请关注调剂安排。', cycleId)
   }
   const teacherIds = [...new Set(topics.map(topic => topic.teacherId))]

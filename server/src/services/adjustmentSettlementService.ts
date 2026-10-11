@@ -100,7 +100,7 @@ async function applySettlement(conn: Connection, cycleId: number, trigger: Adjus
     const accepted = acceptedByStudent.get(studentId)
     if (accepted) {
       const topicTitle = topicRows.find(topic => topic.id === accepted.topicId)?.title
-      await notifyStudent(conn, studentId, '调剂结果已公布', `您已通过调剂录取至「${topicTitle || '课题'}」，请查看选题结果。`, cycleId)
+      await notifyStudent(conn, studentId, '调剂结果已公布', `您已通过调剂录取至「${topicTitle || '课题'}」。请到“我的选题与毕业设计”查看课题要求和指导教师信息，并主动联系指导教师确认后续安排。`, cycleId)
     } else if (plan.unmatchedStudentIds.includes(studentId)) {
       await notifyStudent(conn, studentId, '调剂结果已公布', '本轮调剂暂未匹配成功，请关注后续安排。', cycleId)
     }

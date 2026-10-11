@@ -32,3 +32,14 @@ test('GPSS 生产镜像启动入口执行毕业流程数据库迁移', () => {
   assert.match(dockerfile, /ENTRYPOINT \["\/entrypoint\.sh"\]/)
   assert.match(entrypoint, /initDb\.js[\s\S]*migrateAddProcessStages\.js/)
 })
+
+test('工作台将任务书至归档的阶段合并为毕业设计，管理员看板仍显示完整阶段', () => {
+  const dashboard = read('src/views/Dashboard.vue')
+  const overview = read('src/views/process/ProcessOverview.vue')
+  assert.match(dashboard, /value: 'graduation_design', label: '毕业设计'/)
+  assert.match(dashboard, /graduationStagePhases\.has\(normalized\) \? 'graduation_design'/)
+  assert.match(dashboard, /PROCESS_PHASES\.slice\(4, 11\)/)
+  assert.match(dashboard, /\{\{ currentPhaseLabel \}\}/)
+  assert.doesNotMatch(dashboard, /\{\{ cycleStore\.phaseInfo\.label \}\}/)
+  assert.match(overview, /const phases = PROCESS_PHASES/)
+})

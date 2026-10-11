@@ -363,9 +363,9 @@ export async function adjustAcceptedResult(
         VALUES (?, 'accepted_result_adjusted', 'student', ?, ?, ?)`,
       [actor.id, studentId, JSON.stringify(logDetails), ipAddress])
       const studentMessage = !plan.oldApplicationId
-        ? `管理员已将您补录至「${plan.newTopicTitle}」。原因：${reason.trim()}`
+        ? `管理员已将您补录至「${plan.newTopicTitle}」。原因：${reason.trim()} 请到“我的选题与毕业设计”查看课题要求和指导教师信息，并主动联系指导教师确认后续安排。`
         : newTopic
-        ? `管理员已将您的录取结果由「${plan.oldTopicTitle}」调整为「${plan.newTopicTitle}」。原因：${reason.trim()}`
+        ? `管理员已将您的录取结果由「${plan.oldTopicTitle}」调整为「${plan.newTopicTitle}」。原因：${reason.trim()} 请到“我的选题与毕业设计”查看课题要求和指导教师信息，并主动联系指导教师确认后续安排。`
         : `管理员已取消您在「${plan.oldTopicTitle}」的录取。原因：${reason.trim()}`
       await insertNotice(conn, studentId, '录取结果已调整', studentMessage, plan.cycleId)
       for (const teacherId of plan.affectedTeacherIds) {

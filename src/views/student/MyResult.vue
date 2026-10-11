@@ -37,7 +37,7 @@
             <el-button @click="$router.push('/process/proposal')">开题报告</el-button>
             <el-button @click="$router.push('/process/midterm')">中期检查</el-button>
           </div>
-          <el-alert :title="`毕业设计阶段：${phaseLabel}。可从左侧“毕业流程”进入任务书、开题报告等环节。`" type="success" :closable="false" show-icon style="margin-top: 20px;" />
+          <el-alert :title="`毕业设计阶段：${phaseLabel}。请主动联系指导教师确认后续安排；可从左侧“毕业流程”进入任务书、开题报告等环节。`" type="success" :closable="false" show-icon style="margin-top: 20px;" />
         </div>
       </template>
 
@@ -49,13 +49,13 @@
           </div>
           <h3 class="result-status">暂未匹配成功</h3>
           <p class="result-desc">
-            您的志愿申请未能被录取。当前处于调剂阶段，您可以查看仍有名额的课题并提交调剂申请。
+            {{ isGraduationPhase ? '本周期调剂已结束，您未被正式录取。如需后续安排，请联系管理员。' : '您的志愿申请未能被录取。当前处于调剂阶段，您可以查看仍有名额的课题并提交调剂申请。' }}
           </p>
           <div class="result-actions">
             <el-button v-if="cycleStore.currentPhase === 'adjustment'" type="warning" size="large" @click="$router.push('/student/adjustment')">
               参与调剂
             </el-button>
-            <el-button size="large" @click="$router.push('/student/browse')">重新浏览课题</el-button>
+            <el-button v-if="!isGraduationPhase" size="large" @click="$router.push('/student/browse')">重新浏览课题</el-button>
           </div>
         </div>
       </template>
@@ -130,9 +130,11 @@ const needsResubmit = computed(() => cycleStore.currentPhase === 'student_apply'
   currentApplications.value.length > 0 && currentApplications.value.every(a => a.status === 'withdrawn')
 )
 
+const graduationPhases = ['task_book', 'proposal', 'midterm', 'thesis_design', 'defense', 'grading', 'archive', 'completed']
+const isGraduationPhase = computed(() => graduationPhases.includes(cycleStore.currentPhase))
 const isUnmatchedAfterSettlement = computed(() => currentApplications.value.length > 0 &&
   !result.value &&
-  ['adjustment', 'result_announce', 'completed'].includes(cycleStore.currentPhase) &&
+  ['adjustment', 'result_announce', ...graduationPhases].includes(cycleStore.currentPhase) &&
   currentApplications.value.every(a => ['rejected', 'withdrawn', 'cancelled'].includes(a.status))
 )
 

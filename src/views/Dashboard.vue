@@ -27,7 +27,7 @@
             <el-icon :size="28"><Timer /></el-icon>
           </div>
           <div class="stat-info">
-            <p class="stat-value">{{ cycleStore.phaseInfo.label }}</p>
+            <p class="stat-value">{{ currentPhaseLabel }}</p>
             <p class="stat-label">当前阶段</p>
           </div>
         </el-card>
@@ -121,7 +121,7 @@
               </div>
               <div class="time-item">
                 <span class="time-label">当前状态</span>
-                <el-tag :type="statusTypeMap[cycleStore.currentPhase]" size="small">{{ cycleStore.phaseInfo.label }}</el-tag>
+                <el-tag :type="statusTypeMap[cycleStore.currentPhase]" size="small">{{ currentPhaseLabel }}</el-tag>
               </div>
             </div>
           </div>
@@ -275,7 +275,25 @@ const applicationStore = useApplicationStore()
 const studentStore = useStudentStore()
 const selectionDraftStore = useSelectionDraftStore()
 const acceptedTopic = ref<any>(null)
-const processPhaseLabel = computed(() => PROCESS_PHASE_LABELS[acceptedTopic.value?.phase] || '待开启')
+const phaseAliases: Record<string, string> = { student_apply: 'student_selection', result_announce: 'result', completed: 'ended' }
+const graduationStagePhases = new Set(PROCESS_PHASES.slice(4, 11).map(phase => phase.value))
+const processPhases = [
+  ...PROCESS_PHASES.slice(0, 4),
+  { value: 'graduation_design', label: '毕业设计' },
+  PROCESS_PHASES[11]
+]
+const dashboardPhase = (phase: string) => {
+  const normalized = phaseAliases[phase] || phase
+  return graduationStagePhases.has(normalized) ? 'graduation_design' : normalized
+}
+const processPhaseLabel = computed(() => {
+  const phase = dashboardPhase(acceptedTopic.value?.phase || '')
+  return phase === 'graduation_design' ? '毕业设计' : PROCESS_PHASE_LABELS[phase] || '待开启'
+})
+const currentPhaseLabel = computed(() => {
+  const phase = dashboardPhase(cycleStore.currentPhase)
+  return phase === 'graduation_design' ? '毕业设计' : PROCESS_PHASE_LABELS[phase] || cycleStore.phaseInfo.label
+})
 const adminTopicCount = ref(0)
 const hotTopics = ref<any[]>([])
 const recommendedTopics = ref<any[]>([])
@@ -304,12 +322,9 @@ const roleDescriptions: Record<string, string> = {
   student: '您可以浏览课题、完善个人档案、填报志愿、查看结果等'
 }
 
-const processPhases = PROCESS_PHASES
-
 // 流程步骤
 const currentStep = computed(() => {
-  const phaseAliases: Record<string, string> = { student_apply: 'student_selection', result_announce: 'result', completed: 'ended' }
-  return processPhases.findIndex(phase => phase.value === (phaseAliases[cycleStore.currentPhase] || cycleStore.currentPhase))
+  return processPhases.findIndex(phase => phase.value === dashboardPhase(cycleStore.currentPhase))
 })
 
 const statusTypeMap: Record<string, any> = {
