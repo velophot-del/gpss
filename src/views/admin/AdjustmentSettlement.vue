@@ -18,12 +18,22 @@
           <span>仅修改周期时间不会重新开放；请先设置未来的截止时间，再开启新一轮。</span>
           <el-button type="primary" :disabled="deadlineReached || !data.cycle.deadline" :loading="running" @click="reopen">重新开放补录</el-button>
         </div>
-        <el-table :data="data.topics" stripe empty-text="暂无补录志愿">
+        <h3>符合补录条件的学生</h3>
+        <el-table :data="data.eligibleStudents" stripe empty-text="暂无符合条件且未录取的学生">
+          <el-table-column prop="student_name" label="学生" min-width="100" />
+          <el-table-column prop="student_code" label="学号" min-width="120" />
+          <el-table-column prop="class_name" label="班级" min-width="120" />
+          <el-table-column prop="major" label="专业" min-width="120" />
+          <el-table-column label="本轮已填志愿" width="120"><template #default="{ row }">{{ row.volunteer_count }} 个</template></el-table-column>
+        </el-table>
+        <h3 class="section-title">符合补录条件的课题</h3>
+        <el-table :data="data.topics" stripe empty-text="暂无符合条件且仍有名额的课题">
           <el-table-column prop="title" label="课题" min-width="210" />
           <el-table-column prop="teacher_name" label="指导教师" width="110" />
           <el-table-column prop="volunteer_count" label="补录志愿数" width="110" />
           <el-table-column label="调剂录取" width="100"><template #default="{ row }">{{ row.adjustment_accepted_count || 0 }}</template></el-table-column>
           <el-table-column label="当前占用 / 课题容量" width="155"><template #default="{ row }">{{ row.current_accepted_count || 0 }} / {{ row.max_students }}</template></el-table-column>
+          <el-table-column label="教师占用 / 上限" width="130"><template #default="{ row }">{{ row.teacher_accepted_count }} / {{ row.teacher_student_limit || '不限' }}</template></el-table-column>
         </el-table>
         <el-collapse v-if="data.archives?.length">
           <el-collapse-item title="历史补录结算（已归档）" name="history">
@@ -99,4 +109,5 @@ onMounted(load)
 
 <style scoped>
 .header,.actions{display:flex;align-items:center;justify-content:space-between;gap:12px}.header h2{margin:0 0 6px}.header p{margin:0;color:#909399}.stats{margin:20px 0 28px}.actions{justify-content:flex-end;margin-top:18px}.deadline{text-align:right;color:#606a78;margin-top:16px}
+.section-title{margin-top:24px}
 </style>

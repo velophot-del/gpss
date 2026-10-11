@@ -3,8 +3,9 @@ import { Router } from 'express'
 import { query, transaction } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { error, success } from '../utils/response.js'
-import { getAdjustmentDeadline, getReviewDeadline } from '../utils/policies.js'
+import { getAdjustmentDeadline, getReviewDeadline, getTeacherStudentLimit } from '../utils/policies.js'
 import { safeParseJson } from '../utils/json.js'
+import { getMajorCodeAliases, normalizeMajorCode } from '../utils/majorCodes.js'
 import { getDeadlineWorkerStatus } from '../services/selectionDeadlineWorker.js'
 import { getSelectionConfigurationError, requestSettlementIfReady, SelectionSettlementError } from '../services/selectionSettlementService.js'
 import { requestAdjustmentSettlementIfReady, AdjustmentSettlementError } from '../services/adjustmentSettlementService.js'
@@ -184,23 +185,37 @@ router.get('/adjustment-settlement/:cycleId', async (req: AuthRequest, res) => {
     const [cycle] = await query<any>('SELECT id,name,phase,phases_config FROM cycles WHERE id=?', [cycleId])
     if (!cycle) return error(res, '选题周期不存在', 404)
     const deadline = getAdjustmentDeadline(safeParseJson(cycle.phases_config, {}))
-    const [eligible] = await query<any>(`SELECT COUNT(DISTINCT a.student_id) students FROM applications a
-      JOIN topics t ON t.id=a.topic_id WHERE t.cycle_id=? AND NOT EXISTS (
+    const eligibleStudents = await query<any>(`SELECT DISTINCT s.id, s.real_name AS student_name,
+        s.student_id AS student_code, s.class_name, s.major, s.major_code,
+        (SELECT COUNT(*) FROM adjustment_volunteers av WHERE av.cycle_id=? AND av.student_id=s.id) AS volunteer_count
+      FROM applications a JOIN topics t ON t.id=a.topic_id JOIN users s ON s.id=a.student_id
+      WHERE t.cycle_id=? AND s.role='student' AND NOT EXISTS (
         SELECT 1 FROM applications accepted JOIN topics accepted_topic ON accepted_topic.id=accepted.topic_id
         WHERE accepted.student_id=a.student_id AND accepted_topic.cycle_id=? AND accepted.status='accepted'
-      )`, [cycleId, cycleId])
+      ) ORDER BY s.real_name,s.student_id`, [cycleId, cycleId, cycleId])
     const [volunteers] = await query<any>(`SELECT COUNT(*) AS total,COUNT(DISTINCT student_id) AS students
       FROM adjustment_volunteers WHERE cycle_id=?`, [cycleId])
-    const topics = await query<any>(`SELECT t.id,t.title,u.real_name teacher_name,t.max_students,
+    const topics = await query<any>(`SELECT t.id,t.title,t.major,t.major_code,u.real_name teacher_name,t.max_students,
         COUNT(DISTINCT av.id) volunteer_count,
-        COUNT(DISTINCT CASE WHEN av.status='accepted' THEN av.student_id END) adjustment_accepted_count,
-        COUNT(DISTINCT CASE WHEN a.status='accepted' THEN a.student_id END) current_accepted_count
+        (SELECT COUNT(DISTINCT accepted.student_id) FROM applications accepted WHERE accepted.topic_id=t.id AND accepted.status='accepted') current_accepted_count,
+        (SELECT COUNT(DISTINCT teacher_accepted.student_id) FROM applications teacher_accepted
+          JOIN topics teacher_topic ON teacher_topic.id=teacher_accepted.topic_id
+          WHERE teacher_topic.teacher_id=t.teacher_id AND teacher_topic.cycle_id=t.cycle_id AND teacher_accepted.status='accepted') teacher_accepted_count,
+        COUNT(DISTINCT CASE WHEN av.status='accepted' THEN av.student_id END) adjustment_accepted_count
       FROM topics t JOIN users u ON u.id=t.teacher_id
       LEFT JOIN adjustment_volunteers av ON av.topic_id=t.id AND av.cycle_id=t.cycle_id
-      LEFT JOIN applications a ON a.topic_id=t.id AND a.status='accepted'
-      WHERE t.cycle_id=?
-      GROUP BY t.id,t.title,u.real_name,t.max_students
-      HAVING volunteer_count>0 ORDER BY u.real_name,t.title`, [cycleId])
+      WHERE t.cycle_id=? AND t.status='published'
+      GROUP BY t.id,t.title,t.major,t.major_code,t.teacher_id,t.cycle_id,u.real_name,t.max_students
+      ORDER BY u.real_name,t.title`, [cycleId])
+    const eligibleMajorCodes = new Set(eligibleStudents.flatMap((student: any) =>
+      getMajorCodeAliases(normalizeMajorCode(student.major_code, student.major)).filter(Boolean)))
+    const teacherLimit = getTeacherStudentLimit(safeParseJson(cycle.phases_config, {}))
+    const eligibleTopics = topics.filter((topic: any) => {
+      const topicMajorCodes = getMajorCodeAliases(normalizeMajorCode(topic.major_code, topic.major))
+      return topicMajorCodes.some(code => !!code && eligibleMajorCodes.has(code))
+        && Number(topic.current_accepted_count) < Number(topic.max_students)
+        && (teacherLimit <= 0 || Number(topic.teacher_accepted_count) < teacherLimit)
+    })
     const [settlement] = await query<any>('SELECT * FROM adjustment_settlements WHERE cycle_id=?', [cycleId])
     const archives = await query<any>(`SELECT id, reopened_at, reason,
       JSON_EXTRACT(snapshot_json, '$.settlement.result_json') AS result_json
@@ -210,10 +225,17 @@ router.get('/adjustment-settlement/:cycleId', async (req: AuthRequest, res) => {
       cycle: { id: cycle.id, name: cycle.name, phase: cycle.phase, deadline: deadline?.toISOString() || null },
       configurationError: deadline ? null : '当前周期未配置有效的调剂截止时间',
       counts: {
-        students: Number(eligible?.students || 0), volunteers: Number(volunteers?.total || 0),
+        students: eligibleStudents.length, volunteers: Number(volunteers?.total || 0),
         submittedStudents: Number(volunteers?.students || 0), accepted: Number(result?.accepted || 0),
         unmatchedStudents: Number(result?.unmatchedStudents || 0),
-      }, topics, archives: archives.map(row => ({ ...row, result_json: safeParseJson(safeParseJson(row.result_json, null), null) })),
+      }, eligibleStudents: eligibleStudents.map((student: any) => ({ ...student, volunteer_count: Number(student.volunteer_count || 0) })),
+      topics: eligibleTopics.map((topic: any) => ({
+        ...topic, max_students: Number(topic.max_students), volunteer_count: Number(topic.volunteer_count || 0),
+        current_accepted_count: Number(topic.current_accepted_count || 0),
+        teacher_accepted_count: Number(topic.teacher_accepted_count || 0),
+        teacher_student_limit: teacherLimit,
+        adjustment_accepted_count: Number(topic.adjustment_accepted_count || 0),
+      })), archives: archives.map(row => ({ ...row, result_json: safeParseJson(safeParseJson(row.result_json, null), null) })),
       settlement: settlement ? { ...settlement, result_json: result } : null,
     })
   } catch (cause) { console.error('读取调剂结算进度失败:', cause); error(res, '服务器内部错误', 500) }
