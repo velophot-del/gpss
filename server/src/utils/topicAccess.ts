@@ -1,6 +1,7 @@
 import { query } from '../config/database.js'
 import { safeParseJson } from './json.js'
-import { normalizeMajorCode } from './majorCodes.js'
+import { haveSameMajorCode, isSameMajor, normalizeMajorCode } from './majorCodes.js'
+import { resolveCycleMajorCode, type MajorConfig } from './majors.js'
 
 export type TopicAccessMode = 'same_major' | 'all' | 'matrix'
 export interface TopicAccessPolicy {
@@ -30,16 +31,37 @@ export async function getTopicAccessPolicy(cycleId?: string | null): Promise<Top
   return { mode: raw.mode, matrix }
 }
 
-export function isTopicVisible(policy: TopicAccessPolicy, studentMajorCode?: string | null, topicMajorCode?: string | null): boolean {
-  if (!studentMajorCode || !topicMajorCode) return false
+export function isTopicVisible(
+  policy: TopicAccessPolicy,
+  studentMajorCode?: string | null,
+  topicMajorCode?: string | null,
+  studentMajorName?: string | null,
+  topicMajorName?: string | null,
+  cycleMajors: MajorConfig[] = [],
+): boolean {
   if (policy.mode === 'all') return true
-  const studentCode = normalizeMajorCode(String(studentMajorCode))
-  const topicCode = normalizeMajorCode(String(topicMajorCode))
-  if (policy.mode === 'matrix') return (policy.matrix[studentCode] || policy.matrix[String(studentMajorCode)] || []).some(code => normalizeMajorCode(code) === topicCode)
-  return studentCode === topicCode
+  if (!studentMajorCode && !studentMajorName) return false
+  if (!topicMajorCode && !topicMajorName) return false
+  const studentCode = normalizeMajorCode(String(studentMajorCode ?? ''), String(studentMajorName ?? ''))
+  const topicCode = normalizeMajorCode(String(topicMajorCode ?? ''), String(topicMajorName ?? ''))
+  if (policy.mode === 'matrix') {
+    const matrixStudentCode = resolveCycleMajorCode(cycleMajors, studentCode, studentMajorName) || studentCode
+    const matrixTopicCode = resolveCycleMajorCode(cycleMajors, topicCode, topicMajorName) || topicCode
+    const allowedCodes = Object.entries(policy.matrix).find(([code]) => haveSameMajorCode(code, matrixStudentCode))?.[1] || []
+    return !!matrixTopicCode && allowedCodes.some(code => haveSameMajorCode(code, matrixTopicCode))
+  }
+  return isSameMajor(
+    { majorCode: studentMajorCode, major: studentMajorName },
+    { majorCode: topicMajorCode, major: topicMajorName },
+  )
+}
+
+export async function getStudentMajor(userId: string): Promise<{ code: string; name: string }> {
+  const rows = await query<any>('SELECT major_code, major FROM users WHERE id = ? LIMIT 1', [userId])
+  const name = String(rows[0]?.major || '')
+  return { code: normalizeMajorCode(String(rows[0]?.major_code || ''), name), name }
 }
 
 export async function getStudentMajorCode(userId: string): Promise<string> {
-  const rows = await query<any>('SELECT major_code, major FROM users WHERE id = ? LIMIT 1', [userId])
-  return normalizeMajorCode(String(rows[0]?.major_code || ''), String(rows[0]?.major || ''))
+  return (await getStudentMajor(userId)).code
 }

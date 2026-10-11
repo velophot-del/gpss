@@ -1,7 +1,7 @@
 import { query } from '../config/database.js'
 import { safeParseJson } from './json.js'
 import type { TopicAccessPolicy } from './topicAccess.js'
-import { getMajorCodeAliases, normalizeMajorCode, SMART_INTERACTION_MAJOR_CODE } from './majorCodes.js'
+import { haveSameMajorCode, getMajorCodeAliases, normalizeMajorCode, normalizeMajorName, SMART_INTERACTION_MAJOR_CODE } from './majorCodes.js'
 
 // 专业自由增删后，权威来源是「周期配置 cycles.phases_config.majors」；
 // 此文件里硬编码的 4 专业只作为「未配置/无周期」时的默认值（与前端 src/types 对齐）。
@@ -121,21 +121,39 @@ export function getMajorNames(code: string, cycleMajors: MajorConfig[]): string[
   return [...new Set(names)]
 }
 
+/** 把学生名册里的专业（代码可能丢前导零、名称可能带方向后缀）归到周期专业列表里的专业 */
+export function resolveCycleMajorCode(
+  cycleMajors: MajorConfig[],
+  studentMajorCode?: string | null,
+  studentMajorName?: string | null,
+): string | null {
+  const normalized = normalizeMajorCode(studentMajorCode ?? '', String(studentMajorName ?? ''))
+  if (normalized) {
+    const byCode = cycleMajors.find(m => haveSameMajorCode(m.code, normalized))
+    if (byCode) return byCode.code
+  }
+  const nameKey = normalizeMajorName(studentMajorName)
+  if (!nameKey) return null
+  return cycleMajors.find(m => normalizeMajorName(m.name) === nameKey)?.code ?? null
+}
+
 /** 计算某学生在当前“查看选题规则”下允许浏览的专业选项（value=code，顺序按周期专业列表） */
 export function getAllowedMajorOptions(
   policy: TopicAccessPolicy,
   cycleMajors: MajorConfig[],
   studentMajorCode?: string | null,
+  studentMajorName?: string | null,
 ): MajorOption[] {
   let codes: string[] = []
   if (policy.mode === 'all') {
     codes = cycleMajors.map(m => m.code)
-  } else if (!studentMajorCode) {
+  } else if (!studentMajorCode && !studentMajorName) {
     return []
   } else if (policy.mode === 'matrix') {
-    codes = (policy.matrix[studentMajorCode] || policy.matrix[normalizeMajorCode(studentMajorCode)] || []).map(code => normalizeMajorCode(String(code)))
+    const matrixKey = resolveCycleMajorCode(cycleMajors, studentMajorCode, studentMajorName) ?? String(studentMajorCode ?? '')
+    codes = (policy.matrix[matrixKey] || policy.matrix[normalizeMajorCode(matrixKey)] || []).map(code => normalizeMajorCode(String(code)))
   } else {
-    codes = [normalizeMajorCode(studentMajorCode)]
+    codes = [resolveCycleMajorCode(cycleMajors, studentMajorCode, studentMajorName) ?? normalizeMajorCode(studentMajorCode ?? '')]
   }
   const allowed = new Set(codes)
   return cycleMajors.filter(m => allowed.has(m.code)).map(m => ({ value: m.code, label: `${m.name} (${m.code})`, code: m.code }))

@@ -5,7 +5,6 @@ import { authMiddleware, requireRole, type AuthRequest } from '../middleware/aut
 import { error, success } from '../utils/response.js'
 import { getAdjustmentDeadline, getReviewDeadline, getTeacherStudentLimit } from '../utils/policies.js'
 import { safeParseJson } from '../utils/json.js'
-import { getMajorCodeAliases, normalizeMajorCode } from '../utils/majorCodes.js'
 import { getDeadlineWorkerStatus } from '../services/selectionDeadlineWorker.js'
 import { getSelectionConfigurationError, requestSettlementIfReady, SelectionSettlementError } from '../services/selectionSettlementService.js'
 import { requestAdjustmentSettlementIfReady, AdjustmentSettlementError } from '../services/adjustmentSettlementService.js'
@@ -207,15 +206,13 @@ router.get('/adjustment-settlement/:cycleId', async (req: AuthRequest, res) => {
       WHERE t.cycle_id=? AND t.status='published'
       GROUP BY t.id,t.title,t.major,t.major_code,t.teacher_id,t.cycle_id,u.real_name,t.max_students
       ORDER BY u.real_name,t.title`, [cycleId])
-    const eligibleMajorCodes = new Set(eligibleStudents.flatMap((student: any) =>
-      getMajorCodeAliases(normalizeMajorCode(student.major_code, student.major)).filter(Boolean)))
+    // 补录名单按“课题侧”条件展示当前周期可补录的全部课题：已发布、课题仍有名额、指导教师仍有总名额。
+    // “本专业”是学生填报志愿/管理员补录时的逐个学生约束，不能反过来用未录取学生的专业去裁剪课题名单，
+    // 否则某个专业暂时没有未录取学生时，该专业所有尚有名额的课题都会从名单里消失。
     const teacherLimit = getTeacherStudentLimit(safeParseJson(cycle.phases_config, {}))
-    const eligibleTopics = topics.filter((topic: any) => {
-      const topicMajorCodes = getMajorCodeAliases(normalizeMajorCode(topic.major_code, topic.major))
-      return topicMajorCodes.some(code => !!code && eligibleMajorCodes.has(code))
-        && Number(topic.current_accepted_count) < Number(topic.max_students)
-        && (teacherLimit <= 0 || Number(topic.teacher_accepted_count) < teacherLimit)
-    })
+    const eligibleTopics = topics.filter((topic: any) =>
+      Number(topic.current_accepted_count) < Number(topic.max_students)
+      && (teacherLimit <= 0 || Number(topic.teacher_accepted_count) < teacherLimit))
     const [settlement] = await query<any>('SELECT * FROM adjustment_settlements WHERE cycle_id=?', [cycleId])
     const archives = await query<any>(`SELECT id, reopened_at, reason,
       JSON_EXTRACT(snapshot_json, '$.settlement.result_json') AS result_json

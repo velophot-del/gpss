@@ -26,10 +26,11 @@
           <el-table-column prop="major" label="专业" min-width="120" />
           <el-table-column label="本轮已填志愿" width="120"><template #default="{ row }">{{ row.volunteer_count }} 个</template></el-table-column>
         </el-table>
-        <h3 class="section-title">符合补录条件的课题</h3>
-        <el-table :data="data.topics" stripe empty-text="暂无符合条件且仍有名额的课题">
+        <h3 class="section-title">本周期已发布且仍有名额的课题</h3>
+        <el-table :data="data.topics" stripe empty-text="暂无已发布且仍有名额的课题">
           <el-table-column prop="title" label="课题" min-width="210" />
           <el-table-column prop="teacher_name" label="指导教师" width="110" />
+          <el-table-column prop="major" label="专业" width="130" />
           <el-table-column prop="volunteer_count" label="补录志愿数" width="110" />
           <el-table-column label="调剂录取" width="100"><template #default="{ row }">{{ row.adjustment_accepted_count || 0 }}</template></el-table-column>
           <el-table-column label="当前占用 / 课题容量" width="155"><template #default="{ row }">{{ row.current_accepted_count || 0 }} / {{ row.max_students }}</template></el-table-column>

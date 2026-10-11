@@ -4,7 +4,7 @@ import { getConnection, query, transaction } from '../config/database.js'
 import type { SessionUser } from '../utils/policies.js'
 import { getTeacherStudentLimit } from '../utils/policies.js'
 import { safeParseJson } from '../utils/json.js'
-import { getMajorCodeAliases, normalizeMajorCode } from '../utils/majorCodes.js'
+import { isSameMajor } from '../utils/majorCodes.js'
 
 export class AcceptedResultAdjustmentError extends Error {
   constructor(message: string, public statusCode = 409) { super(message) }
@@ -51,13 +51,6 @@ type AdjustmentPlanInput = {
   acceptedByTeacher: Record<string, number>
 }
 
-function isSameMajor(studentMajorCode: string, studentMajor: string, topicMajorCode: string, topicMajor: string) {
-  const studentCode = normalizeMajorCode(studentMajorCode, studentMajor)
-  const topicCode = normalizeMajorCode(topicMajorCode, topicMajor)
-  if (studentCode && topicCode) return getMajorCodeAliases(studentCode).some(code => getMajorCodeAliases(topicCode).includes(code))
-  return !!studentMajor.trim() && studentMajor.trim() === topicMajor.trim()
-}
-
 export function buildAcceptedResultAdjustmentPlan(input: AdjustmentPlanInput) {
   const reason = String(input.reason || '').trim()
   if (!reason) throw new AcceptedResultAdjustmentError('请填写录取调整原因', 400)
@@ -102,7 +95,10 @@ export function buildAcceptedResultAdjustmentPlan(input: AdjustmentPlanInput) {
       throw new AcceptedResultAdjustmentError('目标课题不属于本周期')
     }
     if (!current) {
-      if (!isSameMajor(input.studentMajorCode, input.studentMajor, targetTopic.majorCode || '', targetTopic.major || '')) {
+      if (!isSameMajor(
+        { majorCode: input.studentMajorCode, major: input.studentMajor },
+        { majorCode: targetTopic.majorCode || '', major: targetTopic.major || '' },
+      )) {
         throw new AcceptedResultAdjustmentError('补录课题须属于学生本专业')
       }
     }
@@ -275,7 +271,8 @@ export async function getAcceptedResultAdjustmentOptions(actor: SessionUser, app
   const targetTopics = current
     ? topics.filter((topic: any) => applications.some(item => item.topicId === String(topic.id)))
     : topics.filter((topic: any) => isSameMajor(
-      applications[0]?.studentMajorCode || '', applications[0]?.studentMajor || '', topic.major_code || '', topic.major || '',
+      { majorCode: applications[0]?.studentMajorCode || '', major: applications[0]?.studentMajor || '' },
+      { majorCode: topic.major_code || '', major: topic.major || '' },
     ))
   const targets = targetTopics.filter((topic: any) => ['published', 'full'].includes(String(topic.status))
     && String(topic.id) !== current?.topicId).map((topic: any) => {

@@ -3,7 +3,7 @@ import { query } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
 import { getActiveCycle } from '../utils/processFlow.js'
-import { getStudentMajorCode, getTopicAccessPolicy } from '../utils/topicAccess.js'
+import { getStudentMajor, getTopicAccessPolicy } from '../utils/topicAccess.js'
 import { getAllowedMajorNames, getAllowedMajorOptions, getCycleMajors } from '../utils/majors.js'
 
 const router = Router()
@@ -92,13 +92,13 @@ router.get('/topics', async (req: AuthRequest, res) => {
     let visibilitySql = ''
     const visibilityParams: any[] = []
     if (req.user!.role === 'student') {
-      const [studentMajorCode, policy, cycleMajors] = await Promise.all([
-        getStudentMajorCode(req.user!.id),
+      const [studentMajor, policy, cycleMajors] = await Promise.all([
+        getStudentMajor(req.user!.id),
         getTopicAccessPolicy(activeCycle.id),
         getCycleMajors(activeCycle.id),
       ])
       if (policy.mode !== 'all') {
-        const allowedMajors = getAllowedMajorOptions(policy, cycleMajors, studentMajorCode)
+        const allowedMajors = getAllowedMajorOptions(policy, cycleMajors, studentMajor.code, studentMajor.name)
         const allowedCodes = allowedMajors.map(major => major.code)
         if (!allowedCodes.length) {
           return success(res, { teacherRanking: [], hotTopics: [], recommendedTopics: [] })

@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { query, transaction } from '../config/database.js'
 import type { SessionUser } from '../utils/policies.js'
 import { getAdjustmentDeadline, getTeacherStudentLimit } from '../utils/policies.js'
-import { getMajorCodeAliases, normalizeMajorCode } from '../utils/majorCodes.js'
+import { isSameMajor, normalizeMajorCode } from '../utils/majorCodes.js'
 import { getStudentMajorCode } from '../utils/topicAccess.js'
 import { safeParseJson } from '../utils/json.js'
 import { getTeacherGroupKey, toStudentTopicView } from '../utils/studentTopic.js'
@@ -34,9 +34,12 @@ async function assertAdjustmentPhase(cycle: any, conn: Connection, allowExpired 
 }
 
 async function assertStudentEligible(conn: Connection, studentId: string, cycleId: number) {
-  const [users] = await conn.query<any[]>('SELECT major_code FROM users WHERE id = ? AND role = \'student\'', [studentId])
+  const [users] = await conn.query<any[]>('SELECT major_code, major FROM users WHERE id = ? AND role = \'student\'', [studentId])
   if (!users[0]) throw new AdjustmentVolunteerError('学生账号不存在', 404)
-  const majorCode = users[0].major_code || await getStudentMajorCode(studentId)
+  const major = {
+    code: normalizeMajorCode(users[0].major_code || (await getStudentMajorCode(studentId)), users[0].major || ''),
+    name: String(users[0].major || ''),
+  }
   const [firstApplications] = await conn.query<any[]>(`
     SELECT a.id FROM applications a JOIN topics t ON t.id = a.topic_id
     WHERE a.student_id = ? AND t.cycle_id = ? LIMIT 1
@@ -47,10 +50,10 @@ async function assertStudentEligible(conn: Connection, studentId: string, cycleI
     WHERE a.student_id = ? AND t.cycle_id = ? AND a.status = 'accepted' LIMIT 1
   `, [studentId, cycleId])
   if (accepted.length) throw new AdjustmentVolunteerError('您已被本周期课题录取，不能参加调剂', 403)
-  return normalizeMajorCode(majorCode)
+  return major
 }
 
-async function readEligibleTopics(conn: Connection, cycleId: number, majorCode: string) {
+async function readEligibleTopics(conn: Connection, cycleId: number, major: { code: string; name: string }) {
   const [rows] = await conn.query<any[]>(`
     SELECT t.*, u.real_name AS teacher_name, u.title AS teacher_title, u.department,
            u.email AS teacher_email, u.phone AS teacher_phone, u.avatar AS teacher_avatar,
@@ -64,13 +67,17 @@ async function readEligibleTopics(conn: Connection, cycleId: number, majorCode: 
       SELECT topic_id, COUNT(DISTINCT student_id) AS accepted_count
       FROM applications WHERE status = 'accepted' GROUP BY topic_id
     ) ac ON ac.topic_id = t.id
-    WHERE t.cycle_id = ? AND t.major_code IN (?) AND t.status = 'published'
+    WHERE t.cycle_id = ? AND t.status = 'published'
       AND COALESCE(ac.accepted_count, 0) < t.max_students
     ORDER BY t.created_at DESC, t.id
-  `, [cycleId, getMajorCodeAliases(majorCode)])
+  `, [cycleId])
   const configCycle = await conn.query<any[]>('SELECT phases_config FROM cycles WHERE id = ?', [cycleId])
   const teacherStudentLimit = getTeacherStudentLimit(safeParseJson(configCycle[0][0]?.phases_config, {}))
-  return rows.filter(row => teacherStudentLimit <= 0 || Number(row.teacher_accepted_count || 0) < teacherStudentLimit).map(row => toStudentTopicView({
+  // 专业比对按现行专业代码（含历史别名）并兼容名册里的方向后缀写法，与选题浏览口径一致。
+  return rows.filter(row => isSameMajor(
+    { majorCode: major.code, major: major.name },
+    { majorCode: row.major_code, major: row.major },
+  )).filter(row => teacherStudentLimit <= 0 || Number(row.teacher_accepted_count || 0) < teacherStudentLimit).map(row => toStudentTopicView({
     id: row.id, title: row.title, description: row.description, category: row.category,
     difficulty: row.difficulty, maxStudents: Number(row.max_students),
     currentCount: Number(row.accepted_count), status: row.status, cycleId: row.cycle_id,
@@ -85,8 +92,8 @@ export async function getEligibleAdjustmentTopics(actor: SessionUser) {
   const conn = await (await import('../config/database.js')).getConnection()
   try {
     await assertAdjustmentPhase(cycle, conn)
-    const majorCode = await assertStudentEligible(conn, actor.id, Number(cycle.id))
-    return { cycleId: Number(cycle.id), deadline: getAdjustmentDeadline(safeParseJson(cycle.phases_config, {}))!.toISOString(), topics: await readEligibleTopics(conn, Number(cycle.id), majorCode) }
+    const major = await assertStudentEligible(conn, actor.id, Number(cycle.id))
+    return { cycleId: Number(cycle.id), deadline: getAdjustmentDeadline(safeParseJson(cycle.phases_config, {}))!.toISOString(), topics: await readEligibleTopics(conn, Number(cycle.id), major) }
   } finally { conn.release() }
 }
 
@@ -137,7 +144,7 @@ export async function saveMyAdjustmentVolunteers(actor: SessionUser, expectedVer
     const currentRoundId = archives[0]?.id || null
     if (roundId !== currentRoundId) throw new AdjustmentVolunteerError('补录轮次已变化，请刷新页面后重新填报', 409)
     await conn.query('SELECT id FROM users WHERE id = ? FOR UPDATE', [actor.id])
-    const majorCode = await assertStudentEligible(conn, actor.id, Number(cycle.id))
+    const major = await assertStudentEligible(conn, actor.id, Number(cycle.id))
     const [current] = await conn.query<any[]>(`SELECT version FROM adjustment_volunteers WHERE cycle_id = ? AND student_id = ? FOR UPDATE`, [cycle.id, actor.id])
     const version = current.length ? Math.max(...current.map(row => Number(row.version) || 0)) : 0
     if (version !== expectedVersion) throw new AdjustmentVolunteerError('调剂志愿已在其他页面更新，请刷新后重试', 409)
@@ -150,7 +157,7 @@ export async function saveMyAdjustmentVolunteers(actor: SessionUser, expectedVer
     const allTopicIds = [...new Set([...existingVolunteerTopics.map(row => String(row.topic_id)), ...items.map(item => item.topicId)])]
     const topicsToLock = [...new Set([...allTopicIds, ...topicIds])].sort()
     const [topics] = await conn.query<any[]>(`
-      SELECT t.id, t.status, t.cycle_id, t.major_code, t.teacher_id, t.max_students,
+      SELECT t.id, t.status, t.cycle_id, t.major, t.major_code, t.teacher_id, t.max_students,
              COALESCE(ac.accepted_count, 0) AS accepted_count
       FROM topics t LEFT JOIN (
         SELECT topic_id, COUNT(DISTINCT student_id) AS accepted_count FROM applications WHERE status = 'accepted' GROUP BY topic_id
@@ -161,12 +168,14 @@ export async function saveMyAdjustmentVolunteers(actor: SessionUser, expectedVer
     if (selectedTopics.length !== items.length) throw new AdjustmentVolunteerError('有课题不存在或不可填报')
     for (const topic of selectedTopics) {
       if (topic.status !== 'published' || Number(topic.cycle_id) !== Number(cycle.id)) throw new AdjustmentVolunteerError('只能填报本周期已发布课题')
-      if (normalizeMajorCode(topic.major_code) !== majorCode) throw new AdjustmentVolunteerError('调剂课题须与您的专业一致')
+      if (!isSameMajor({ majorCode: major.code, major: major.name }, { majorCode: topic.major_code, major: topic.major })) {
+        throw new AdjustmentVolunteerError('调剂课题须与您的专业一致')
+      }
       if (Number(topic.accepted_count) >= Number(topic.max_students)) throw new AdjustmentVolunteerError('有课题名额已满，请刷新后重选')
       if (!topic.teacher_id) throw new AdjustmentVolunteerError('所选课题未分配指导教师')
     }
 
-    const eligibleIds = new Set((await readEligibleTopics(conn, Number(cycle.id), majorCode)).map(topic => String(topic.id)))
+    const eligibleIds = new Set((await readEligibleTopics(conn, Number(cycle.id), major)).map(topic => String(topic.id)))
     if (selectedTopics.some(topic => !eligibleIds.has(String(topic.id)))) {
       throw new AdjustmentVolunteerError('有课题或教师名额已满，请刷新后重选')
     }

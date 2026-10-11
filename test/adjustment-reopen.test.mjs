@@ -63,7 +63,7 @@ function harness(overrides = {}) {
     '../utils/json.js': { safeParseJson: (v, fallback) => typeof v === 'string' ? JSON.parse(v) : v ?? fallback },
     '../utils/policies.js': { getAdjustmentDeadline: config => config.adjustment?.end ? new Date(config.adjustment.end) : null, getTeacherStudentLimit: () => 15 },
     '../utils/adjustmentSettlement.js': { isAdjustmentSettlementDue: deadline => deadline.getTime() <= Date.now() },
-    '../utils/majorCodes.js': { normalizeMajorCode: v => v, getMajorCodeAliases: v => [v] },
+    '../utils/majorCodes.js': { normalizeMajorCode: v => v, getMajorCodeAliases: v => [v], isSameMajor: (a, b) => String(a?.majorCode || '') === String(b?.majorCode || '') },
     '../utils/topicAccess.js': { getStudentMajorCode: async () => '130502' },
     '../utils/studentTopic.js': { getTeacherGroupKey: v => v, toStudentTopicView: v => v },
     './selectionMatcher.js': {}, uuid: serverRequire('uuid'),

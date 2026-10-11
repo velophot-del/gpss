@@ -5,7 +5,8 @@ import { query, transaction } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
 import { getTeacherStudentLimit, getReviewDeadline, resolveAdjustmentSource, validateAdjustmentCycle, validateAdjustmentTarget } from '../utils/policies.js'
-import { getStudentMajorCode, getTopicAccessPolicy, isTopicVisible } from '../utils/topicAccess.js'
+import { getStudentMajor, getTopicAccessPolicy, isTopicVisible } from '../utils/topicAccess.js'
+import { getCycleMajors } from '../utils/majors.js'
 import { getActiveCycle, isInProgressCycle, isStudentSelectionPhase, isTeacherReviewPhase, notify } from '../utils/processFlow.js'
 import { safeParseJson } from '../utils/json.js'
 import { VOLUNTEER_MIN, VOLUNTEER_MAX, validateContinuousPriorities } from '../utils/volunteerRules.js'
@@ -52,15 +53,16 @@ router.post('/volunteers/submit', requireRole(['student']), async (req: AuthRequ
     if (priorityError) return error(res, priorityError)
 
     // 可见性、课题及导师覆盖校验
-    const studentMajor = await getStudentMajorCode(req.user!.id)
+    const studentMajor = await getStudentMajor(req.user!.id)
     const policy = await getTopicAccessPolicy(activeCycle.id)
+    const cycleMajors = await getCycleMajors(activeCycle.id)
     const teacherIds = new Set<string>()
     for (const it of items) {
-      const topicRows = await query<any>('SELECT id, status, cycle_id, major_code, teacher_id FROM topics WHERE id = ?', [it.topicId])
+      const topicRows = await query<any>('SELECT id, status, cycle_id, major, major_code, teacher_id FROM topics WHERE id = ?', [it.topicId])
       const topic = topicRows[0]
       if (!topic || topic.status !== 'published') return error(res, '课题不存在或未开放选课')
       if (Number(topic.cycle_id) !== Number(activeCycle.id)) return error(res, '课题不属于当前选题周期')
-      if (!isTopicVisible(policy, studentMajor, topic.major_code)) return error(res, '只能申请允许查看范围内的专业课题')
+      if (!isTopicVisible(policy, studentMajor.code, topic.major_code, studentMajor.name, topic.major, cycleMajors)) return error(res, '只能申请允许查看范围内的专业课题')
       if (!topic.teacher_id) return error(res, '所选课题未分配指导教师，请更换课题')
       teacherIds.add(String(topic.teacher_id))
     }
@@ -466,13 +468,14 @@ router.post('/adjustments', requireRole(['student']), async (req: AuthRequest, r
     if (!toTopicId) return error(res, '请选择目标课题')
     const activeCycle = await getActiveCycle()
     if (!activeCycle || activeCycle.phase !== 'adjustment') return error(res, '当前不在调剂阶段')
-    const [targetTopic] = await query<any>('SELECT id, cycle_id, status, major_code FROM topics WHERE id = ?', [toTopicId])
+    const [targetTopic] = await query<any>('SELECT id, cycle_id, status, major, major_code FROM topics WHERE id = ?', [toTopicId])
     if (!targetTopic || Number(targetTopic.cycle_id) !== Number(activeCycle.id) || targetTopic.status !== 'published') {
       return error(res, '目标课题不在当前周期或不可调剂')
     }
     const policy = await getTopicAccessPolicy(activeCycle.id)
-    const majorCode = await getStudentMajorCode(req.user!.id)
-    if (!isTopicVisible(policy, majorCode, targetTopic.major_code)) return error(res, '您无权申请该专业课题', 403)
+    const studentMajor = await getStudentMajor(req.user!.id)
+    const cycleMajors = await getCycleMajors(activeCycle.id)
+    if (!isTopicVisible(policy, studentMajor.code, targetTopic.major_code, studentMajor.name, targetTopic.major, cycleMajors)) return error(res, '您无权申请该专业课题', 403)
 
     const acceptedApplications = await query<any>(
       `SELECT a.topic_id FROM applications a JOIN topics t ON t.id = a.topic_id

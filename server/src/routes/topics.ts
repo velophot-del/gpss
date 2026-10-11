@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { query, transaction } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error, paginated } from '../utils/response.js'
-import { getStudentMajorCode, getTopicAccessPolicy, isTopicVisible } from '../utils/topicAccess.js'
+import { getStudentMajor, getTopicAccessPolicy, isTopicVisible } from '../utils/topicAccess.js'
 import { getAllowedMajorNames, getAllowedMajorOptions, getCycleMajors, getCycleResearchCategories, type MajorOption } from '../utils/majors.js'
 import { getActiveCycle, isInProgressCycle } from '../utils/processFlow.js'
 import { getTeacherStudentLimit } from '../utils/policies.js'
@@ -94,14 +94,14 @@ router.get('/', async (req: AuthRequest, res) => {
     let allowedMajors: MajorOption[] | undefined
     let teacherStudentLimit = 0
     if (req.user!.role === 'student') {
-      const majorCode = await getStudentMajorCode(req.user!.id)
+      const studentMajor = await getStudentMajor(req.user!.id)
       const active = await getActiveCycle()
       teacherStudentLimit = getTeacherStudentLimit(safeParseJson(active?.phases_config, {}))
       // 无周期时回退到默认规则（默认仅限本专业），保证下拉仍有内容
       const policy = await getTopicAccessPolicy(active?.id)
       // 周期“毕业专业列表”为可见专业过滤的权威来源（未配置回退默认 4 专业）
       const cycleMajors = await getCycleMajors(active?.id)
-      allowedMajors = getAllowedMajorOptions(policy, cycleMajors, majorCode)
+      allowedMajors = getAllowedMajorOptions(policy, cycleMajors, studentMajor.code, studentMajor.name)
       const allowedCodes = allowedMajors.map(m => m.code)
       if (!active) {
         whereSql += ' AND 1 = 0'
@@ -342,8 +342,9 @@ router.get('/:id', async (req: AuthRequest, res) => {
 
     if (req.user!.role === 'student') {
       const policy = await getTopicAccessPolicy(topic.cycle_id)
-      const majorCode = await getStudentMajorCode(req.user!.id)
-      if (!isTopicVisible(policy, majorCode, topic.major_code)) return error(res, '您无权查看其他专业的课题', 403)
+      const studentMajor = await getStudentMajor(req.user!.id)
+      const cycleMajors = await getCycleMajors(topic.cycle_id)
+      if (!isTopicVisible(policy, studentMajor.code, topic.major_code, studentMajor.name, topic.major, cycleMajors)) return error(res, '您无权查看其他专业的课题', 403)
     }
 
     await query('UPDATE topics SET view_count = view_count + 1 WHERE id = ?', [id])
