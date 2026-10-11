@@ -8,9 +8,9 @@
 
       <el-alert v-if="errorMessage" :title="errorMessage" type="warning" :closable="false" show-icon />
       <el-alert v-else-if="!adjustmentStore.mine.canEdit && adjustmentStore.mine.frozenReason" :title="adjustmentStore.mine.frozenReason" type="info" :closable="false" show-icon />
-      <el-alert v-if="adjustmentStore.mine.settlement?.status === 'completed'" title="调剂结算已完成，请到选课结果查看结果。" type="success" :closable="false" show-icon />
+      <el-alert v-if="adjustmentStore.mine.canEdit && adjustmentStore.mine.roundId" title="新一轮补录已开放，请重新选择并保存志愿；以前的志愿不会自动参加本轮匹配。" type="info" :closable="false" show-icon />
 
-      <div class="toolbar">
+      <div v-if="adjustmentStore.mine.canEdit" class="toolbar">
         <span>可选课题 {{ adjustmentStore.eligibleTopics.length }} 个</span>
         <el-tag :type="selected.length >= 1 ? 'success' : 'warning'">已选 {{ selected.length }}/6（至少 1 项）</el-tag>
         <el-button type="primary" :disabled="!adjustmentStore.mine.canEdit || selected.length === 0" :loading="saving" @click="save">保存调剂志愿</el-button>
@@ -40,7 +40,7 @@
           <el-input v-model="item.motivation" :disabled="!adjustmentStore.mine.canEdit" maxlength="500" show-word-limit type="textarea" :rows="2" placeholder="填写选择该课题的理由" />
         </div>
       </section>
-      <el-empty v-else description="请从上方选择调剂课题" />
+      <el-empty v-else :description="adjustmentStore.mine.canEdit ? '请从上方选择调剂课题' : '当前不可填报，请查看上方说明'" />
     </div>
   </div>
 </template>
@@ -77,6 +77,7 @@ async function save() {
   errorMessage.value = ''
   if (selected.value.length < 1 || selected.value.length > 6) return ElMessage.warning('请选择 1–6 个调剂志愿')
   saving.value = true
+  const roundId = adjustmentStore.mine.roundId
   try {
     await adjustmentStore.save(selected.value.map(item => ({ topicId: item.topicId, motivation: item.motivation })))
     ElMessage.success('调剂志愿已保存')
@@ -84,6 +85,10 @@ async function save() {
     errorMessage.value = cause?.response?.data?.message || '保存失败，请刷新后重试'
     ElMessage.error(errorMessage.value)
     await adjustmentStore.loadMine().catch(() => null)
+    if (roundId !== adjustmentStore.mine.roundId) {
+      selected.value = (adjustmentStore.mine.items || []).map((item: any) => ({ ...item }))
+      await adjustmentStore.loadEligibleTopics().catch(() => null)
+    }
   } finally { saving.value = false }
 }
 

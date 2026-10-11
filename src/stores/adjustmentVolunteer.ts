@@ -23,7 +23,7 @@ export const useAdjustmentVolunteerStore = defineStore('adjustmentVolunteer', ()
   }
 
   async function save(items: { topicId: string; motivation: string }[]) {
-    const response: any = await adjustmentVolunteerApi.saveMine(Number(mine.value.version || 0), items)
+    const response: any = await adjustmentVolunteerApi.saveMine(Number(mine.value.version || 0), items, mine.value.roundId || null)
     mine.value = response.data || mine.value
     return mine.value
   }

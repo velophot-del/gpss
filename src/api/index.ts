@@ -108,8 +108,8 @@ export const selectionAdminApi = {
 export const adjustmentVolunteerApi = {
   getEligibleTopics: () => request.get('/adjustment-volunteers/eligible-topics'),
   getMine: () => request.get('/adjustment-volunteers/mine'),
-  saveMine: (version: number, items: { topicId: string; motivation: string }[]) =>
-    request.put('/adjustment-volunteers/mine', { version, items }),
+  saveMine: (version: number, items: { topicId: string; motivation: string }[], roundId: string | null = null) =>
+    request.put('/adjustment-volunteers/mine', { version, items, roundId }),
   getTeacherTopics: () => request.get('/adjustment-volunteers/teacher/topics'),
   getTeacherDraft: (topicId: string) => request.get(`/adjustment-volunteers/topics/${topicId}/draft`),
   saveTeacherDraft: (topicId: string, version: number, items: any[]) =>
@@ -119,6 +119,8 @@ export const adjustmentVolunteerApi = {
 }
 
 export const adjustmentAdminApi = {
+  reopen: (cycleId: string | number, data: { settlementId: string; deadline: string; reason: string }) =>
+    request.post(`/admin/adjustment-settlement/${cycleId}/reopen`, data),
   getProgress: (cycleId: string | number) => request.get(`/admin/adjustment-settlement/${cycleId}`),
   unlock: (topicId: string, reason: string) => request.post(`/admin/adjustment-topics/${topicId}/unlock`, { reason }),
   run: (cycleId: string | number) => request.post(`/admin/adjustment-settlement/${cycleId}/run`),

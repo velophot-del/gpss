@@ -15,7 +15,7 @@ export class AdjustmentVolunteerError extends Error {
 export type AdjustmentVolunteerInput = { topicId: string; motivation?: string }
 
 async function getCurrentCycle(conn?: Connection) {
-  const sql = `SELECT * FROM cycles WHERE status IN ('active','selection','review','adjustment') ORDER BY created_at DESC LIMIT 1`
+  const sql = `SELECT * FROM cycles WHERE status IN ('active','selection','review','adjustment') ORDER BY created_at DESC LIMIT 1${conn ? ' FOR UPDATE' : ''}`
   const [rows] = conn ? await conn.query<any[]>(sql) : [await query<any>(sql)]
   return rows[0] || null
 }
@@ -87,31 +87,37 @@ export async function getEligibleAdjustmentTopics(actor: SessionUser) {
 
 export async function getMyAdjustmentVolunteers(actor: SessionUser) {
   if (actor.role !== 'student') throw new AdjustmentVolunteerError('只有学生可以查看个人调剂志愿', 403)
-  const cycle = await getCurrentCycle()
-  if (!cycle) return { cycleId: null, phase: null, version: 0, items: [], settlement: null }
-  const items = await query<any>(`
-    SELECT av.id, av.topic_id, av.priority, av.motivation, av.status, av.version,
-           t.title, t.category, t.major, t.max_students, t.teacher_id
-    FROM adjustment_volunteers av JOIN topics t ON t.id = av.topic_id
-    WHERE av.cycle_id = ? AND av.student_id = ?
-    ORDER BY av.priority
-  `, [cycle.id, actor.id])
-  const settlements = await query<any>('SELECT status, result_json, error_message FROM adjustment_settlements WHERE cycle_id = ?', [cycle.id])
-  const deadline = getAdjustmentDeadline(safeParseJson(cycle.phases_config, {}))
-  const canEdit = cycle.phase === 'adjustment' && !!deadline && Date.now() < deadline.getTime()
-    && !settlements[0]?.status?.match(/^(running|failed|completed)$/)
-  return {
-    cycleId: Number(cycle.id), phase: cycle.phase,
-    version: items.length ? Math.max(...items.map(item => Number(item.version) || 0)) : 0,
-    canEdit,
-    frozenReason: canEdit ? null : (['running', 'failed', 'completed'].includes(settlements[0]?.status) ? '调剂统一结算已开始' : deadline && Date.now() >= deadline.getTime() ? '调剂填报已截止' : '当前不在调剂阶段'),
-    items: items.map(item => ({ id: item.id, topicId: item.topic_id, title: item.title, category: item.category,
-      major: item.major, priority: Number(item.priority), motivation: item.motivation || '', status: item.status, teacherGroupKey: getTeacherGroupKey(item.teacher_id) })),
-    settlement: settlements[0] ? { status: settlements[0].status, result: safeParseJson(settlements[0].result_json, null) } : null,
-  }
+  return transaction(async conn => {
+    const cycle = await getCurrentCycle(conn)
+    if (!cycle) return { cycleId: null, phase: null, version: 0, items: [], settlement: null }
+    const [items] = await conn.query<any[]>(`
+      SELECT av.id, av.topic_id, av.priority, av.motivation, av.status, av.version,
+             t.title, t.category, t.major, t.max_students, t.teacher_id
+      FROM adjustment_volunteers av JOIN topics t ON t.id = av.topic_id
+      WHERE av.cycle_id = ? AND av.student_id = ?
+      ORDER BY av.priority
+    `, [cycle.id, actor.id])
+    const [settlements] = await conn.query<any[]>('SELECT status, result_json, error_message FROM adjustment_settlements WHERE cycle_id = ?', [cycle.id])
+    const config = safeParseJson<Record<string, any>>(cycle.phases_config, {})
+    const deadline = getAdjustmentDeadline(config)
+    const [accepted] = await conn.query<any[]>(`SELECT a.id FROM applications a JOIN topics t ON t.id = a.topic_id
+      WHERE a.student_id = ? AND t.cycle_id = ? AND a.status = 'accepted' LIMIT 1`, [actor.id, cycle.id])
+    const [archives] = await conn.query<any[]>('SELECT id FROM adjustment_round_archives WHERE cycle_id = ? ORDER BY sequence DESC LIMIT 1', [cycle.id])
+    const canEdit = cycle.phase === 'adjustment' && !!deadline && Date.now() < deadline.getTime()
+      && !accepted.length && !settlements[0]?.status?.match(/^(running|failed|completed)$/)
+    return {
+      cycleId: Number(cycle.id), phase: cycle.phase,
+      version: items.length ? Math.max(...items.map(item => Number(item.version) || 0)) : 0,
+      canEdit, roundId: archives[0]?.id || null,
+      frozenReason: canEdit ? null : (accepted.length ? '您已被录取，无需再次填报调剂志愿' : settlements[0]?.status === 'completed' ? '本轮调剂已结束；未录取学生请等待管理员重新开放补录' : ['running', 'failed'].includes(settlements[0]?.status) ? '调剂统一结算已开始，暂不可修改志愿' : deadline && Date.now() >= deadline.getTime() ? '调剂填报已截止' : '当前不在调剂阶段'),
+      items: items.map(item => ({ id: item.id, topicId: item.topic_id, title: item.title, category: item.category,
+        major: item.major, priority: Number(item.priority), motivation: item.motivation || '', status: item.status, teacherGroupKey: getTeacherGroupKey(item.teacher_id) })),
+      settlement: settlements[0] ? { status: settlements[0].status, result: safeParseJson(settlements[0].result_json, null) } : null,
+    }
+  })
 }
 
-export async function saveMyAdjustmentVolunteers(actor: SessionUser, expectedVersion: number, items: AdjustmentVolunteerInput[]) {
+export async function saveMyAdjustmentVolunteers(actor: SessionUser, expectedVersion: number, items: AdjustmentVolunteerInput[], roundId: string | null = null) {
   if (actor.role !== 'student') throw new AdjustmentVolunteerError('只有学生可以提交调剂志愿', 403)
   if (!Array.isArray(items) || items.length < 1 || items.length > 6) throw new AdjustmentVolunteerError('调剂志愿数量须为 1–6 个')
   if (items.some(item => !item?.topicId) || new Set(items.map(item => item.topicId)).size !== items.length) throw new AdjustmentVolunteerError('调剂志愿课题不能为空且不能重复')
@@ -121,7 +127,9 @@ export async function saveMyAdjustmentVolunteers(actor: SessionUser, expectedVer
   await transaction(async conn => {
     const cycle = await getCurrentCycle(conn)
     assertAdjustmentPhase(cycle)
-    await conn.query('SELECT id FROM cycles WHERE id = ? FOR UPDATE', [cycle.id])
+    const [archives] = await conn.query<any[]>('SELECT id FROM adjustment_round_archives WHERE cycle_id = ? ORDER BY sequence DESC LIMIT 1', [cycle.id])
+    const currentRoundId = archives[0]?.id || null
+    if (roundId !== currentRoundId) throw new AdjustmentVolunteerError('补录轮次已变化，请刷新页面后重新填报', 409)
     await conn.query('SELECT id FROM users WHERE id = ? FOR UPDATE', [actor.id])
     const majorCode = await assertStudentEligible(conn, actor.id, Number(cycle.id))
     const [current] = await conn.query<any[]>(`SELECT version FROM adjustment_volunteers WHERE cycle_id = ? AND student_id = ? FOR UPDATE`, [cycle.id, actor.id])

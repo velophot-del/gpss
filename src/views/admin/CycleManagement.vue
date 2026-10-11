@@ -20,15 +20,18 @@
             <el-tag :type="cycleStatusType[row.status]" size="small">{{ cycleStatusLabel[row.status] }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="课题发布期" width="200">
+        <el-table-column label="课题发布期" min-width="220">
           <template #default="{ row }">
             {{ formatDate(row.topicPublishStart) }} ~ {{ formatDate(row.topicPublishEnd) }}
           </template>
         </el-table-column>
-        <el-table-column label="填报时间" width="180">
+        <el-table-column label="填报开始" width="190">
           <template #default="{ row }">
             {{ formatDate(row.studentApplyStart) }}
           </template>
+        </el-table-column>
+        <el-table-column label="调剂截止" width="190">
+          <template #default="{ row }">{{ formatDate(row.adjustmentEnd) }}</template>
         </el-table-column>
         <el-table-column label="操作" width="340" fixed="right">
           <template #default="{ row }">
@@ -108,58 +111,59 @@
             <el-input v-model="form.description" type="textarea" :rows="2" />
           </el-form-item>
           <el-divider content-position="left">阶段时间安排</el-divider>
+          <el-alert title="时间按当前设备时区设置，精确到秒。00:00:00 表示当天开始；若开放至某日全天，请将截止时间设为次日 00:00:00。" type="info" :closable="false" show-icon class="config-alert" />
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="发布开始">
-                <el-date-picker v-model="form.topicPublishStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.topicPublishStart" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="发布截止">
-                <el-date-picker v-model="form.topicPublishEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.topicPublishEnd" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
           </el-row>
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="填报开始">
-                <el-date-picker v-model="form.studentApplyStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.studentApplyStart" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="填报截止">
-                <el-date-picker v-model="form.studentApplyEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.studentApplyEnd" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
           </el-row>
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="遴选开始">
-                <el-date-picker v-model="form.teacherReviewStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.teacherReviewStart" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="遴选截止">
-                <el-date-picker v-model="form.teacherReviewEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.teacherReviewEnd" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
           </el-row>
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="结果公布">
-                <el-date-picker v-model="form.resultAnnounceTime" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.resultAnnounceTime" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="调剂开始">
-                <el-date-picker v-model="form.adjustmentStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.adjustmentStart" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
           </el-row>
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="调剂结束">
-                <el-date-picker v-model="form.adjustmentEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.adjustmentEnd" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
           </el-row>
@@ -236,58 +240,59 @@
           </div>
 
           <el-divider content-position="left">阶段时间安排</el-divider>
+          <el-alert title="时间按当前设备时区设置，精确到秒。00:00:00 表示当天开始；若开放至某日全天，请将截止时间设为次日 00:00:00。" type="info" :closable="false" show-icon class="config-alert" />
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="发布开始">
-                <el-date-picker v-model="form.topicPublishStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.topicPublishStart" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="发布截止">
-                <el-date-picker v-model="form.topicPublishEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.topicPublishEnd" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
           </el-row>
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="填报开始">
-                <el-date-picker v-model="form.studentApplyStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.studentApplyStart" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="填报截止">
-                <el-date-picker v-model="form.studentApplyEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.studentApplyEnd" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
           </el-row>
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="遴选开始">
-                <el-date-picker v-model="form.teacherReviewStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.teacherReviewStart" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="遴选截止">
-                <el-date-picker v-model="form.teacherReviewEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.teacherReviewEnd" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
           </el-row>
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="结果公布">
-                <el-date-picker v-model="form.resultAnnounceTime" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.resultAnnounceTime" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
             <el-col :span="12">
               <el-form-item label="调剂开始">
-                <el-date-picker v-model="form.adjustmentStart" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.adjustmentStart" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
           </el-row>
           <el-row :gutter="16">
             <el-col :span="12">
               <el-form-item label="调剂结束">
-                <el-date-picker v-model="form.adjustmentEnd" type="date" placeholder="选择日期" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
+                <el-date-picker v-model="form.adjustmentEnd" type="datetime" format="YYYY-MM-DD HH:mm:ss" placeholder="选择日期和时间" style="width: 100%" value-format="YYYY-MM-DDTHH:mm:ssZ" />
               </el-form-item>
             </el-col>
           </el-row>
@@ -602,7 +607,7 @@ async function handleDelete(id: string) {
 function formatDate(dateStr: any): string {
   if (!dateStr) return '-'
   const d = dayjs(dateStr)
-  return d.isValid() ? d.format('YYYY-MM-DD') : '-'
+  return d.isValid() ? d.format('YYYY-MM-DD HH:mm:ss') : '-'
 }
 
 onMounted(() => {

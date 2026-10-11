@@ -21,13 +21,14 @@ async function cycleData(cycleId: number) {
   const config = safeParseJson<Record<string, any>>(rows.phases_config, {})
   const deadline = getAdjustmentDeadline(config)
   if (!deadline) throw new AdjustmentSettlementError('调剂补录阶段未配置有效截止时间')
-  return { cycle: rows, config, deadline }
+  const [archive] = await query<any>('SELECT id FROM adjustment_round_archives WHERE cycle_id = ? ORDER BY sequence DESC LIMIT 1', [cycleId])
+  return { cycle: rows, config, deadline, roundId: archive?.id || null }
 }
 
 export async function requestAdjustmentSettlementIfReady(cycleId: number, trigger: AdjustmentSettlementTrigger): Promise<AdjustmentSettlementResult> {
-  const { deadline } = await cycleData(cycleId)
+  const { deadline, roundId } = await cycleData(cycleId)
   if (!isAdjustmentSettlementDue(deadline)) return { status: 'waiting' }
-  return { status: 'completed', summary: await runAdjustmentSettlement(cycleId, trigger === 'admin_retry' ? trigger : 'deadline') }
+  return { status: 'completed', summary: await runAdjustmentSettlement(cycleId, trigger === 'admin_retry' ? trigger : 'deadline', roundId) }
 }
 
 async function notifyStudent(conn: Connection, userId: string, title: string, content: string, cycleId: number) {
@@ -129,7 +130,8 @@ async function applySettlement(conn: Connection, cycleId: number, trigger: Adjus
   return summary
 }
 
-export async function runAdjustmentSettlement(cycleId: number, trigger: AdjustmentSettlementTrigger): Promise<AdjustmentSettlementSummary> {
+export async function runAdjustmentSettlement(cycleId: number, trigger: AdjustmentSettlementTrigger, expectedRoundId?: string | null): Promise<AdjustmentSettlementSummary> {
+  const requestedRoundId = expectedRoundId === undefined ? (await cycleData(cycleId)).roundId : expectedRoundId
   const lockConnection = await getConnection()
   const lockName = `gpss:adjustment-settlement:${cycleId}`
   let acquired = false
@@ -137,8 +139,11 @@ export async function runAdjustmentSettlement(cycleId: number, trigger: Adjustme
     const [lockRows] = await lockConnection.query<any[]>('SELECT GET_LOCK(?, 0) AS acquired', [lockName])
     acquired = Number(lockRows[0]?.acquired) === 1
     if (!acquired) throw new AdjustmentSettlementError('调剂统一结算正在执行，请稍后刷新')
+    const { deadline, roundId } = await cycleData(cycleId)
+    if (roundId !== requestedRoundId) throw new AdjustmentSettlementError('补录轮次已变化，旧结算请求已取消')
     const [existing] = await lockConnection.query<any[]>('SELECT status, result_json FROM adjustment_settlements WHERE cycle_id = ?', [cycleId])
     if (existing[0]?.status === 'completed') return safeParseJson<AdjustmentSettlementSummary>(existing[0].result_json, { accepted: 0, rejected: 0, withdrawn: 0, unmatchedStudents: 0, topicAcceptedCounts: {}, lotteryVersion: 'legacy' })
+    if (!isAdjustmentSettlementDue(deadline)) throw new AdjustmentSettlementError('尚未到调剂截止时间，系统将在截止后自动匹配')
     await lockConnection.query(`INSERT INTO adjustment_settlements (id, cycle_id, status, trigger_type, started_at)
       VALUES (?, ?, 'running', ?, NOW())
       ON DUPLICATE KEY UPDATE status = 'running', trigger_type = VALUES(trigger_type), error_message = NULL, started_at = NOW(), completed_at = NULL`,

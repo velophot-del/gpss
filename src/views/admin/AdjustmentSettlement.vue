@@ -9,11 +9,15 @@
         <el-row :gutter="16" class="stats">
           <el-col :span="6" :xs="12"><el-statistic title="符合资格学生" :value="data.counts?.students || 0" /></el-col>
           <el-col :span="6" :xs="12"><el-statistic title="补录志愿" :value="data.counts?.volunteers || 0" /></el-col>
-          <el-col :span="6" :xs="12"><el-statistic title="自动录取" :value="data.counts?.accepted || 0" /></el-col>
-          <el-col :span="6" :xs="12"><el-statistic title="未匹配学生" :value="data.counts?.unmatchedStudents || 0" /></el-col>
+          <el-col :span="6" :xs="12"><el-statistic title="本轮自动录取" :value="data.counts?.accepted || 0" /></el-col>
+          <el-col :span="6" :xs="12"><el-statistic title="本轮未匹配学生" :value="data.counts?.unmatchedStudents || 0" /></el-col>
         </el-row>
         <el-alert v-if="data.settlement" :title="`结算状态：${settlementLabel(data.settlement.status)}${data.settlement.error_message ? ' · ' + data.settlement.error_message : ''}`" :type="data.settlement.status === 'failed' ? 'error' : data.settlement.status === 'completed' ? 'success' : 'info'" :closable="false" class="mb-4" />
         <el-alert v-else title="学生可在截止前修改志愿；截止后系统自动匹配并写入结果。" type="info" :closable="false" class="mb-4" />
+        <div v-if="data.settlement?.status === 'completed' && data.cycle.phase === 'adjustment'" class="actions">
+          <span>仅修改周期时间不会重新开放；请先设置未来的截止时间，再开启新一轮。</span>
+          <el-button type="primary" :disabled="deadlineReached || !data.cycle.deadline" :loading="running" @click="reopen">重新开放补录</el-button>
+        </div>
         <el-table :data="data.topics" stripe empty-text="暂无补录志愿">
           <el-table-column prop="title" label="课题" min-width="210" />
           <el-table-column prop="teacher_name" label="指导教师" width="110" />
@@ -21,6 +25,16 @@
           <el-table-column label="调剂录取" width="100"><template #default="{ row }">{{ row.adjustment_accepted_count || 0 }}</template></el-table-column>
           <el-table-column label="当前占用 / 课题容量" width="155"><template #default="{ row }">{{ row.current_accepted_count || 0 }} / {{ row.max_students }}</template></el-table-column>
         </el-table>
+        <el-collapse v-if="data.archives?.length">
+          <el-collapse-item title="历史补录结算（已归档）" name="history">
+            <el-table :data="data.archives">
+              <el-table-column prop="reopened_at" label="归档时间" min-width="180" />
+              <el-table-column prop="reason" label="重新开放原因" min-width="200" />
+              <el-table-column label="当轮录取" width="100"><template #default="{ row }">{{ row.result_json?.accepted ?? '—' }}</template></el-table-column>
+              <el-table-column label="当轮未匹配" width="110"><template #default="{ row }">{{ row.result_json?.unmatchedStudents ?? '—' }}</template></el-table-column>
+            </el-table>
+          </el-collapse-item>
+        </el-collapse>
         <div v-if="data.cycle.deadline" class="deadline">自动匹配截止时间：{{ formatDeadline(data.cycle.deadline) }}</div>
         <div v-if="data.settlement?.status === 'failed'" class="actions"><el-button type="warning" :disabled="!deadlineReached || !!data.configurationError" :loading="running" @click="retry">重试失败的自动匹配</el-button></div>
       </template>
@@ -58,6 +72,26 @@ async function retry() {
   running.value = true
   try { await adjustmentAdminApi.run(data.value.cycle.id); ElMessage.success('自动匹配重试完成'); await load() }
   catch (cause: any) { ElMessage.error(cause?.response?.data?.message || '自动匹配暂未执行'); await load() }
+  finally { running.value = false }
+}
+async function reopen() {
+  const cycleId = data.value.cycle.id
+  const settlementId = data.value.settlement.id
+  const deadline = data.value.cycle.deadline
+  let reason: string
+  try {
+    const answer = await ElMessageBox.prompt(
+      `已录取结果保留。上一轮结算和志愿将归档，未录取学生必须重新提交1–6个志愿。新截止时间：${formatDeadline(deadline)}。请填写重新开放原因。`,
+      '重新开放补录', { type: 'warning', confirmButtonText: '确认重新开放', cancelButtonText: '取消', inputValidator: value => !!value?.trim() && value.trim().length <= 500 || '请填写1–500字原因' },
+    )
+    reason = answer.value.trim()
+  } catch { return }
+  running.value = true
+  try {
+    await adjustmentAdminApi.reopen(cycleId, { settlementId, deadline, reason })
+    ElMessage.success('已重新开放，请通知未录取学生刷新页面并重新填报')
+    await load()
+  } catch (cause: any) { ElMessage.error(cause?.response?.data?.message || '重新开放失败'); await load() }
   finally { running.value = false }
 }
 onMounted(load)

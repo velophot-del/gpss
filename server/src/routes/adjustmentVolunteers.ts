@@ -38,7 +38,7 @@ router.put('/mine', requireRole(['student']), async (req: AuthRequest, res) => {
   try {
     const version = Number(req.body?.version)
     if (!Array.isArray(req.body?.items)) return error(res, '调剂志愿内容无效')
-    success(res, await saveMyAdjustmentVolunteers(req.user!, version, req.body.items), '调剂志愿已保存')
+    success(res, await saveMyAdjustmentVolunteers(req.user!, version, req.body.items, req.body.roundId ?? null), '调剂志愿已保存')
   } catch (cause) { handleError(res, cause) }
 })
 

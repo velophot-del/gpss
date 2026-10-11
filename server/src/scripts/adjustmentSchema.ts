@@ -82,6 +82,23 @@ export async function createAdjustmentTables(conn: Connection) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `)
 
+  await conn.query(`
+    CREATE TABLE IF NOT EXISTS adjustment_round_archives (
+      sequence BIGINT UNSIGNED NOT NULL AUTO_INCREMENT UNIQUE,
+      id VARCHAR(36) PRIMARY KEY,
+      cycle_id INT NOT NULL,
+      settlement_id VARCHAR(36) NOT NULL,
+      snapshot_json JSON NOT NULL,
+      reopened_by VARCHAR(36) NOT NULL,
+      reason VARCHAR(500) NOT NULL,
+      next_deadline DATETIME NOT NULL,
+      reopened_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uk_adjustment_archive_settlement (settlement_id),
+      INDEX idx_adjustment_archive_cycle (cycle_id, reopened_at),
+      FOREIGN KEY (cycle_id) REFERENCES cycles(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `)
+
   const [versionColumns] = await conn.query<any[]>(`
     SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'adjustment_volunteers' AND COLUMN_NAME = 'version'

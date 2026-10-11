@@ -1,3 +1,4 @@
+import { reopenAdjustment } from '../services/adjustmentReopenService.js'
 import { Router } from 'express'
 import { query, transaction } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
@@ -199,6 +200,9 @@ router.get('/adjustment-settlement/:cycleId', async (req: AuthRequest, res) => {
       GROUP BY t.id,t.title,u.real_name,t.max_students
       HAVING volunteer_count>0 ORDER BY u.real_name,t.title`, [cycleId])
     const [settlement] = await query<any>('SELECT * FROM adjustment_settlements WHERE cycle_id=?', [cycleId])
+    const archives = await query<any>(`SELECT id, reopened_at, reason,
+      JSON_EXTRACT(snapshot_json, '$.settlement.result_json') AS result_json
+      FROM adjustment_round_archives WHERE cycle_id = ? ORDER BY sequence DESC`, [cycleId])
     const result = settlement ? safeParseJson<Record<string, any> | null>(settlement.result_json, null) : null
     success(res, {
       cycle: { id: cycle.id, name: cycle.name, phase: cycle.phase, deadline: deadline?.toISOString() || null },
@@ -207,7 +211,7 @@ router.get('/adjustment-settlement/:cycleId', async (req: AuthRequest, res) => {
         students: Number(eligible?.students || 0), volunteers: Number(volunteers?.total || 0),
         submittedStudents: Number(volunteers?.students || 0), accepted: Number(result?.accepted || 0),
         unmatchedStudents: Number(result?.unmatchedStudents || 0),
-      }, topics,
+      }, topics, archives: archives.map(row => ({ ...row, result_json: safeParseJson(safeParseJson(row.result_json, null), null) })),
       settlement: settlement ? { ...settlement, result_json: result } : null,
     })
   } catch (cause) { console.error('读取调剂结算进度失败:', cause); error(res, '服务器内部错误', 500) }
@@ -215,6 +219,16 @@ router.get('/adjustment-settlement/:cycleId', async (req: AuthRequest, res) => {
 
 router.post('/adjustment-topics/:topicId/unlock', async (req: AuthRequest, res) => {
   return error(res, '调剂阶段不再由教师遴选名单，旧批次仅保留为历史记录', 410)
+})
+
+router.post('/adjustment-settlement/:cycleId/reopen', async (req: AuthRequest, res) => {
+  try {
+    success(res, await reopenAdjustment(Number(req.params.cycleId), req.user!, req.body, req.ip || null), '已重新开放补录，请未录取学生重新提交志愿')
+  } catch (cause: any) {
+    if (cause instanceof AdjustmentSettlementError) return error(res, cause.message, cause.statusCode)
+    console.error('重新开放补录失败:', cause)
+    error(res, '重新开放失败，原结算已保留', 500)
+  }
 })
 
 router.post('/adjustment-settlement/:cycleId/run', async (req: AuthRequest, res) => {
