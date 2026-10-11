@@ -18,6 +18,7 @@ const dependencies = {
   '../config/database.js': database,
   '../utils/policies.js': { getTeacherStudentLimit: () => 15 },
   '../utils/json.js': { safeParseJson: value => JSON.parse(value || '{}') },
+  '../utils/majorCodes.js': require('../server/dist/utils/majorCodes.js'),
   uuid: createRequire(new URL('../server/package.json', import.meta.url))('uuid'),
 }
 new Function('require', 'module', 'exports', compiled)(name => dependencies[name] ?? require(name), module, module.exports)
@@ -26,6 +27,8 @@ const { buildAcceptedResultAdjustmentPlan } = module.exports
 const makeInput = (overrides = {}) => ({
   cycleId: 4,
   studentId: 'student-1',
+  studentMajorCode: '130502',
+  studentMajor: '视觉传达设计',
   currentApplicationId: 'app-old',
   targetApplicationId: 'app-new',
   reason: '核对志愿后修正录取去向',
@@ -37,8 +40,8 @@ const makeInput = (overrides = {}) => ({
     { id: 'app-new', studentId: 'student-1', topicId: 'topic-new', cycleId: 4, priority: 2, status: 'withdrawn' },
   ],
   topics: [
-    { id: 'topic-old', teacherId: 'teacher-a', cycleId: 4, status: 'full', maxStudents: 1 },
-    { id: 'topic-new', teacherId: 'teacher-b', cycleId: 4, status: 'published', maxStudents: 3 },
+    { id: 'topic-old', teacherId: 'teacher-a', cycleId: 4, status: 'full', maxStudents: 1, majorCode: '130502', major: '视觉传达设计' },
+    { id: 'topic-new', teacherId: 'teacher-b', cycleId: 4, status: 'published', maxStudents: 3, majorCode: '130502', major: '视觉传达设计' },
   ],
   acceptedByTopic: { 'topic-old': 1, 'topic-new': 1 },
   acceptedByTeacher: { 'teacher-a': 1, 'teacher-b': 1 },
@@ -94,17 +97,18 @@ test('拒绝已有多条正式录取的异常状态', () => {
   })), /录取结果已变化/)
 })
 
-function databaseHarness({ selectionStatus = 'completed', adjustmentStatus = 'completed', teacherLimit = 15, teacherBCount = 1, oldAdjustmentStatus = 'accepted', targetAdjustmentStatus = 'rejected' } = {}) {
+function databaseHarness({ selectionStatus = 'completed', adjustmentStatus = 'completed', teacherLimit = 15, teacherBCount = 1, oldAdjustmentStatus = 'accepted', targetAdjustmentStatus = 'rejected', otherMajorTopic = false } = {}) {
   const state = {
-    cycle: { id: 4, name: '2026级', phase: 'adjustment', phases_config: JSON.stringify({ teacher_student_limit: teacherLimit }) },
+    cycle: { id: 4, name: '2026级', status: 'adjustment', phase: 'adjustment', phases_config: JSON.stringify({ teacher_student_limit: teacherLimit }) },
     applications: [
       { id: 'app-old', student_id: 'student-1', topic_id: 'topic-old', cycle_id: 4, priority: 1, status: 'accepted' },
       { id: 'app-new', student_id: 'student-1', topic_id: 'topic-new', cycle_id: 4, priority: 2, status: 'withdrawn' },
     ],
     topics: [
-      { id: 'topic-old', title: '原课题', teacher_id: 'teacher-a', teacher_name: '导师甲', cycle_id: 4, status: 'full', max_students: 1 },
-      { id: 'topic-new', title: '目标课题', teacher_id: 'teacher-b', teacher_name: '导师乙', cycle_id: 4, status: 'published', max_students: 3 },
-      { id: 'topic-admin', title: '空余课题', teacher_id: 'teacher-c', teacher_name: '导师丙', cycle_id: 4, status: 'published', max_students: 2 },
+      { id: 'topic-old', title: '原课题', teacher_id: 'teacher-a', teacher_name: '导师甲', cycle_id: 4, status: 'full', max_students: 1, major_code: '130502', major: '视觉传达设计' },
+      { id: 'topic-new', title: '目标课题', teacher_id: 'teacher-b', teacher_name: '导师乙', cycle_id: 4, status: 'published', max_students: 3, major_code: '130502', major: '视觉传达设计' },
+      { id: 'topic-admin', title: '空余课题', teacher_id: 'teacher-c', teacher_name: '导师丙', cycle_id: 4, status: 'published', max_students: 2, major_code: '130502', major: '视觉传达设计' },
+      ...(otherMajorTopic ? [{ id: 'topic-other-major', title: '其他专业课题', teacher_id: 'teacher-d', teacher_name: '导师丁', cycle_id: 4, status: 'published', max_students: 2, major_code: '130503', major: '数字媒体艺术' }] : []),
     ],
     adjustmentVolunteers: [
       { id: 'av-old', student_id: 'student-1', topic_id: 'topic-old', cycle_id: 4, status: oldAdjustmentStatus },
@@ -126,7 +130,7 @@ function databaseHarness({ selectionStatus = 'completed', adjustmentStatus = 'co
       if (sql.includes('FROM applications a JOIN topics t') && sql.includes('JOIN users s')) {
         return [this.applications.map(app => {
           const topic = this.topics.find(item => item.id === app.topic_id)
-          return { ...app, student_name: '张三', topic_title: topic.title, teacher_id: topic.teacher_id,
+          return { ...app, student_name: '张三', student_major: '视觉传达设计', student_major_code: '130502', topic_title: topic.title, teacher_id: topic.teacher_id,
             teacher_name: topic.teacher_name, topic_status: topic.status, max_students: topic.max_students }
         })]
       }
@@ -234,7 +238,7 @@ test('管理员可将未录取学生补录到无既有申请且容量充足的�
     targetApplicationId: null,
     targetTopicId: 'topic-admin',
     newApplicationId: 'app-admin',
-    topics: [...makeInput().topics, { id: 'topic-admin', teacherId: 'teacher-c', cycleId: 4, status: 'published', maxStudents: 2 }],
+    topics: [...makeInput().topics, { id: 'topic-admin', teacherId: 'teacher-c', cycleId: 4, status: 'published', maxStudents: 2, majorCode: '130502', major: '视觉传达设计' }],
     acceptedByTopic: { 'topic-old': 0, 'topic-new': 1, 'topic-admin': 0 },
     acceptedByTeacher: { 'teacher-a': 0, 'teacher-b': 1, 'teacher-c': 0 },
   }))
@@ -242,6 +246,35 @@ test('管理员可将未录取学生补录到无既有申请且容量充足的�
   assert.equal(plan.newTopicId, 'topic-admin')
   assert.deepEqual(plan.applicationUpdates, [])
   assert.deepEqual(plan.topicStatuses, { 'topic-admin': 'published' })
+})
+
+test('管理员补录拒绝其他专业课题', () => {
+  assert.throws(() => buildAcceptedResultAdjustmentPlan(unplacedInput({
+    targetApplicationId: null, targetTopicId: 'topic-admin',
+    topics: [...makeInput().topics, { id: 'topic-admin', teacherId: 'teacher-c', cycleId: 4, status: 'published', maxStudents: 2, majorCode: '130503', major: '数字媒体艺术' }],
+    acceptedByTopic: { 'topic-old': 0, 'topic-new': 1, 'topic-admin': 0 },
+    acceptedByTeacher: { 'teacher-a': 0, 'teacher-b': 1, 'teacher-c': 0 },
+  })), /本专业/)
+})
+
+test('毕业设计 process 阶段仍可为未录取学生补录且选项只包含本专业课题', async () => {
+  const db = databaseHarness({ otherMajorTopic: true })
+  db.cycle.status = 'process'
+  db.cycle.phase = 'task_book'
+  db.applications.forEach(app => { app.status = 'rejected' })
+  const options = await module.exports.getAcceptedResultAdjustmentOptions(admin, 'app-old')
+  assert.equal(options.current, null)
+  assert.deepEqual(options.targets.map(target => target.topicId).sort(), ['topic-admin', 'topic-new', 'topic-old'])
+  assert.ok(options.targets.every(target => target.eligible))
+  await module.exports.adjustAcceptedResult(admin, 'app-old', 'app-new', '毕业设计阶段补录', null, null, 'topic-new')
+  assert.equal(db.applications.find(app => app.id === 'app-new').status, 'accepted')
+})
+
+test('毕业设计 process 阶段拒绝修改已录取学生的课题', async () => {
+  const db = databaseHarness()
+  db.cycle.status = 'process'
+  db.cycle.phase = 'task_book'
+  await assert.rejects(module.exports.getAcceptedResultAdjustmentOptions(admin, 'app-old'), /不能调整已录取结果/)
 })
 
 test('管理员可用管理员补录重新激活本人之前取消的课题记录，并移出志愿统计', () => {

@@ -4,6 +4,7 @@ import { getConnection, query, transaction } from '../config/database.js'
 import type { SessionUser } from '../utils/policies.js'
 import { getTeacherStudentLimit } from '../utils/policies.js'
 import { safeParseJson } from '../utils/json.js'
+import { getMajorCodeAliases, normalizeMajorCode } from '../utils/majorCodes.js'
 
 export class AcceptedResultAdjustmentError extends Error {
   constructor(message: string, public statusCode = 409) { super(message) }
@@ -24,6 +25,8 @@ type AdjustmentTopic = {
   cycleId: number
   status: string
   maxStudents: number
+  majorCode?: string
+  major?: string
   title?: string
   teacherName?: string
 }
@@ -39,11 +42,20 @@ type AdjustmentPlanInput = {
   selectionSettlementStatus: string | null
   adjustmentSettlementStatus: string | null
   teacherLimit: number
+  studentMajorCode: string
+  studentMajor: string
   allowAdmission?: boolean
   applications: AdjustmentApplication[]
   topics: AdjustmentTopic[]
   acceptedByTopic: Record<string, number>
   acceptedByTeacher: Record<string, number>
+}
+
+function isSameMajor(studentMajorCode: string, studentMajor: string, topicMajorCode: string, topicMajor: string) {
+  const studentCode = normalizeMajorCode(studentMajorCode, studentMajor)
+  const topicCode = normalizeMajorCode(topicMajorCode, topicMajor)
+  if (studentCode && topicCode) return getMajorCodeAliases(studentCode).some(code => getMajorCodeAliases(topicCode).includes(code))
+  return !!studentMajor.trim() && studentMajor.trim() === topicMajor.trim()
 }
 
 export function buildAcceptedResultAdjustmentPlan(input: AdjustmentPlanInput) {
@@ -88,6 +100,11 @@ export function buildAcceptedResultAdjustmentPlan(input: AdjustmentPlanInput) {
     targetTopic = input.topics.find(topic => topic.id === selectedTopicId) || null
     if (!targetTopic || Number(targetTopic.cycleId) !== Number(input.cycleId)) {
       throw new AcceptedResultAdjustmentError('目标课题不属于本周期')
+    }
+    if (!current) {
+      if (!isSameMajor(input.studentMajorCode, input.studentMajor, targetTopic.majorCode || '', targetTopic.major || '')) {
+        throw new AcceptedResultAdjustmentError('补录课题须属于学生本专业')
+      }
     }
     if (!['published', 'full'].includes(targetTopic.status)) {
       throw new AcceptedResultAdjustmentError('目标课题当前未开放录取')
@@ -138,8 +155,9 @@ export function buildAcceptedResultAdjustmentPlan(input: AdjustmentPlanInput) {
 }
 
 async function getActiveCycle(conn?: Connection) {
-  const sql = `SELECT id, name, phase, phases_config FROM cycles
-    WHERE status IN ('active','selection','review','adjustment') ORDER BY created_at DESC LIMIT 1`
+  const sql = `SELECT id, name, status, phase, phases_config FROM cycles
+    WHERE status IN ('active','selection','review','adjustment','process')
+    ORDER BY CASE WHEN status = 'process' THEN 1 ELSE 0 END, created_at DESC LIMIT 1`
   const [rows] = conn ? await conn.query<any[]>(sql) : [await query<any>(sql)]
   return rows[0] || null
 }
@@ -153,7 +171,8 @@ async function loadSettlementStatuses(conn: Connection, cycleId: number, lock = 
 
 async function readAcceptedResultRows(conn: Connection, studentId: string, cycleId: number, lock = false) {
   const [rows] = await conn.query<any[]>(`
-    SELECT a.id, a.student_id, s.real_name AS student_name, a.topic_id, t.cycle_id, a.priority, a.status,
+    SELECT a.id, a.student_id, s.real_name AS student_name, s.major AS student_major, s.major_code AS student_major_code,
+           a.topic_id, t.cycle_id, a.priority, a.status,
            t.teacher_id, t.status AS topic_status, t.max_students, t.title AS topic_title,
            u.real_name AS teacher_name
     FROM applications a JOIN topics t ON t.id = a.topic_id
@@ -165,6 +184,7 @@ async function readAcceptedResultRows(conn: Connection, studentId: string, cycle
   return rows.map(row => ({
     id: String(row.id), studentId: String(row.student_id), topicId: String(row.topic_id),
     studentName: String(row.student_name || ''),
+    studentMajor: String(row.student_major || ''), studentMajorCode: String(row.student_major_code || ''),
     cycleId: Number(row.cycle_id), priority: Number(row.priority), status: String(row.status),
     teacherId: String(row.teacher_id), topicStatus: String(row.topic_status),
     maxStudents: Number(row.max_students), topicTitle: String(row.topic_title || ''),
@@ -175,7 +195,7 @@ async function readAcceptedResultRows(conn: Connection, studentId: string, cycle
 async function readTopicCounts(conn: Connection, cycleId: number, topicIds: string[], lock = false) {
   if (!topicIds.length) return { topics: [], byTopic: {}, byTeacher: {} }
   const [topics] = await conn.query<any[]>(
-    `SELECT t.id, t.cycle_id, t.teacher_id, t.status, t.max_students, t.title, u.real_name AS teacher_name
+    `SELECT t.id, t.cycle_id, t.teacher_id, t.status, t.max_students, t.title, t.major, t.major_code, u.real_name AS teacher_name
        FROM topics t JOIN users u ON u.id = t.teacher_id WHERE t.id IN (?) ORDER BY u.real_name, t.title, t.id${lock ? ' FOR UPDATE' : ''}`,
     [topicIds],
   )
@@ -205,11 +225,13 @@ function makePlanInput(cycle: any, applications: any[], topics: any[], counts: a
     newApplicationId: uuidv4(), reason,
     selectionSettlementStatus: settlements.selection, adjustmentSettlementStatus: settlements.adjustment,
     teacherLimit: getTeacherStudentLimit(safeParseJson(cycle.phases_config, {})),
-    allowAdmission: cycle.phase === 'adjustment' && settlements.adjustment === 'completed',
+    studentMajorCode: applications[0]?.studentMajorCode || '', studentMajor: applications[0]?.studentMajor || '',
+    allowAdmission: settlements.adjustment === 'completed' && (cycle.phase === 'adjustment' || cycle.status === 'process'),
     applications: applications.map(({ id, studentId, topicId, cycleId, priority, status }) => ({ id, studentId, topicId, cycleId, priority, status })),
     topics: topics.map(topic => ({
       id: String(topic.id), teacherId: String(topic.teacher_id), cycleId: Number(topic.cycle_id),
       status: String(topic.status), maxStudents: Number(topic.max_students),
+      majorCode: String(topic.major_code || ''), major: String(topic.major || ''),
       title: String(topic.title || ''), teacherName: String(topic.teacher_name || ''),
     })),
     acceptedByTopic: counts.byTopic,
@@ -247,9 +269,14 @@ export async function getAcceptedResultAdjustmentOptions(actor: SessionUser, app
   const input = makePlanInput(cycle, applications, topics, counts, settlements, applicationId, null, '管理员核验可选课题')
   const accepted = applications.filter(item => item.status === 'accepted')
   if ((current && accepted.length !== 1) || (!current && accepted.length)) throw new AcceptedResultAdjustmentError('该生当前录取结果已变化，请刷新后重试')
+  if (current && cycle.status === 'process') throw new AcceptedResultAdjustmentError('进入毕业设计阶段后不能调整已录取结果')
   if (!current && !input.allowAdmission) throw new AcceptedResultAdjustmentError('仅调剂结算完成后可以为未录取学生补录')
   const limit = getTeacherStudentLimit(safeParseJson(cycle.phases_config, {}))
-  const targetTopics = current ? topics.filter((topic: any) => applications.some(item => item.topicId === String(topic.id))) : topics
+  const targetTopics = current
+    ? topics.filter((topic: any) => applications.some(item => item.topicId === String(topic.id)))
+    : topics.filter((topic: any) => isSameMajor(
+      applications[0]?.studentMajorCode || '', applications[0]?.studentMajor || '', topic.major_code || '', topic.major || '',
+    ))
   const targets = targetTopics.filter((topic: any) => ['published', 'full'].includes(String(topic.status))
     && String(topic.id) !== current?.topicId).map((topic: any) => {
     const topicId = String(topic.id)
@@ -315,8 +342,8 @@ export async function adjustAcceptedResult(
     }
     return await transaction(async conn => {
       const [lockedCycleRows] = await conn.query<any[]>(`
-        SELECT id, name, phase, phases_config FROM cycles
-        WHERE id = ? AND status IN ('active','selection','review','adjustment') FOR UPDATE
+        SELECT id, name, status, phase, phases_config FROM cycles
+        WHERE id = ? AND status IN ('active','selection','review','adjustment','process') FOR UPDATE
       `, [cycle.id])
       const lockedCycle = lockedCycleRows[0]
       if (!lockedCycle) throw activeCycleError()
@@ -351,6 +378,9 @@ export async function adjustAcceptedResult(
       const plan = buildAcceptedResultAdjustmentPlan(makePlanInput(
         lockedCycle, applications, topics, counts, settlements, applicationId, targetApplicationId, reason, selectedTargetTopicId,
       ))
+      if (plan.oldApplicationId && lockedCycle.status === 'process') {
+        throw new AcceptedResultAdjustmentError('进入毕业设计阶段后不能调整已录取结果')
+      }
 
       if (plan.newTopicId && !applications.some(item => item.topicId === plan.newTopicId)) {
         await conn.query(`INSERT INTO applications

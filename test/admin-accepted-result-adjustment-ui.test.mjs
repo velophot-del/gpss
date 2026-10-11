@@ -9,7 +9,7 @@ const require = createRequire(import.meta.url)
 const vue = require('vue')
 const source = readFileSync(new URL('../src/views/admin/ApplicationData.vue', import.meta.url), 'utf8')
 
-function setupHarness({ adjustmentError = null } = {}) {
+function setupHarness({ adjustmentError = null, currentPhase = 'adjustment', cycleStatus = 'adjustment' } = {}) {
   const hooks = []
   const calls = []
   let applicationsReloads = 0
@@ -47,7 +47,7 @@ function setupHarness({ adjustmentError = null } = {}) {
       ElMessageBox: { async confirm(message, title, options) { calls.push(['confirm', message, title, options]); return true } },
     },
     '@/api': { adminApi, selectionAdminApi },
-    '@/stores/cycle': { useCycleStore: () => ({ currentPhase: 'adjustment', currentCycle: { id: 4 }, async fetchCurrentCycle() {} }) },
+    '@/stores/cycle': { useCycleStore: () => ({ currentPhase, currentCycle: { id: 4, status: cycleStatus }, async fetchCurrentCycle() {} }) },
     '@/utils/volunteerRules': { formatPriority: priority => `第${priority}志愿`, priorityTagType: () => 'info' },
   }
   const compiled = compileScript(parse(source).descriptor, { id: 'admin-accepted-adjustment' }).content
@@ -115,4 +115,16 @@ test('未录取学生每人一个补录入口，筛选后保留入口且已有�
   h.state.adjustmentTargetId.value = 'topic-admin'
   await h.state.submitAcceptedResultAdjustment()
   assert.deepEqual(h.calls.find(c => c[0] === 'adjust' && c[2].targetTopicId === 'topic-admin'), ['adjust', 'r1', { targetTopicId: 'topic-admin', targetApplicationId: null, expectedCurrentApplicationId: null, reason: '核对学生意愿后补录' }])
+})
+
+test('进入毕业设计阶段后未录取学生仍显示管理员补录入口', async () => {
+  const h = setupHarness({ currentPhase: 'task_book', cycleStatus: 'process' }); await h.start()
+  h.state.applications.value.push({ id: 'r1', student_id: 'unplaced', cycle_id: 4, status: 'rejected' })
+  h.state.filterStatus.value = 'rejected'
+  assert.deepEqual(h.state.supplementApplicationIds.value, new Set(['r1']))
+})
+
+test('毕业设计阶段不显示修改已录取课题的入口', async () => {
+  const h = setupHarness({ currentPhase: 'task_book', cycleStatus: 'process' }); await h.start()
+  assert.deepEqual(h.state.adjustableAcceptedIds.value, new Set())
 })

@@ -99,7 +99,7 @@
       <template v-if="adjustmentOptions">
         <p>学生：{{ adjustmentOptions.student.name || adjustmentOptions.student.id }}（{{ adjustmentOptions.cycle.name }}）</p>
         <p v-if="adjustmentOptions.current">当前录取：{{ adjustmentOptions.current.title }} — {{ adjustmentOptions.current.teacherName }}，{{ Number(adjustmentOptions.current.priority) === 0 ? '管理员补录' : `第${adjustmentOptions.current.priority}志愿` }}</p>
-        <p v-else>当前未录取，可选择本周期课题；仅课题和指导教师均有名额的课题可补录。</p>
+        <p v-else>当前未录取，可选择本专业课题；课题和指导教师均有剩余名额时方可补录。</p>
         <el-form label-position="top">
           <el-form-item :label="adjustmentOptions.current ? '调整为' : '补录至'">
             <el-radio-group v-model="adjustmentTargetId" class="adjustment-targets">
@@ -170,13 +170,13 @@ const filteredApplications = computed(() => {
 
 const adjustableAcceptedIds = computed(() => {
   const cycleId = Number(cycleStore.currentCycle?.id)
-  if (!cycleId) return new Set<string>()
+  if (!cycleId || cycleStore.currentCycle?.status === 'process') return new Set<string>()
   return new Set(applications.value.filter(app => Number(app.cycle_id) === cycleId && app.status === 'accepted').map(app => app.id))
 })
 
 const supplementApplicationIds = computed(() => {
   const ids = new Set<string>()
-  if (cycleStore.currentPhase !== 'adjustment') return ids
+  if (cycleStore.currentPhase !== 'adjustment' && cycleStore.currentCycle?.status !== 'process') return ids
   const rows = applications.value.filter(app => Number(app.cycle_id) === Number(cycleStore.currentCycle?.id))
   const placed = new Set(rows.filter(app => app.status === 'accepted').map(app => app.student_id))
   const shown = new Set<string>()
