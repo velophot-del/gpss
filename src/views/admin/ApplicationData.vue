@@ -66,7 +66,7 @@
           <el-table-column prop="priority" label="志愿优先级" width="100" align="center">
             <template #default="{ row }">
               <el-tag :type="priorityTagType(row.priority)" size="small">
-                {{ formatPriority(row.priority) }}
+                {{ Number(row.priority) === 0 ? '管理员补录' : formatPriority(row.priority) }}
               </el-tag>
             </template>
           </el-table-column>
@@ -98,14 +98,14 @@
     <el-dialog v-model="adjustmentDialogVisible" :title="adjustmentOptions?.current ? '调整正式录取结果' : '未录取学生补录'" width="600px" :close-on-click-modal="false">
       <template v-if="adjustmentOptions">
         <p>学生：{{ adjustmentOptions.student.name || adjustmentOptions.student.id }}（{{ adjustmentOptions.cycle.name }}）</p>
-        <p v-if="adjustmentOptions.current">当前录取：{{ adjustmentOptions.current.title }} — {{ adjustmentOptions.current.teacherName }}，第{{ adjustmentOptions.current.priority }}志愿</p>
-        <p v-else>当前未录取，请从该生已有志愿中选择补录课题。</p>
+        <p v-if="adjustmentOptions.current">当前录取：{{ adjustmentOptions.current.title }} — {{ adjustmentOptions.current.teacherName }}，{{ Number(adjustmentOptions.current.priority) === 0 ? '管理员补录' : `第${adjustmentOptions.current.priority}志愿` }}</p>
+        <p v-else>当前未录取，可选择本周期课题；仅课题和指导教师均有名额的课题可补录。</p>
         <el-form label-position="top">
           <el-form-item :label="adjustmentOptions.current ? '调整为' : '补录至'">
             <el-radio-group v-model="adjustmentTargetId" class="adjustment-targets">
-              <el-radio v-for="target in adjustmentOptions.targets" :key="target.applicationId"
-                :label="target.applicationId" :value="target.applicationId" :disabled="!target.eligible">
-                {{ target.title }} — {{ target.teacherName }}（第{{ target.priority }}志愿）
+              <el-radio v-for="target in adjustmentOptions.targets" :key="target.topicId"
+                :label="target.topicId" :value="target.topicId" :disabled="!target.eligible">
+                {{ target.title }} — {{ target.teacherName }}{{ target.adminSupplement ? '（管理员补录）' : `（第${target.priority}志愿）` }}
                 · 课题 {{ target.acceptedCount }}/{{ target.topicLimit }}
                 · 导师 {{ target.teacherAcceptedCount }}/{{ target.teacherLimit || '不限' }}
                 <span v-if="!target.eligible">· {{ target.reason }}</span>
@@ -288,14 +288,14 @@ const submitAcceptedResultAdjustment = async () => {
   const reason = adjustmentReason.value.trim()
   if (!reason) { ElMessage.warning('请填写录取调整原因'); return }
   const targetId = adjustmentTargetId.value
-  if (targetId !== '__cancel__' && !eligibleAdjustmentTargets.value.some((target: any) => target.applicationId === targetId)) {
+  if (targetId !== '__cancel__' && !eligibleAdjustmentTargets.value.some((target: any) => target.topicId === targetId)) {
     ElMessage.warning('请选择一个可用志愿或取消录取'); return
   }
   if (targetId === '__cancel__' && !adjustmentOptions.value?.canCancel) {
     ElMessage.warning('未录取学生请选择补录课题'); return
   }
   const current = adjustmentOptions.value?.current
-  const target = eligibleAdjustmentTargets.value.find((item: any) => item.applicationId === targetId)
+  const target = eligibleAdjustmentTargets.value.find((item: any) => item.topicId === targetId)
   const after = target ? `${current ? '改录' : '补录'}至「${target.title}」（${target.teacherName}）` : '取消当前录取'
   try {
     await ElMessageBox.confirm(
@@ -304,7 +304,8 @@ const submitAcceptedResultAdjustment = async () => {
     )
     adjustmentSubmitting.value = true
     await selectionAdminApi.adjustAcceptedResult(adjustmentApplicationId.value, {
-      targetApplicationId: targetId === '__cancel__' ? null : targetId,
+      targetTopicId: targetId === '__cancel__' ? null : targetId,
+      targetApplicationId: target?.applicationId || null,
       expectedCurrentApplicationId: current?.applicationId || null,
       reason,
     })
@@ -327,7 +328,7 @@ const exportData = () => {
     a.topic_title,
     a.teacher_name,
     a.topic_category,
-    `第${a.priority}志愿`,
+    Number(a.priority) === 0 ? '管理员补录' : `第${a.priority}志愿`,
     statusLabel[a.status],
     a.created_at,
     a.comment || ''

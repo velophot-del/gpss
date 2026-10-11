@@ -33,6 +33,8 @@ type AdjustmentPlanInput = {
   studentId: string
   currentApplicationId: string
   targetApplicationId: string | null
+  targetTopicId?: string | null
+  newApplicationId?: string
   reason: string
   selectionSettlementStatus: string | null
   adjustmentSettlementStatus: string | null
@@ -62,7 +64,7 @@ export function buildAcceptedResultAdjustmentPlan(input: AdjustmentPlanInput) {
   }
   const current = accepted[0] || null
   if (!current && !input.allowAdmission) throw new AcceptedResultAdjustmentError('仅调剂结算完成后可以为未录取学生补录')
-  if (!current && input.targetApplicationId === null) throw new AcceptedResultAdjustmentError('请选择补录目标志愿', 400)
+  if (!current && input.targetApplicationId === null && !input.targetTopicId) throw new AcceptedResultAdjustmentError('请选择补录目标课题', 400)
   const currentTopic = current ? input.topics.find(topic => topic.id === current.topicId) : null
   if (current && (!currentTopic || Number(currentTopic.cycleId) !== Number(input.cycleId))) {
     throw new AcceptedResultAdjustmentError('当前录取课题不属于本周期')
@@ -72,10 +74,18 @@ export function buildAcceptedResultAdjustmentPlan(input: AdjustmentPlanInput) {
   let targetTopic: AdjustmentTopic | null = null
   if (input.targetApplicationId !== null) {
     target = studentApplications.find(application => application.id === input.targetApplicationId) || null
-    if (!target || target.id === current?.id || target.status === 'accepted' || target.status === 'cancelled') {
+    if (!target || target.id === current?.id || target.status === 'accepted' || (target.status === 'cancelled' && !input.targetTopicId)
+      || (input.targetTopicId && target.topicId !== input.targetTopicId)) {
       throw new AcceptedResultAdjustmentError('目标志愿无效或已不属于该生本周期志愿')
     }
-    targetTopic = input.topics.find(topic => topic.id === target!.topicId) || null
+  }
+  const selectedTopicId = input.targetTopicId || target?.topicId || null
+  if (selectedTopicId) {
+    if (!target) target = studentApplications.find(application => application.topicId === selectedTopicId) || null
+    if (target && (target.id === current?.id || target.status === 'accepted' || (target.status === 'cancelled' && !input.targetTopicId))) {
+      throw new AcceptedResultAdjustmentError('该生已有该课题录取或申请已取消')
+    }
+    targetTopic = input.topics.find(topic => topic.id === selectedTopicId) || null
     if (!targetTopic || Number(targetTopic.cycleId) !== Number(input.cycleId)) {
       throw new AcceptedResultAdjustmentError('目标课题不属于本周期')
     }
@@ -94,7 +104,7 @@ export function buildAcceptedResultAdjustmentPlan(input: AdjustmentPlanInput) {
   }
 
   const deltas: Record<string, number> = current ? { [current.topicId]: -1 } : {}
-  if (target) deltas[target.topicId] = (deltas[target.topicId] || 0) + 1
+  if (targetTopic) deltas[targetTopic.id] = (deltas[targetTopic.id] || 0) + 1
   const topicStatuses: Record<string, string> = {}
   for (const [topicId, delta] of Object.entries(deltas)) {
     const topic = input.topics.find(item => item.id === topicId)
@@ -113,14 +123,14 @@ export function buildAcceptedResultAdjustmentPlan(input: AdjustmentPlanInput) {
     oldTopicTitle: currentTopic?.title || '',
     oldTeacherId: currentTopic?.teacherId || null,
     oldTeacherName: currentTopic?.teacherName || '',
-    newApplicationId: target?.id || null,
+    newApplicationId: target?.id || (targetTopic ? input.newApplicationId || null : null),
     newTopicId: targetTopic?.id || null,
     newTopicTitle: targetTopic?.title || '',
     newTeacherId: targetTopic?.teacherId || null,
     newTeacherName: targetTopic?.teacherName || '',
     applicationUpdates: [
       ...(current ? [{ id: current.id, status: 'withdrawn' }] : []),
-      ...(target ? [{ id: target.id, status: 'accepted' }] : []),
+      ...(target ? [{ id: target.id, status: 'accepted', ...(target.status === 'cancelled' || Number(target.priority) === 0 ? { priority: 0 } : {}) }] : []),
     ],
     topicStatuses,
     affectedTeacherIds,
@@ -165,7 +175,8 @@ async function readAcceptedResultRows(conn: Connection, studentId: string, cycle
 async function readTopicCounts(conn: Connection, cycleId: number, topicIds: string[], lock = false) {
   if (!topicIds.length) return { topics: [], byTopic: {}, byTeacher: {} }
   const [topics] = await conn.query<any[]>(
-    `SELECT id, cycle_id, teacher_id, status, max_students, title FROM topics WHERE id IN (?) ORDER BY id${lock ? ' FOR UPDATE' : ''}`,
+    `SELECT t.id, t.cycle_id, t.teacher_id, t.status, t.max_students, t.title, u.real_name AS teacher_name
+       FROM topics t JOIN users u ON u.id = t.teacher_id WHERE t.id IN (?) ORDER BY u.real_name, t.title, t.id${lock ? ' FOR UPDATE' : ''}`,
     [topicIds],
   )
   const teacherIds = [...new Set(topics.map(topic => String(topic.teacher_id)))].sort()
@@ -186,10 +197,12 @@ async function readTopicCounts(conn: Connection, cycleId: number, topicIds: stri
   }
 }
 
-function makePlanInput(cycle: any, applications: any[], topics: any[], counts: any, settlements: any, currentId: string, targetId: string | null, reason: string) {
+function makePlanInput(cycle: any, applications: any[], topics: any[], counts: any, settlements: any,
+  currentId: string, targetId: string | null, reason: string, targetTopicId: string | null = null) {
   return {
     cycleId: Number(cycle.id), studentId: String(applications[0]?.studentId || ''),
-    currentApplicationId: currentId, targetApplicationId: targetId, reason,
+    currentApplicationId: currentId, targetApplicationId: targetId, targetTopicId,
+    newApplicationId: uuidv4(), reason,
     selectionSettlementStatus: settlements.selection, adjustmentSettlementStatus: settlements.adjustment,
     teacherLimit: getTeacherStudentLimit(safeParseJson(cycle.phases_config, {})),
     allowAdmission: cycle.phase === 'adjustment' && settlements.adjustment === 'completed',
@@ -220,35 +233,44 @@ export async function getAcceptedResultAdjustmentOptions(actor: SessionUser, app
   let applications: any[]
   let settlements: any
   let counts: any
+  let current: any = null
   try {
     applications = await readAcceptedResultRows(conn, studentId, Number(cycle.id))
     settlements = await loadSettlementStatuses(conn, Number(cycle.id))
+    current = applications.find(item => item.id === applicationId && item.status === 'accepted') || null
     const topicIds = [...new Set(applications.map(item => item.topicId))]
-    counts = await readTopicCounts(conn, Number(cycle.id), topicIds)
+    const candidates = current ? [] : await query<any>(`SELECT id FROM topics WHERE cycle_id = ? AND status IN ('published','full')`, [cycle.id])
+    const allTopicIds = [...new Set([...topicIds, ...candidates.map((item: any) => String(item.id))])]
+    counts = await readTopicCounts(conn, Number(cycle.id), allTopicIds)
   } finally { conn.release() }
-  const current = applications.find(item => item.id === applicationId && item.status === 'accepted') || null
-  const topics = counts.topics.map((topic: any) => ({ ...topic, teacher_name: applications.find((item: any) => item.teacherId === String(topic.teacher_id))?.teacherName || '' }))
+  const topics = counts.topics.map((topic: any) => ({ ...topic, teacher_name: topic.teacher_name || applications.find((item: any) => item.teacherId === String(topic.teacher_id))?.teacherName || '' }))
   const input = makePlanInput(cycle, applications, topics, counts, settlements, applicationId, null, '管理员核验可选课题')
   const accepted = applications.filter(item => item.status === 'accepted')
   if ((current && accepted.length !== 1) || (!current && accepted.length)) throw new AcceptedResultAdjustmentError('该生当前录取结果已变化，请刷新后重试')
   if (!current && !input.allowAdmission) throw new AcceptedResultAdjustmentError('仅调剂结算完成后可以为未录取学生补录')
   const limit = getTeacherStudentLimit(safeParseJson(cycle.phases_config, {}))
-  const targets = applications.filter(item => item.id !== current?.id && item.status !== 'accepted' && item.status !== 'cancelled').map(item => {
-    const topic = topics.find((row: any) => String(row.id) === item.topicId)
+  const targetTopics = current ? topics.filter((topic: any) => applications.some(item => item.topicId === String(topic.id))) : topics
+  const targets = targetTopics.filter((topic: any) => ['published', 'full'].includes(String(topic.status))
+    && String(topic.id) !== current?.topicId).map((topic: any) => {
+    const topicId = String(topic.id)
+    const application = applications.find(item => item.topicId === topicId && item.id !== current?.id)
+    const invalidApplication = application?.status === 'accepted'
+    const targetApplicationId = application && !invalidApplication ? application.id : null
     try {
-      buildAcceptedResultAdjustmentPlan({ ...input, targetApplicationId: item.id })
+      if (invalidApplication) throw new AcceptedResultAdjustmentError('该生已有该课题录取或申请已取消')
+      buildAcceptedResultAdjustmentPlan({ ...input, targetApplicationId: targetApplicationId, targetTopicId: topicId })
       return {
-        applicationId: item.id, topicId: item.topicId, priority: item.priority,
-        title: item.topicTitle, teacherName: item.teacherName,
-        acceptedCount: counts.byTopic[item.topicId] || 0, topicLimit: Number(topic?.max_students || 0),
-        teacherAcceptedCount: counts.byTeacher[item.teacherId] || 0, teacherLimit: limit, eligible: true, reason: null,
+        applicationId: targetApplicationId, topicId, priority: application?.status === 'cancelled' ? 0 : application?.priority ?? null,
+        adminSupplement: !application || application.status === 'cancelled' || Number(application?.priority) === 0, title: topic.title, teacherName: topic.teacher_name,
+        acceptedCount: counts.byTopic[topicId] || 0, topicLimit: Number(topic.max_students || 0),
+        teacherAcceptedCount: counts.byTeacher[String(topic.teacher_id)] || 0, teacherLimit: limit, eligible: true, reason: null,
       }
     } catch (cause: any) {
       return {
-        applicationId: item.id, topicId: item.topicId, priority: item.priority,
-        title: item.topicTitle, teacherName: item.teacherName,
-        acceptedCount: counts.byTopic[item.topicId] || 0, topicLimit: Number(topic?.max_students || 0),
-        teacherAcceptedCount: counts.byTeacher[item.teacherId] || 0, teacherLimit: limit, eligible: false,
+        applicationId: targetApplicationId, topicId, priority: application?.status === 'cancelled' ? 0 : application?.priority ?? null,
+        adminSupplement: !application || application.status === 'cancelled' || Number(application?.priority) === 0, title: topic.title, teacherName: topic.teacher_name,
+        acceptedCount: counts.byTopic[topicId] || 0, topicLimit: Number(topic.max_students || 0),
+        teacherAcceptedCount: counts.byTeacher[String(topic.teacher_id)] || 0, teacherLimit: limit, eligible: false,
         reason: cause instanceof Error ? cause.message : '当前不可录取',
       }
     }
@@ -277,6 +299,7 @@ export async function adjustAcceptedResult(
   reason: string,
   ipAddress: string | null,
   expectedCurrentApplicationId?: string | null,
+  targetTopicId?: string | null,
 ) {
   if (actor.role !== 'admin') throw new AcceptedResultAdjustmentError('只有管理员可以调整录取结果', 403)
   if (typeof reason !== 'string' || !reason.trim()) throw new AcceptedResultAdjustmentError('请填写录取调整原因', 400)
@@ -318,19 +341,32 @@ export async function adjustAcceptedResult(
           throw new AcceptedResultAdjustmentError('该生当前录取结果已变化，请刷新后重试')
         }
       }
-      const topicIds = [...new Set(applications.map(item => item.topicId))].sort()
+      const selectedTargetTopicId = targetTopicId || applications.find(item => item.id === targetApplicationId)?.topicId || null
+      const topicIds = [...new Set([...applications.map(item => item.topicId), ...(selectedTargetTopicId ? [selectedTargetTopicId] : [])])].sort()
       const counts = await readTopicCounts(conn, Number(lockedCycle.id), topicIds, true)
       const topics = counts.topics.map(topic => {
         const teacherName = applications.find(item => item.teacherId === String(topic.teacher_id))?.teacherName || ''
         return { ...topic, teacher_name: teacherName }
       })
       const plan = buildAcceptedResultAdjustmentPlan(makePlanInput(
-        lockedCycle, applications, topics, counts, settlements, applicationId, targetApplicationId, reason,
+        lockedCycle, applications, topics, counts, settlements, applicationId, targetApplicationId, reason, selectedTargetTopicId,
       ))
 
+      if (plan.newTopicId && !applications.some(item => item.topicId === plan.newTopicId)) {
+        await conn.query(`INSERT INTO applications
+          (id, student_id, topic_id, priority, status, teacher_comment, reviewed_by, reviewed_at)
+          VALUES (?, ?, ?, 0, 'accepted', ?, ?, NOW())`,
+        [plan.newApplicationId, studentId, plan.newTopicId, `管理员补录：${reason.trim()}`, actor.id])
+      }
+
       for (const update of plan.applicationUpdates) {
-        await conn.query(`UPDATE applications SET status = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?`,
-          [update.status, actor.id, update.id])
+        if ('priority' in update) {
+          await conn.query(`UPDATE applications SET status = ?, priority = ?, teacher_comment = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?`,
+            [update.status, update.priority, `管理员补录：${reason.trim()}`, actor.id, update.id])
+        } else {
+          await conn.query(`UPDATE applications SET status = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?`,
+            [update.status, actor.id, update.id])
+        }
       }
       const [adjustmentRows] = await conn.query<any[]>(`
         SELECT id, topic_id, status FROM adjustment_volunteers

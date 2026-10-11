@@ -100,7 +100,8 @@
             <div class="apply-status">
               <p v-if="myApplication" class="already-applied">
                 <el-icon color="#67c23a"><CircleCheckFilled /></el-icon>
-                您已将此课题作为<strong>{{ formatPriority(myApplication.priority) }}</strong>填报
+                <template v-if="Number(myApplication.priority) === 0">您已被管理员补录至此课题</template>
+                <template v-else>您已将此课题作为<strong>{{ formatPriority(myApplication.priority) }}</strong>填报</template>
               </p>
               <template v-else>
                 <p>请在选题工作台统一排序并提交志愿，至少覆盖两位不同指导教师。</p>

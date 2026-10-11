@@ -104,6 +104,7 @@ function databaseHarness({ selectionStatus = 'completed', adjustmentStatus = 'co
     topics: [
       { id: 'topic-old', title: '原课题', teacher_id: 'teacher-a', teacher_name: '导师甲', cycle_id: 4, status: 'full', max_students: 1 },
       { id: 'topic-new', title: '目标课题', teacher_id: 'teacher-b', teacher_name: '导师乙', cycle_id: 4, status: 'published', max_students: 3 },
+      { id: 'topic-admin', title: '空余课题', teacher_id: 'teacher-c', teacher_name: '导师丙', cycle_id: 4, status: 'published', max_students: 2 },
     ],
     adjustmentVolunteers: [
       { id: 'av-old', student_id: 'student-1', topic_id: 'topic-old', cycle_id: 4, status: oldAdjustmentStatus },
@@ -129,7 +130,8 @@ function databaseHarness({ selectionStatus = 'completed', adjustmentStatus = 'co
             teacher_name: topic.teacher_name, topic_status: topic.status, max_students: topic.max_students }
         })]
       }
-      if (sql.includes('FROM topics') && sql.includes('WHERE id IN')) return [this.topics.filter(topic => params[0].includes(topic.id))]
+      if (sql.includes('FROM topics WHERE cycle_id')) return [this.topics.filter(topic => ['published', 'full'].includes(topic.status)).map(topic => ({ id: topic.id }))]
+      if (sql.includes('FROM topics t JOIN users u') && sql.includes('WHERE t.id IN')) return [this.topics.filter(topic => params[0].includes(topic.id))]
       if (sql.includes('COUNT(DISTINCT student_id) AS cnt') && sql.includes('GROUP BY topic_id')) {
         return [this.topics.map(topic => ({ topic_id: topic.id, cnt: this.applications.filter(app => app.topic_id === topic.id && app.status === 'accepted').length }))]
       }
@@ -139,6 +141,11 @@ function databaseHarness({ selectionStatus = 'completed', adjustmentStatus = 'co
       if (sql.includes('FROM adjustment_volunteers')) return [this.adjustmentVolunteers]
       if (sql.startsWith('UPDATE applications SET status')) {
         const app = this.applications.find(item => item.id === params[2]); app.status = params[0]; return [{ affectedRows: 1 }]
+      }
+      if (sql.includes('INSERT INTO applications')) {
+        this.applications.push({ id: params[0], student_id: params[1], topic_id: params[2], priority: 0,
+          status: 'accepted', teacher_comment: params[3], reviewed_by: params[4] })
+        return [{ affectedRows: 1 }]
       }
       if (sql.includes('UPDATE adjustment_volunteers SET status')) {
         const row = this.adjustmentVolunteers.find(item => item.cycle_id === params[0] && item.student_id === params[1] && item.topic_id === params[2] && (sql.includes("SET status = 'withdrawn'") ? ['submitted','accepted'].includes(item.status) : ['submitted','withdrawn','rejected','accepted'].includes(item.status)))
@@ -172,7 +179,7 @@ test('服务改录时同步申请、调剂状态、课题状态、通知和操�
   assert.equal(result.newApplicationId, 'app-new')
   assert.deepEqual(db.applications.map(item => item.status), ['withdrawn', 'accepted'])
   assert.deepEqual(db.adjustmentVolunteers.map(item => item.status), ['withdrawn', 'accepted'])
-  assert.deepEqual(db.topics.map(item => item.status), ['published', 'published'])
+  assert.deepEqual(db.topics.map(item => item.status), ['published', 'published', 'published'])
   assert.equal(db.logs.length, 1)
   assert.equal(db.notices.length, 3)
   assert.deepEqual(db.released.sort(), ['gpss:adjustment-settlement:4', 'gpss:selection-settlement:4'])
@@ -198,6 +205,7 @@ test('录取调整选项按两类名额标示可选志愿', async () => {
   try { options = await module.exports.getAcceptedResultAdjustmentOptions(admin, 'app-old') }
   catch (cause) { cause.message += `\nSQL: ${db.calls.join('\n')}`; throw cause }
   assert.equal(options.current.title, '原课题')
+  assert.deepEqual(options.targets.map(target => target.topicId), ['topic-new'])
   assert.equal(options.targets[0].eligible, false)
   assert.match(options.targets[0].reason, /教师.*上限/)
   assert.equal(options.canCancel, true)
@@ -221,8 +229,34 @@ test('未录取学生可以补录到自己的既有志愿，包括作为入口�
   assert.equal(buildAcceptedResultAdjustmentPlan(unplacedInput({ targetApplicationId: 'app-old' })).newApplicationId, 'app-old')
 })
 
+test('管理员可将未录取学生补录到无既有申请且容量充足的课题', () => {
+  const plan = buildAcceptedResultAdjustmentPlan(unplacedInput({
+    targetApplicationId: null,
+    targetTopicId: 'topic-admin',
+    newApplicationId: 'app-admin',
+    topics: [...makeInput().topics, { id: 'topic-admin', teacherId: 'teacher-c', cycleId: 4, status: 'published', maxStudents: 2 }],
+    acceptedByTopic: { 'topic-old': 0, 'topic-new': 1, 'topic-admin': 0 },
+    acceptedByTeacher: { 'teacher-a': 0, 'teacher-b': 1, 'teacher-c': 0 },
+  }))
+  assert.equal(plan.newApplicationId, 'app-admin')
+  assert.equal(plan.newTopicId, 'topic-admin')
+  assert.deepEqual(plan.applicationUpdates, [])
+  assert.deepEqual(plan.topicStatuses, { 'topic-admin': 'published' })
+})
+
+test('管理员可用管理员补录重新激活本人之前取消的课题记录，并移出志愿统计', () => {
+  const input = unplacedInput({
+    targetApplicationId: null,
+    targetTopicId: 'topic-new',
+    applications: makeInput().applications.map(item => ({ ...item, status: item.id === 'app-new' ? 'cancelled' : 'rejected' })),
+  })
+  const plan = buildAcceptedResultAdjustmentPlan(input)
+  assert.deepEqual(plan.applicationUpdates, [{ id: 'app-new', status: 'accepted', priority: 0 }])
+  assert.equal(plan.newApplicationId, 'app-new')
+})
+
 test('未录取补录不能取消、不提前介入结算、不超容量且不绕过旧结果变化', () => {
-  assert.throws(() => buildAcceptedResultAdjustmentPlan(unplacedInput({ targetApplicationId: null })), /请选择.*志愿/)
+  assert.throws(() => buildAcceptedResultAdjustmentPlan(unplacedInput({ targetApplicationId: null })), /请选择.*课题/)
   assert.throws(() => buildAcceptedResultAdjustmentPlan(unplacedInput({ allowAdmission: false })), /调剂.*完成/)
   assert.throws(() => buildAcceptedResultAdjustmentPlan(unplacedInput({ acceptedByTeacher: { 'teacher-b': 15 } })), /教师.*上限/)
   assert.throws(() => buildAcceptedResultAdjustmentPlan(unplacedInput({ acceptedByTopic: { 'topic-new': 3 } })), /课题名额/)
@@ -235,7 +269,7 @@ test('未录取补录选项包含入口志愿，成功写入录取、补录状�
   const options = await module.exports.getAcceptedResultAdjustmentOptions(admin, 'app-old')
   assert.equal(options.current, null)
   assert.equal(options.canCancel, false)
-  assert.deepEqual(options.targets.map(t => t.applicationId), ['app-old', 'app-new'])
+  assert.deepEqual(options.targets.map(t => t.topicId), ['topic-old', 'topic-new', 'topic-admin'])
   await module.exports.adjustAcceptedResult(admin, 'app-old', 'app-new', '经学生确认补录', null, null)
   assert.deepEqual(db.applications.map(app => app.status), ['rejected', 'accepted'])
   assert.equal(db.adjustmentVolunteers[1].status, 'accepted')
@@ -245,6 +279,20 @@ test('未录取补录选项包含入口志愿，成功写入录取、补录状�
   assert.ok(db.notices.every(n => n.content.includes('补录')))
   await assert.rejects(module.exports.adjustAcceptedResult(admin, 'app-old', 'app-new', '重复请求', null, null), /录取结果已变化/)
   assert.equal(db.logs.length, 1)
+})
+
+test('服务为无既有申请的课题新增 priority=0 正式录取，保留学生原志愿', async () => {
+  const db = databaseHarness({ oldAdjustmentStatus: 'rejected', targetAdjustmentStatus: 'rejected' })
+  db.applications.forEach(app => { app.status = 'rejected' })
+  const result = await module.exports.adjustAcceptedResult(admin, 'app-old', null, '学生确认后管理员补录', null, null, 'topic-admin')
+  const inserted = db.applications.find(app => app.id === result.newApplicationId)
+  assert.equal(inserted.topic_id, 'topic-admin')
+  assert.equal(inserted.priority, 0)
+  assert.equal(inserted.status, 'accepted')
+  assert.match(inserted.teacher_comment, /管理员补录/)
+  assert.deepEqual(db.applications.slice(0, 2).map(app => app.status), ['rejected', 'rejected'])
+  assert.equal(db.logs[0].after.topicId, 'topic-admin')
+  assert.ok(db.notices.every(notice => notice.content.includes('补录')))
 })
 
 test('未录取补录容量冲突、未结算或通知失败时不留下部分结果', async () => {

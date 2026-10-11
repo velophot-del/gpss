@@ -2,6 +2,7 @@ export const VOLUNTEER_MIN = 3
 export const VOLUNTEER_MAX = 6
 
 export function formatPriority(priority: number): string {
+  if (Number(priority) === 0) return '管理员补录'
   return `第 ${priority} 志愿`
 }
 

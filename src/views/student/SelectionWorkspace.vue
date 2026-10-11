@@ -138,7 +138,7 @@
           class="submitted-item"
           :class="{ first: application.priority === 1 }"
         >
-          <span class="vol-rank" :class="{ first: application.priority === 1 }">第{{ application.priority }}志愿</span>
+          <span class="vol-rank" :class="{ first: application.priority === 1 }">{{ formatPriority(application.priority) }}</span>
           <div><strong>{{ application.topicTitle || application.topic_title }}</strong><p>{{ statusLabel[application.status] || application.status }}</p></div>
           <el-tag :type="statusType[application.status] || 'info'">{{ statusLabel[application.status] || '处理中' }}</el-tag>
         </div>
@@ -195,7 +195,7 @@ import type { MajorConfig } from '../../types'
 import { MAJOR_OPTIONS, RESEARCH_CATEGORIES, resolveTopicMajorCode } from '../../types'
 import { useTopicStore } from '../../stores/topic'
 import { useCycleStore } from '../../stores/cycle'
-import { VOLUNTEER_MIN, VOLUNTEER_MAX } from '../../utils/volunteerRules'
+import { VOLUNTEER_MIN, VOLUNTEER_MAX, formatPriority } from '../../utils/volunteerRules'
 
 const topicStore = useTopicStore()
 const cycleStore = useCycleStore()

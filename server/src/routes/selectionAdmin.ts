@@ -26,11 +26,13 @@ router.get('/accepted-results/:applicationId/options', async (req: AuthRequest, 
 router.post('/accepted-results/:applicationId/adjust', async (req: AuthRequest, res) => {
   try {
     const targetApplicationId = req.body?.targetApplicationId
-    if (targetApplicationId !== null && typeof targetApplicationId !== 'string') return error(res, '目标志愿格式无效', 400)
+    const targetTopicId = req.body?.targetTopicId
+    if (targetApplicationId !== null && targetApplicationId !== undefined && typeof targetApplicationId !== 'string') return error(res, '目标志愿格式无效', 400)
+    if (targetTopicId !== null && targetTopicId !== undefined && typeof targetTopicId !== 'string') return error(res, '目标课题格式无效', 400)
     const reason = typeof req.body?.reason === 'string' ? req.body.reason : ''
     const expectedCurrentApplicationId = req.body?.expectedCurrentApplicationId
     if (expectedCurrentApplicationId !== undefined && expectedCurrentApplicationId !== null && typeof expectedCurrentApplicationId !== 'string') return error(res, '当前录取标识格式无效', 400)
-    success(res, await adjustAcceptedResult(req.user!, req.params.applicationId, targetApplicationId, reason, req.ip || null, expectedCurrentApplicationId), '录取结果已调整')
+    success(res, await adjustAcceptedResult(req.user!, req.params.applicationId, targetApplicationId ?? null, reason, req.ip || null, expectedCurrentApplicationId, targetTopicId ?? null), '录取结果已调整')
   } catch (cause: any) {
     if (cause instanceof AcceptedResultAdjustmentError) return error(res, cause.message, cause.statusCode)
     console.error('调整正式录取结果失败:', cause)
