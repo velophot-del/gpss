@@ -21,8 +21,9 @@ export async function reopenAdjustment(cycleId: number, actor: SessionUser, inpu
     try {
       const [cycles] = await conn.query<any[]>('SELECT * FROM cycles WHERE id = ? FOR UPDATE', [cycleId])
       const cycle = cycles[0]
-      if (!cycle || !['active', 'selection', 'review', 'adjustment'].includes(cycle.status) || cycle.phase !== 'adjustment') {
-        throw new AdjustmentSettlementError('请先将当前进行中周期设置为调剂阶段')
+      if (!cycle || !['active', 'selection', 'review', 'adjustment', 'process'].includes(cycle.status)
+        || (cycle.phase !== 'adjustment' && cycle.status !== 'process')) {
+        throw new AdjustmentSettlementError('请先将当前周期设置为调剂或毕业设计阶段')
       }
       const config = safeParseJson<Record<string, any>>(cycle.phases_config, {})
       const deadline = getAdjustmentDeadline(config)

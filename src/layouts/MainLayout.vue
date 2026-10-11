@@ -120,7 +120,7 @@
             <el-icon><CircleCheck /></el-icon>
             <template #title>选课结果</template>
           </el-menu-item>
-          <el-menu-item index="/student/adjustment" v-if="cycleStore.currentPhase === 'adjustment'">
+          <el-menu-item index="/student/adjustment" v-if="cycleStore.currentCycle?.adjustment_round_open">
             <el-icon><RefreshRight /></el-icon>
             <template #title>调剂志愿</template>
           </el-menu-item>

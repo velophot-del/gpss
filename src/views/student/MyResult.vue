@@ -52,7 +52,7 @@
             {{ isGraduationPhase ? '本周期调剂已结束，您未被正式录取。如需后续安排，请联系管理员。' : '您的志愿申请未能被录取。当前处于调剂阶段，您可以查看仍有名额的课题并提交调剂申请。' }}
           </p>
           <div class="result-actions">
-            <el-button v-if="cycleStore.currentPhase === 'adjustment'" type="warning" size="large" @click="$router.push('/student/adjustment')">
+            <el-button v-if="cycleStore.currentCycle?.adjustment_round_open" type="warning" size="large" @click="$router.push('/student/adjustment')">
               参与调剂
             </el-button>
             <el-button v-if="!isGraduationPhase" size="large" @click="$router.push('/student/browse')">重新浏览课题</el-button>

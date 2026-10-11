@@ -15,17 +15,20 @@ export function getDeadlineWorkerStatus() { return lastCheck }
 export async function checkSelectionDeadlines(now = new Date()): Promise<DeadlineCheckSummary> {
   const scheduleErrors = await advanceScheduledCycles(now)
   const cycles = await query<any>(`
-    SELECT id, phases_config FROM cycles
-    WHERE status IN ('active','selection','review','adjustment') AND phase IN ('teacher_review','adjustment')
+    SELECT id, status, phase, phases_config FROM cycles
+    WHERE (status IN ('active','selection','review','adjustment') AND phase IN ('teacher_review','adjustment'))
+       OR (status = 'process'
+           AND EXISTS (SELECT 1 FROM adjustment_round_archives ara WHERE ara.cycle_id = cycles.id)
+           AND NOT EXISTS (SELECT 1 FROM adjustment_settlements ads WHERE ads.cycle_id = cycles.id AND ads.status = 'completed'))
   `)
   const summary: DeadlineCheckSummary = { checkedAt: now.toISOString(), cyclesChecked: cycles.length, settlementsStarted: 0, errors: scheduleErrors }
   for (const cycle of cycles) {
     const config = safeParseJson(cycle.phases_config, {})
-    const [phase] = await query<any>('SELECT phase FROM cycles WHERE id = ?', [cycle.id])
-    const deadline = phase?.phase === 'adjustment' ? getAdjustmentDeadline(config) : getReviewDeadline(config)
+    const adjustmentRound = cycle.phase === 'adjustment' || cycle.status === 'process'
+    const deadline = adjustmentRound ? getAdjustmentDeadline(config) : getReviewDeadline(config)
     if (!deadline || now.getTime() < deadline.getTime()) continue
     try {
-      const result = phase?.phase === 'adjustment'
+      const result = adjustmentRound
         ? await requestAdjustmentSettlementIfReady(Number(cycle.id), 'deadline')
         : await requestSettlementIfReady(Number(cycle.id), 'deadline')
       if (result.status === 'completed') summary.settlementsStarted += 1

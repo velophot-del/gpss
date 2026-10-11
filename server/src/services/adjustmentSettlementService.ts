@@ -15,13 +15,13 @@ export class AdjustmentSettlementError extends Error {
 }
 
 async function cycleData(cycleId: number) {
-  const [rows] = await query<any>('SELECT id, phase, phases_config FROM cycles WHERE id = ?', [cycleId])
+  const [rows] = await query<any>('SELECT id, status, phase, phases_config FROM cycles WHERE id = ?', [cycleId])
   if (!rows) throw new AdjustmentSettlementError('选题周期不存在', 404)
-  if (rows.phase !== 'adjustment') throw new AdjustmentSettlementError('当前周期不在调剂补录阶段')
+  const [archive] = await query<any>('SELECT id FROM adjustment_round_archives WHERE cycle_id = ? ORDER BY sequence DESC LIMIT 1', [cycleId])
+  if (rows.phase !== 'adjustment' && !(rows.status === 'process' && archive)) throw new AdjustmentSettlementError('当前周期不在调剂补录阶段')
   const config = safeParseJson<Record<string, any>>(rows.phases_config, {})
   const deadline = getAdjustmentDeadline(config)
   if (!deadline) throw new AdjustmentSettlementError('调剂补录阶段未配置有效截止时间')
-  const [archive] = await query<any>('SELECT id FROM adjustment_round_archives WHERE cycle_id = ? ORDER BY sequence DESC LIMIT 1', [cycleId])
   return { cycle: rows, config, deadline, roundId: archive?.id || null }
 }
 
@@ -37,9 +37,10 @@ async function notifyStudent(conn: Connection, userId: string, title: string, co
 }
 
 async function applySettlement(conn: Connection, cycleId: number, trigger: AdjustmentSettlementTrigger): Promise<AdjustmentSettlementSummary> {
-  const [cycleRows] = await conn.query<any[]>('SELECT id, phase, phases_config FROM cycles WHERE id = ? FOR UPDATE', [cycleId])
+  const [cycleRows] = await conn.query<any[]>('SELECT id, status, phase, phases_config FROM cycles WHERE id = ? FOR UPDATE', [cycleId])
   const cycle = cycleRows[0]
-  if (!cycle || cycle.phase !== 'adjustment') throw new AdjustmentSettlementError('当前周期不在调剂补录阶段')
+  const [archives] = await conn.query<any[]>('SELECT id FROM adjustment_round_archives WHERE cycle_id = ? ORDER BY sequence DESC LIMIT 1', [cycleId])
+  if (!cycle || (cycle.phase !== 'adjustment' && !(cycle.status === 'process' && archives.length))) throw new AdjustmentSettlementError('当前周期不在调剂补录阶段')
   const config = safeParseJson<Record<string, any>>(cycle.phases_config, {})
   const deadline = getAdjustmentDeadline(config)
   if (!deadline) throw new AdjustmentSettlementError('调剂补录阶段未配置有效截止时间')

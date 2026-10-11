@@ -15,13 +15,18 @@ export class AdjustmentVolunteerError extends Error {
 export type AdjustmentVolunteerInput = { topicId: string; motivation?: string }
 
 async function getCurrentCycle(conn?: Connection) {
-  const sql = `SELECT * FROM cycles WHERE status IN ('active','selection','review','adjustment') ORDER BY created_at DESC LIMIT 1${conn ? ' FOR UPDATE' : ''}`
+  const sql = `SELECT * FROM cycles WHERE status IN ('active','selection','review','adjustment','process') ORDER BY CASE WHEN status = 'process' THEN 1 ELSE 0 END, created_at DESC LIMIT 1${conn ? ' FOR UPDATE' : ''}`
   const [rows] = conn ? await conn.query<any[]>(sql) : [await query<any>(sql)]
   return rows[0] || null
 }
 
-function assertAdjustmentPhase(cycle: any, allowExpired = false) {
-  if (!cycle || cycle.phase !== 'adjustment') throw new AdjustmentVolunteerError('当前不在调剂补录阶段', 409)
+async function assertAdjustmentPhase(cycle: any, conn: Connection, allowExpired = false) {
+  let reopened = false
+  if (cycle?.status === 'process') {
+    const [archives] = await conn.query<any[]>('SELECT id FROM adjustment_round_archives WHERE cycle_id = ? ORDER BY sequence DESC LIMIT 1', [cycle.id])
+    reopened = !!archives.length
+  }
+  if (!cycle || (cycle.phase !== 'adjustment' && !reopened)) throw new AdjustmentVolunteerError('当前不在调剂补录阶段', 409)
   const deadline = getAdjustmentDeadline(safeParseJson(cycle.phases_config, {}))
   if (!deadline) throw new AdjustmentVolunteerError('当前周期未配置有效的调剂截止时间，请联系管理员', 409)
   if (!allowExpired && Date.now() >= deadline.getTime()) throw new AdjustmentVolunteerError('调剂填报已截止', 409)
@@ -77,9 +82,9 @@ async function readEligibleTopics(conn: Connection, cycleId: number, majorCode: 
 export async function getEligibleAdjustmentTopics(actor: SessionUser) {
   if (actor.role !== 'student') throw new AdjustmentVolunteerError('只有学生可以查看调剂课题', 403)
   const cycle = await getCurrentCycle()
-  assertAdjustmentPhase(cycle)
   const conn = await (await import('../config/database.js')).getConnection()
   try {
+    await assertAdjustmentPhase(cycle, conn)
     const majorCode = await assertStudentEligible(conn, actor.id, Number(cycle.id))
     return { cycleId: Number(cycle.id), deadline: getAdjustmentDeadline(safeParseJson(cycle.phases_config, {}))!.toISOString(), topics: await readEligibleTopics(conn, Number(cycle.id), majorCode) }
   } finally { conn.release() }
@@ -103,7 +108,8 @@ export async function getMyAdjustmentVolunteers(actor: SessionUser) {
     const [accepted] = await conn.query<any[]>(`SELECT a.id FROM applications a JOIN topics t ON t.id = a.topic_id
       WHERE a.student_id = ? AND t.cycle_id = ? AND a.status = 'accepted' LIMIT 1`, [actor.id, cycle.id])
     const [archives] = await conn.query<any[]>('SELECT id FROM adjustment_round_archives WHERE cycle_id = ? ORDER BY sequence DESC LIMIT 1', [cycle.id])
-    const canEdit = cycle.phase === 'adjustment' && !!deadline && Date.now() < deadline.getTime()
+    const roundAvailable = cycle.phase === 'adjustment' || (cycle.status === 'process' && !!archives.length)
+    const canEdit = roundAvailable && !!deadline && Date.now() < deadline.getTime()
       && !accepted.length && !settlements[0]?.status?.match(/^(running|failed|completed)$/)
     return {
       cycleId: Number(cycle.id), phase: cycle.phase,
@@ -126,7 +132,7 @@ export async function saveMyAdjustmentVolunteers(actor: SessionUser, expectedVer
 
   await transaction(async conn => {
     const cycle = await getCurrentCycle(conn)
-    assertAdjustmentPhase(cycle)
+    await assertAdjustmentPhase(cycle, conn)
     const [archives] = await conn.query<any[]>('SELECT id FROM adjustment_round_archives WHERE cycle_id = ? ORDER BY sequence DESC LIMIT 1', [cycle.id])
     const currentRoundId = archives[0]?.id || null
     if (roundId !== currentRoundId) throw new AdjustmentVolunteerError('补录轮次已变化，请刷新页面后重新填报', 409)

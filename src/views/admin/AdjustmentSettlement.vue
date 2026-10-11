@@ -14,7 +14,7 @@
         </el-row>
         <el-alert v-if="data.settlement" :title="`结算状态：${settlementLabel(data.settlement.status)}${data.settlement.error_message ? ' · ' + data.settlement.error_message : ''}`" :type="data.settlement.status === 'failed' ? 'error' : data.settlement.status === 'completed' ? 'success' : 'info'" :closable="false" class="mb-4" />
         <el-alert v-else title="学生可在截止前修改志愿；截止后系统自动匹配并写入结果。" type="info" :closable="false" class="mb-4" />
-        <div v-if="data.settlement?.status === 'completed' && data.cycle.phase === 'adjustment'" class="actions">
+        <div v-if="data.settlement?.status === 'completed'" class="actions">
           <span>仅修改周期时间不会重新开放；请先设置未来的截止时间，再开启新一轮。</span>
           <el-button type="primary" :disabled="deadlineReached || !data.cycle.deadline" :loading="running" @click="reopen">重新开放补录</el-button>
         </div>

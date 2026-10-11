@@ -25,7 +25,12 @@ router.get('/', async (req: AuthRequest, res) => {
 router.get('/active', async (req: AuthRequest, res) => {
   try {
     const [cycle] = await query<any>(`
-      SELECT * FROM cycles 
+      SELECT cycles.*,
+        (cycles.phase = 'adjustment' OR (cycles.status = 'process'
+          AND EXISTS (SELECT 1 FROM adjustment_round_archives ara WHERE ara.cycle_id = cycles.id)
+          AND NOT EXISTS (SELECT 1 FROM adjustment_settlements ads WHERE ads.cycle_id = cycles.id AND ads.status = 'completed'))
+        ) AS adjustment_round_open
+      FROM cycles
       WHERE status IN ('active', 'selection', 'review', 'adjustment', 'process')
       ORDER BY CASE WHEN status = 'process' THEN 1 ELSE 0 END, created_at DESC LIMIT 1
     `)

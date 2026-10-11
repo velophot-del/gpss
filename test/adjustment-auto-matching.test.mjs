@@ -209,7 +209,7 @@ test('deadline settlement writes the automatic match and avoids teacher draft ta
     release() {},
     async query(sql, params) {
       calls.push({ sql, params })
-      if (sql.includes('SELECT id, phase, phases_config FROM cycles')) return [[cycle]]
+      if (sql.includes('FROM cycles')) return [[cycle]]
       if (sql.includes('FROM topics t WHERE t.cycle_id')) return [topics]
       if (sql.includes('FROM applications a JOIN topics t')) return [[]]
       if (sql.includes('FROM adjustment_volunteers av JOIN topics t')) return [volunteers]

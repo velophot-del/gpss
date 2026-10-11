@@ -160,3 +160,22 @@ test('new round accepts a fresh submission and rejects already admitted students
   await assert.rejects(h.saveMyAdjustmentVolunteers({ id: 'placed', role: 'student' }, 0, [{ topicId: 'topic' }], 'new-round'), /已被.*录取/)
   assert.deepEqual(h.state().applications, before)
 })
+
+test('reopened adjustment remains available after the cycle enters the graduation process', async () => {
+  const h = harness({ cycle: { id: 1, status: 'process', phase: 'task_book', phases_config: { adjustment: { end: future } } } })
+  const result = await h.reopenAdjustment(1, admin, input, null)
+  const mine = await h.getMyAdjustmentVolunteers(student)
+  assert.equal(mine.phase, 'task_book')
+  assert.equal(mine.canEdit, true)
+  assert.equal(mine.roundId, result.archiveId)
+  const saved = await h.saveMyAdjustmentVolunteers(student, 0, [{ topicId: 'topic' }], result.archiveId)
+  assert.equal(saved.items[0].status, 'submitted')
+})
+
+test('deadline checks recognize an open reopened round during the graduation process', async () => {
+  const h = harness({
+    cycle: { id: 1, status: 'process', phase: 'task_book', phases_config: { adjustment: { end: future } } },
+    settlements: [], archives: [{ id: 'reopened-round' }],
+  })
+  assert.deepEqual(await h.requestAdjustmentSettlementIfReady(1, 'deadline'), { status: 'waiting' })
+})
