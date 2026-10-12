@@ -165,6 +165,15 @@ async function loadSettlementStatuses(conn: Connection, cycleId: number, lock = 
   return { selection: selection[0]?.status || null, adjustment: adjustment[0]?.status || null }
 }
 
+async function hasGraduationMaterials(conn: Connection, studentId: string, cycleId: number) {
+  const tables = ['task_books', 'proposals', 'midterm_reports', 'thesis_submissions', 'design_submissions', 'grades', 'guidance_records']
+  const checks = tables.map(table => `SELECT 1 FROM ${table} WHERE student_id = ? AND
+    (cycle_id = ? OR topic_id IN (SELECT id FROM topics WHERE cycle_id = ?))`).join(' UNION ALL ')
+  const [rows] = await conn.query<any[]>(`SELECT EXISTS (${checks} LIMIT 1) AS has_materials`,
+    tables.flatMap(() => [studentId, cycleId, cycleId]))
+  return Number(rows[0]?.has_materials) === 1
+}
+
 async function readAcceptedResultRows(conn: Connection, studentId: string, cycleId: number, lock = false) {
   const [rows] = await conn.query<any[]>(`
     SELECT a.id, a.student_id, s.real_name AS student_name, s.major AS student_major, s.major_code AS student_major_code,
@@ -256,6 +265,9 @@ export async function getAcceptedResultAdjustmentOptions(actor: SessionUser, app
     applications = await readAcceptedResultRows(conn, studentId, Number(cycle.id))
     settlements = await loadSettlementStatuses(conn, Number(cycle.id))
     current = applications.find(item => item.id === applicationId && item.status === 'accepted') || null
+    if (current && cycle.status === 'process' && await hasGraduationMaterials(conn, studentId, Number(cycle.id))) {
+      throw new AcceptedResultAdjustmentError('该生已有毕业材料，不能调整已录取结果')
+    }
     const topicIds = [...new Set(applications.map(item => item.topicId))]
     const candidates = current ? [] : await query<any>(`SELECT id FROM topics WHERE cycle_id = ? AND status IN ('published','full')`, [cycle.id])
     const allTopicIds = [...new Set([...topicIds, ...candidates.map((item: any) => String(item.id))])]
@@ -265,7 +277,6 @@ export async function getAcceptedResultAdjustmentOptions(actor: SessionUser, app
   const input = makePlanInput(cycle, applications, topics, counts, settlements, applicationId, null, '管理员核验可选课题')
   const accepted = applications.filter(item => item.status === 'accepted')
   if ((current && accepted.length !== 1) || (!current && accepted.length)) throw new AcceptedResultAdjustmentError('该生当前录取结果已变化，请刷新后重试')
-  if (current && cycle.status === 'process') throw new AcceptedResultAdjustmentError('进入毕业设计阶段后不能调整已录取结果')
   if (!current && !input.allowAdmission) throw new AcceptedResultAdjustmentError('仅调剂结算完成后可以为未录取学生补录')
   const limit = getTeacherStudentLimit(safeParseJson(cycle.phases_config, {}))
   const targetTopics = current
@@ -306,7 +317,7 @@ export async function getAcceptedResultAdjustmentOptions(actor: SessionUser, app
       applicationId: current.id, topicId: current.topicId, priority: current.priority,
       title: current.topicTitle, teacherName: current.teacherName,
     } : null,
-    canCancel: !!current && settlements.selection !== 'running' && settlements.adjustment !== 'running',
+    canCancel: !!current && cycle.status !== 'process' && settlements.selection !== 'running' && settlements.adjustment !== 'running',
     targets,
   }
 }
@@ -375,8 +386,12 @@ export async function adjustAcceptedResult(
       const plan = buildAcceptedResultAdjustmentPlan(makePlanInput(
         lockedCycle, applications, topics, counts, settlements, applicationId, targetApplicationId, reason, selectedTargetTopicId,
       ))
-      if (plan.oldApplicationId && lockedCycle.status === 'process') {
-        throw new AcceptedResultAdjustmentError('进入毕业设计阶段后不能调整已录取结果')
+      if (plan.oldApplicationId && lockedCycle.status === 'process' && !plan.newTopicId) {
+        throw new AcceptedResultAdjustmentError('毕业设计阶段只能调整至其他课题，不能取消当前录取')
+      }
+      if (plan.oldApplicationId && lockedCycle.status === 'process'
+        && await hasGraduationMaterials(conn, studentId, Number(lockedCycle.id))) {
+        throw new AcceptedResultAdjustmentError('该生已有毕业材料，不能调整已录取结果')
       }
 
       if (plan.newTopicId && !applications.some(item => item.topicId === plan.newTopicId)) {

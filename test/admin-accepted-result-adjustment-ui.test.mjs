@@ -124,7 +124,7 @@ test('进入毕业设计阶段后未录取学生仍显示管理员补录入口',
   assert.deepEqual(h.state.supplementApplicationIds.value, new Set(['r1']))
 })
 
-test('毕业设计阶段不显示修改已录取课题的入口', async () => {
+test('毕业设计阶段显示修改已录取课题的入口', async () => {
   const h = setupHarness({ currentPhase: 'task_book', cycleStatus: 'process' }); await h.start()
-  assert.deepEqual(h.state.adjustableAcceptedIds.value, new Set())
+  assert.deepEqual(h.state.adjustableAcceptedIds.value, new Set(['app-old']))
 })

@@ -114,7 +114,7 @@ function databaseHarness({ selectionStatus = 'completed', adjustmentStatus = 'co
       { id: 'av-old', student_id: 'student-1', topic_id: 'topic-old', cycle_id: 4, status: oldAdjustmentStatus },
       { id: 'av-new', student_id: 'student-1', topic_id: 'topic-new', cycle_id: 4, status: targetAdjustmentStatus },
     ],
-    notices: [], logs: [], released: [], calls: [],
+    notices: [], logs: [], released: [], calls: [], processMaterials: false,
     selectionStatus, adjustmentStatus, teacherBCount,
     async query(sql, params = []) {
       this.calls.push(sql.replace(/\s+/g, ' ').trim())
@@ -123,6 +123,7 @@ function databaseHarness({ selectionStatus = 'completed', adjustmentStatus = 'co
       if (sql.includes('FROM cycles')) return [[this.cycle]]
       if (sql.includes('FROM selection_settlements')) return [this.selectionStatus ? [{ status: this.selectionStatus }] : []]
       if (sql.includes('FROM adjustment_settlements')) return [this.adjustmentStatus ? [{ status: this.adjustmentStatus }] : []]
+      if (sql.includes('FROM task_books') || sql.includes('FROM proposals') || sql.includes('FROM midterm_reports')) return [[{ has_materials: this.processMaterials ? 1 : 0 }]]
       if (sql.includes('FROM applications a JOIN topics t') && sql.includes("a.status IN ('accepted','rejected')")) {
         const app = this.applications.find(item => item.id === params[0])
         return app && ['accepted', 'rejected'].includes(app.status) ? [[{ student_id: app.student_id }]] : [[]]
@@ -270,11 +271,28 @@ test('毕业设计 process 阶段仍可为未录取学生补录且选项只包�
   assert.equal(db.applications.find(app => app.id === 'app-new').status, 'accepted')
 })
 
-test('毕业设计 process 阶段拒绝修改已录取学生的课题', async () => {
+test('毕业设计 process 阶段允许无毕业材料的已录取学生改题', async () => {
   const db = databaseHarness()
   db.cycle.status = 'process'
   db.cycle.phase = 'task_book'
-  await assert.rejects(module.exports.getAcceptedResultAdjustmentOptions(admin, 'app-old'), /不能调整已录取结果/)
+  const options = await module.exports.getAcceptedResultAdjustmentOptions(admin, 'app-old')
+  assert.equal(options.current.topicId, 'topic-old')
+  assert.deepEqual(options.targets.map(target => target.topicId), ['topic-new'])
+  assert.equal(options.canCancel, false)
+  await assert.rejects(module.exports.adjustAcceptedResult(admin, 'app-old', null, '取消录取', null), /毕业设计阶段只能调整至其他课题/)
+  await module.exports.adjustAcceptedResult(admin, 'app-old', 'app-new', '经学生确认后调整', null)
+  assert.deepEqual(db.applications.map(item => item.status), ['withdrawn', 'accepted'])
+})
+
+test('毕业设计 process 阶段有毕业材料时拒绝修改已录取学生的课题', async () => {
+  const db = databaseHarness()
+  db.cycle.status = 'process'
+  db.cycle.phase = 'task_book'
+  db.processMaterials = true
+  await assert.rejects(module.exports.getAcceptedResultAdjustmentOptions(admin, 'app-old'), /已有毕业材料，不能调整已录取结果/)
+  await assert.rejects(module.exports.adjustAcceptedResult(admin, 'app-old', 'app-new', '尝试改题', null), /已有毕业材料，不能调整已录取结果/)
+  assert.deepEqual(db.applications.map(item => item.status), ['accepted', 'withdrawn'])
+  assert.equal(db.logs.length, 0)
 })
 
 test('管理员可用管理员补录重新激活本人之前取消的课题记录，并移出志愿统计', () => {
