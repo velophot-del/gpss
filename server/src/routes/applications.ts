@@ -210,7 +210,8 @@ router.get('/accepted-topic', requireRole(['student']), async (req: AuthRequest,
     const [selection] = await query<any>(`
       SELECT a.id, a.updated_at AS confirmed_at, t.id AS topic_id, t.title, t.description,
              t.requirements, t.category, t.major, t.cycle_id, c.name AS cycle_name,
-             c.phase, u.real_name AS teacher_name, u.title AS teacher_title,
+             t.difficulty, t.max_students, t.tags, t.schedules, t.attachments, t.major_code,
+             c.phase, u.real_name AS teacher_name, u.title AS teacher_title, u.department AS teacher_department,
              u.email AS teacher_email, u.phone AS teacher_phone
       FROM applications a
       JOIN topics t ON t.id = a.topic_id
@@ -228,11 +229,18 @@ router.get('/accepted-topic', requireRole(['student']), async (req: AuthRequest,
       requirements: selection.requirements,
       category: selection.category,
       major: selection.major,
+      majorCode: selection.major_code,
+      difficulty: selection.difficulty,
+      maxStudents: selection.max_students,
+      tags: safeParseJson(selection.tags, []),
+      schedules: safeParseJson(selection.schedules, []),
+      attachments: safeParseJson(selection.attachments, []),
       cycleId: selection.cycle_id,
       cycleName: selection.cycle_name,
       phase: selection.phase,
       teacherName: selection.teacher_name,
       teacherTitle: selection.teacher_title,
+      teacherDepartment: selection.teacher_department,
       teacherEmail: selection.teacher_email,
       teacherPhone: selection.teacher_phone
     } : null)

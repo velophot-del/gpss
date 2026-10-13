@@ -27,11 +27,29 @@
           </el-descriptions>
           <el-descriptions :column="1" border class="result-info topic-details">
             <el-descriptions-item label="所属毕业设计周期">{{ result.cycleName || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="课题方向">{{ result.category || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="适用专业">{{ result.major || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="难度">{{ difficultyLabel[result.difficulty] || '—' }}</el-descriptions-item>
+            <el-descriptions-item label="计划名额">{{ result.maxStudents ?? '—' }}</el-descriptions-item>
+            <el-descriptions-item v-if="result.tags?.length" label="课题标签">{{ result.tags.join('、') }}</el-descriptions-item>
+            <el-descriptions-item label="课题简介"><div class="pre">{{ result.description || '—' }}</div></el-descriptions-item>
             <el-descriptions-item label="选题要求"><div class="pre">{{ result.requirements || result.description || '暂无要求说明' }}</div></el-descriptions-item>
             <el-descriptions-item label="指导教师">{{ result.teacherName || '—' }}{{ result.teacherTitle ? `（${result.teacherTitle}）` : '' }}</el-descriptions-item>
+            <el-descriptions-item v-if="result.teacherDepartment" label="教师单位">{{ result.teacherDepartment }}</el-descriptions-item>
             <el-descriptions-item v-if="result.teacherEmail" label="教师邮箱">{{ result.teacherEmail }}</el-descriptions-item>
             <el-descriptions-item v-if="result.teacherPhone" label="教师电话">{{ result.teacherPhone }}</el-descriptions-item>
+            <el-descriptions-item v-if="result.schedules?.length" label="时间安排">
+              <div v-for="(item, index) in result.schedules" :key="index">{{ item.phase }}（{{ item.startDate || '—' }} 至 {{ item.endDate || '—' }}）：{{ item.description }}</div>
+            </el-descriptions-item>
+            <el-descriptions-item v-if="result.attachments?.length" label="教师发布附件">
+              <div v-for="(item, index) in result.attachments" :key="item.id || index">
+                <a :href="item.url" target="_blank" rel="noopener">{{ item.name || '下载附件' }}</a>
+              </div>
+            </el-descriptions-item>
           </el-descriptions>
+          <div v-if="acceptedTopic" class="result-actions">
+            <el-button type="success" @click="downloadTopicInfo">下载选题资料</el-button>
+          </div>
           <div v-if="result.phase !== 'ended'" class="result-actions">
             <el-button type="primary" @click="$router.push('/process/task-book')">进入任务书</el-button>
             <el-button @click="$router.push('/process/proposal')">开题报告</el-button>
@@ -109,6 +127,7 @@ const userStore = useUserStore()
 const applicationStore = useApplicationStore()
 const cycleStore = useCycleStore()
 const acceptedTopic = ref<any>(null)
+const difficultyLabel: Record<string, string> = { easy: '简单', medium: '中等', hard: '困难' }
 
 onMounted(async () => {
   await Promise.all([
@@ -140,6 +159,32 @@ const isUnmatchedAfterSettlement = computed(() => currentApplications.value.leng
 
 function formatDateTime(dateStr: string): string {
   return dayjs(dateStr).format('YYYY年MM月DD日 HH:mm')
+}
+
+function downloadTopicInfo() {
+  const escapeHtml = (value: unknown) => String(value ?? '—').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!))
+  const scheduleRows = (result.value?.schedules || []).map((item: any) => `<li><strong>${escapeHtml(item.phase)}</strong>（${escapeHtml(item.startDate)} 至 ${escapeHtml(item.endDate)}）：${escapeHtml(item.description)}</li>`).join('')
+  const attachmentRows = (result.value?.attachments || []).map((item: any) => {
+    let href = ''
+    try { href = new URL(item.url, window.location.origin).href } catch { /* 无效地址不生成链接 */ }
+    return `<li><a href="${escapeHtml(href)}">${escapeHtml(item.name || '下载附件')}</a></li>`
+  }).join('')
+  const fields: [string, unknown][] = [
+    ['课题名称', result.value?.topicTitle], ['毕业设计周期', result.value?.cycleName], ['课题方向', result.value?.category],
+    ['适用专业', result.value?.major], ['专业代码', result.value?.majorCode], ['难度', difficultyLabel[result.value?.difficulty] || result.value?.difficulty],
+    ['计划名额', result.value?.maxStudents], ['课题标签', (result.value?.tags || []).join('、')],
+    ['指导教师', [result.value?.teacherName, result.value?.teacherTitle, result.value?.teacherDepartment].filter(Boolean).join('，')],
+    ['教师邮箱', result.value?.teacherEmail], ['教师电话', result.value?.teacherPhone],
+    ['课题简介', result.value?.description], ['选题要求', result.value?.requirements]
+  ]
+  const body = fields.map(([label, value]) => `<h2>${escapeHtml(label)}</h2><p>${escapeHtml(value).replace(/\n/g, '<br>')}</p>`).join('')
+  const html = `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>${escapeHtml(result.value?.topicTitle)} - 选题资料</title><body><h1>${escapeHtml(result.value?.topicTitle)}</h1>${body}${scheduleRows ? `<h2>时间安排</h2><ul>${scheduleRows}</ul>` : ''}${attachmentRows ? `<h2>教师发布附件</h2><ul>${attachmentRows}</ul>` : ''}</body></html>`
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${result.value?.topicTitle || '我的选题'}_选题资料.html`
+  link.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 </script>
 

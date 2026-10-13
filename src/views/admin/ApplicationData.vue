@@ -4,8 +4,8 @@
       <div class="flex justify-between items-center mb-4">
         <h2 class="section-title">选课申请数据</h2>
         <div class="flex gap-2">
-          <el-button @click="exportData" type="primary" size="small">
-            <el-icon><Download /></el-icon> 导出数据
+          <el-button @click="exportData" type="primary" size="small" :disabled="!filteredApplications.length">
+            <el-icon><Download /></el-icon> 导出{{ filterStatus ? statusLabel[filterStatus] : '当前筛选' }}数据
           </el-button>
         </div>
       </div>
@@ -321,8 +321,10 @@ const submitAcceptedResultAdjustment = async () => {
 }
 
 const exportData = () => {
+  const rows = filteredApplications.value
+  if (!rows.length) return
   const headers = ['学号', '学生姓名', '班级', '课题名称', '指导教师', '课题方向', '志愿优先级', '申请状态', '申请时间', '备注']
-  const rows = applications.value.map(a => [
+  const values = rows.map(a => [
     a.student_code,
     a.student_name,
     a.student_class,
@@ -335,14 +337,16 @@ const exportData = () => {
     a.comment || ''
   ])
 
-  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+  const csvCell = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`
+  const csv = [headers, ...values].map(row => row.map(csvCell).join(',')).join('\n')
   const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
-  link.download = `选课申请数据_${new Date().toISOString().slice(0, 10)}.csv`
+  const statusName = filterStatus.value ? statusLabel[filterStatus.value] : '当前筛选'
+  link.download = `选题申请数据_${statusName}_${new Date().toISOString().slice(0, 10)}.csv`
   link.click()
-  URL.revokeObjectURL(url)
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
 onMounted(() => { void Promise.all([cycleStore.fetchCurrentCycle(), loadApplications()]) })
