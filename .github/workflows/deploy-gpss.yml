@@ -4,7 +4,6 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - '.github/workflows/deploy-gpss.yml'
       - 'docs/**'
   workflow_dispatch:
 
@@ -55,9 +54,9 @@ jobs:
           test -n "$DEPLOY_HOST" && test -n "$DEPLOY_USER"
           target="$DEPLOY_USER@$DEPLOY_HOST"
           remote_dir="/tmp/gpss-release/$GITHUB_SHA"
-          ssh -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes "$target" "mkdir -p '$remote_dir'"
-          scp -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes \
+          ssh -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$target" "mkdir -p '$remote_dir'"
+          scp -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 \
             "release/gpss-$GITHUB_SHA.tar.gz" "release/gpss-$GITHUB_SHA.tar.gz.sha256" \
             deployment/deploy-gpss-only.sh "$target:$remote_dir/"
-          ssh -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes "$target" \
+          ssh -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$target" \
             "bash '$remote_dir/deploy-gpss-only.sh' '$remote_dir/gpss-$GITHUB_SHA.tar.gz' '$remote_dir/gpss-$GITHUB_SHA.tar.gz.sha256'"
