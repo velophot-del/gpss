@@ -1,0 +1,39 @@
+name: Diagnose GPSS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Inspect GPSS through the deployment SSH connection
+        env:
+          DEPLOY_KEY: ${{ secrets.GPSS_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.GPSS_DEPLOY_KNOWN_HOSTS }}
+          DEPLOY_HOST: ${{ secrets.GPSS_DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.GPSS_DEPLOY_USER }}
+        run: |
+          install -d -m 700 "$HOME/.ssh"
+          printf '%s\n' "$DEPLOY_KEY" > "$HOME/.ssh/gpss_deploy"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/gpss_deploy" "$HOME/.ssh/known_hosts"
+          ssh -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
+          set -eu
+          echo 'Current public host keys'
+          cat /etc/ssh/ssh_host_ed25519_key.pub
+          ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub
+          docker ps --format '{{.Names}} {{.Status}}'
+          docker top gpss-app -eo pid,etime,args
+          docker logs --tail 100 gpss-app 2>&1 | sed '/初始密码/d'
+          if [ -d /opt/banshan-gpss-deploy ]; then
+            cd /opt/banshan-gpss-deploy
+          else
+            cd /opt/banshan-academy/deployment/unified
+          fi
+          docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -e "SELECT ID,TIME,STATE,COMMAND FROM information_schema.PROCESSLIST; SELECT OBJECT_SCHEMA,OBJECT_NAME,LOCK_TYPE,LOCK_STATUS,OWNER_THREAD_ID FROM performance_schema.metadata_locks WHERE OBJECT_SCHEMA IS NOT NULL;"'
+          REMOTE
