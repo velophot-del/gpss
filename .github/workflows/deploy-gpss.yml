@@ -18,7 +18,7 @@ jobs:
   deploy:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -55,8 +55,21 @@ jobs:
           target="$DEPLOY_USER@$DEPLOY_HOST"
           remote_dir="/tmp/gpss-release/$GITHUB_SHA"
           ssh -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$target" "mkdir -p '$remote_dir'"
+
+          # 服务器无法稳定从 Docker Hub 拉取 node:24-bookworm-slim，基础镜像由 runner 预拉取后导入。
+          server_arch=$(ssh -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$target" "uname -m" | tail -n1 | tr -d '\r')
+          case "$server_arch" in
+            x86_64) platform=linux/amd64 ;;
+            aarch64|arm64) platform=linux/arm64 ;;
+            *) echo "不支持的服务器架构：$server_arch" >&2; exit 1 ;;
+          esac
+          docker pull --platform "$platform" node:24-bookworm-slim
+          docker save node:24-bookworm-slim | gzip -1 > "release/node-base-$GITHUB_SHA.tar.gz"
+          test -s "release/node-base-$GITHUB_SHA.tar.gz"
+
           scp -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 \
             "release/gpss-$GITHUB_SHA.tar.gz" "release/gpss-$GITHUB_SHA.tar.gz.sha256" \
+            "release/node-base-$GITHUB_SHA.tar.gz" \
             deployment/deploy-gpss-only.sh "$target:$remote_dir/"
           ssh -i "$HOME/.ssh/gpss_deploy" -o StrictHostKeyChecking=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=120 "$target" \
-            "bash '$remote_dir/deploy-gpss-only.sh' '$remote_dir/gpss-$GITHUB_SHA.tar.gz' '$remote_dir/gpss-$GITHUB_SHA.tar.gz.sha256'"
+            "docker load -i '$remote_dir/node-base-$GITHUB_SHA.tar.gz' && rm -f '$remote_dir/node-base-$GITHUB_SHA.tar.gz' && bash '$remote_dir/deploy-gpss-only.sh' '$remote_dir/gpss-$GITHUB_SHA.tar.gz' '$remote_dir/gpss-$GITHUB_SHA.tar.gz.sha256'"
