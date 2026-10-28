@@ -424,6 +424,34 @@ export interface TaskBook {
 
 export type DocumentTemplateType = 'task_book' | 'proposal' | 'midterm' | 'thesis' | 'other'
 
+export interface TemplateField {
+  id: string
+  start: number
+  end: number
+  label: string
+  source: 'fixed' | 'student' | 'system' | 'teacher'
+  key: string
+  prefix?: string
+  required: boolean
+  value?: string
+  original: string
+}
+export interface TemplateProfile {
+  schemaVersion: 1
+  type: 'task_book' | 'proposal' | 'midterm'
+  sha256: string
+  paragraphCount: number
+  fields: TemplateField[]
+  warnings: string[]
+}
+export interface MaterialTemplate {
+  id: string
+  title: string
+  version: string
+  documentType: string
+  profile: TemplateProfile
+}
+
 export interface DocumentTemplate {
   id: string
   cycleId: number

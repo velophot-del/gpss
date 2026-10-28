@@ -33,7 +33,10 @@ request.interceptors.response.use(
     }
     return res
   },
-  (error) => {
+  async (error) => {
+    if (error.response?.data instanceof Blob && error.response.data.type.includes('json')) {
+      try { error.response.data = JSON.parse(await error.response.data.text()) } catch { /* 保留原响应 */ }
+    }
     if (error.response?.status === 401) {
       localStorage.removeItem('gpss_token')
       localStorage.removeItem('gpss_user')

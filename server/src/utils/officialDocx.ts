@@ -6,6 +6,8 @@ import PizZip from 'pizzip'
 import { query } from '../config/database.js'
 import { privateTemplateRoot } from './privateTemplates.js'
 import { safeParseJson } from './json.js'
+import { requireBoundExport } from '../services/materialTemplateService.js'
+import { renderTemplate } from './templateContract.js'
 
 export type OfficialDocumentType = 'task-book' | 'proposal' | 'midterm'
 
@@ -363,9 +365,9 @@ export async function sendOfficialDocx(
   status: string,
   passStatus: string,
 ) {
-  const template = await resolvePublishedTemplate(type, record.cycle_id ?? record.cycleId)
+  const resolved = await requireBoundExport(type === 'task-book' ? 'task_book' : type, record)
   const filename = `${status === passStatus ? '' : '预览版_'}${officialFilename(type, record)}`
   res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
   res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`)
-  res.send(createOfficialDocx(type, record, template))
+  res.send(renderTemplate(resolved.buffer, resolved.template.profile, resolved.values, record))
 }

@@ -1,17 +1,17 @@
 import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
-import { query } from '../config/database.js'
+import { query, transaction } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
 import { getAcceptedSelection, getCyclePhase, notify } from '../utils/processFlow.js'
 import { presentSubmissionBase } from '../utils/submissionFlow.js'
 import { sendOfficialDocx } from '../utils/officialDocx.js'
 import { safeParseJson } from '../utils/json.js'
+import { resolveMaterialTemplate, materialValues, bindMaterial, materialPresentation } from '../services/materialTemplateService.js'
+import { TemplateError } from '../utils/templateContract.js'
 
 const router = Router()
 router.use(authMiddleware)
-
-const TASK_BOOK_PHASES = ['选题、下达任务书', '实施研究、收集资料', '开题报告', '撰写设计报告、完成初稿', '毕业设计中期检查', '完成修改、定稿', '学术不端检测', '答辩、展览']
 
 function parseSchedule(value: unknown): Array<{ phase: string; month: number | '' }> {
   const parsed = safeParseJson<Array<{ phase: string; month: number | '' }>>(value, [])
@@ -36,44 +36,41 @@ router.post('/', requireRole(['student']), async (req: AuthRequest, res) => {
     if (!sel) return error(res, '您尚未正式确定课题，无法填写任务书')
     if (isSubmit && await getCyclePhase(sel.cycle_id) !== 'task_book') return error(res, '当前不在「任务书」阶段，无法提交')
 
-    const { content, mainContent, requirements, specificRequirements, submit } = req.body
-    const schedule = parseSchedule(req.body.schedule)
-    const title = String(req.body.title || '').trim() || sel.topic_title
-    if (isSubmit) {
-      const required = [
-        ['设计目的和意义', content], ['设计主要内容', mainContent],
-        ['基本要求', requirements], ['具体要求', specificRequirements], ['阶段工作计划', schedule.length === TASK_BOOK_PHASES.length && schedule.every(item => item.phase && item.month) ? 'ok' : '']
-      ]
-      const missing = required.find(([, value]) => !String(value || '').trim())
-      if (missing) return error(res, `请填写${missing[0]}`)
-    }
-
     const [existing] = await query<any>('SELECT * FROM task_books WHERE student_id = ? AND topic_id = ?', [req.user!.id, sel.topic_id])
     if (existing && ['confirmed', 'submitted', 'issued'].includes(existing.status)) {
       return error(res, existing.status === 'confirmed' ? '任务书已由指导教师确认，如需修改请联系教师退回' : '任务书已提交审核，暂不可修改')
     }
+    const selected = await resolveMaterialTemplate('task_book', sel.cycle_id, existing?.id)
+    if (req.body.templateId !== selected.template.id) throw new TemplateError('模板版本已变化，请刷新页面后重新保存')
+    const input = materialValues(selected.template.profile, req.body.templateValues, isSubmit)
+    const { content, mainContent, requirements, specificRequirements } = input
+    const title = String(input.title || sel.topic_title)
 
     const status = isSubmit ? 'submitted' : 'draft'
-    const values = [title, content ?? null, mainContent ?? null, requirements ?? null,
-      specificRequirements ?? null, JSON.stringify(schedule), '[]', status]
-    let id: string
+    const values = [title, content ?? existing?.content ?? null, mainContent ?? existing?.main_content ?? null, requirements ?? existing?.requirements ?? null,
+      specificRequirements ?? existing?.specific_requirements ?? null, existing?.schedule ?? '[]', JSON.stringify(safeParseJson(existing?.file_urls, [])), status]
+    const id = existing?.id || uuidv4()
+    await transaction(async conn => {
+    const [locked] = await conn.query<any[]>('SELECT status FROM task_books WHERE student_id = ? AND topic_id = ? FOR UPDATE', [req.user!.id, sel.topic_id])
+    if (existing && !locked.length) throw new TemplateError('任务书记录已变化，请刷新后重试')
+    if (locked[0] && !['draft', 'need_revision'].includes(locked[0].status)) throw new TemplateError('任务书状态已变化，请刷新后重试')
     if (existing) {
-      id = existing.id
-      await query(`UPDATE task_books SET title = ?, content = ?, main_content = ?, requirements = ?,
+      await conn.query(`UPDATE task_books SET title = ?, content = ?, main_content = ?, requirements = ?,
         specific_requirements = ?, schedule = ?, file_urls = ?, status = ?, updated_at = NOW() WHERE id = ?`, [...values, id])
     } else {
-      id = uuidv4()
-      await query(`INSERT INTO task_books
+      await conn.query(`INSERT INTO task_books
         (id, student_id, topic_id, cycle_id, title, content, main_content, requirements, specific_requirements, schedule, file_urls, status)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, [id, req.user!.id, sel.topic_id, sel.cycle_id || null, ...values])
     }
+    await bindMaterial(conn, 'task_book', id, sel.cycle_id, selected, input)
+    })
     if (isSubmit && sel.teacher_id) {
       await notify([sel.teacher_id], 'task_book_submitted', '任务书待确认', `学生提交了任务书「${title}」`, 'task_books', id)
     }
     success(res, { id }, isSubmit ? '任务书已提交，待指导教师确认' : '任务书草稿已保存')
   } catch (err: any) {
     console.error('填写任务书失败:', err)
-    error(res, '服务器内部错误', 500)
+    error(res, err.message || '服务器内部错误', err.status || 500)
   }
 })
 
@@ -120,7 +117,7 @@ router.get('/', async (req: AuthRequest, res) => {
         FROM task_books tb JOIN topics t ON tb.topic_id = t.id JOIN users st ON tb.student_id = st.id
         LEFT JOIN users u ON t.teacher_id = u.id ORDER BY tb.updated_at DESC`)
     }
-    success(res, rows.map(present))
+    success(res, await Promise.all(rows.map(async row => ({ ...present(row), ...await materialPresentation('task_book', row) }))))
   } catch (err: any) {
     console.error('获取任务书失败:', err)
     error(res, '服务器内部错误', 500)
@@ -145,7 +142,7 @@ router.get('/:id/export', async (req: AuthRequest, res) => {
     await sendOfficialDocx(res, 'task-book', record, row.status, 'confirmed')
   } catch (err: any) {
     console.error('导出任务书失败:', err)
-    error(res, '导出任务书失败', 500)
+    error(res, err.message || '导出任务书失败', err.status || 500)
   }
 })
 

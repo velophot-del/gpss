@@ -199,9 +199,15 @@ export const documentTemplateApi = {
   create: (data: FormData) => request.post('/document-templates', data, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
-  updateStatus: (id: string, status: 'draft' | 'published' | 'archived') =>
-    request.put(`/document-templates/${id}`, { status }),
-  download: (id: string) => request.get(`/document-templates/${id}/download`, { responseType: 'blob' }),
+  updateStatus: (id: string, status: 'draft' | 'published' | 'archived', confirmMapping = false) =>
+    request.put(`/document-templates/${id}`, { status, confirmMapping }),
+  inspect: (id: string) => request.get(`/document-templates/${id}/inspect`),
+  saveProfile: (id: string, profile: any) => request.put(`/document-templates/${id}/profile`, { profile }),
+  preview: (id: string, profile: any) => request.post(`/document-templates/${id}/preview`, { profile }, { responseType: 'blob' }),
+  getForm: (documentType: string, recordId?: string) => request.get('/document-templates/form', { params: { documentType, recordId } }),
+  getUnbound: (id: string) => request.get(`/document-templates/${id}/unbound`),
+  bindHistory: (id: string, recordIds: string[]) => request.post(`/document-templates/${id}/bind`, { recordIds, confirm: true }),
+  download: (id: string, effective = false) => request.get(`/document-templates/${id}/download`, { params: { effective }, responseType: 'blob' }),
   remove: (id: string) => request.delete(`/document-templates/${id}`)
 }
 

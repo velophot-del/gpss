@@ -31,7 +31,8 @@
     </el-card>
 
     <el-dialog v-model="dialogVisible" :title="'审核：' + (current?.studentName || '')" width="620px">
-      <el-descriptions :column="1" border size="small" class="mb16">
+      <TemplateMaterialForm v-if="current?.template" :template="current.template" :model-value="current.templateValues || {}" readonly />
+      <el-descriptions v-else :column="1" border size="small" class="mb16">
         <el-descriptions-item v-if="cfg.hasTitle" label="标题">{{ current?.title }}</el-descriptions-item>
         <el-descriptions-item v-for="f in cfg.fields" :key="f.key" :label="f.label">
           <div class="pre">{{ current?.[f.key] || '—' }}</div>
@@ -67,6 +68,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { STAGE_CONFIGS } from './processConfig'
 import { SUBMISSION_STATUS_LABELS, SUBMISSION_STATUS_TAG } from '../../types'
+import TemplateMaterialForm from '../../components/TemplateMaterialForm.vue'
 
 const props = defineProps<{ stage: string }>()
 const cfg = computed(() => STAGE_CONFIGS[props.stage] || STAGE_CONFIGS.proposal)

@@ -1,10 +1,12 @@
 import { Router } from 'express'
 import { v4 as uuidv4 } from 'uuid'
-import { query } from '../config/database.js'
+import { query, transaction } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { success, error } from '../utils/response.js'
 import { getAcceptedSelection, getCyclePhase, notify } from './processFlow.js'
 import { sendOfficialDocx, type OfficialDocumentType } from './officialDocx.js'
+import { resolveMaterialTemplate, materialValues, bindMaterial, materialPresentation } from '../services/materialTemplateService.js'
+import { TemplateError, type TemplateType } from './templateContract.js'
 
 /**
  * 「学生提交 → 教师审核(通过/退回/拒绝)」统一流程工厂。
@@ -79,13 +81,6 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
       if (!sel) return error(res, `您尚未确定选题，无法提交${cfg.label}`)
       if (submit && await getCyclePhase(sel.cycle_id) !== cfg.stagePhase) return error(res, `当前不在「${cfg.label}」阶段，无法提交`)
 
-      if (submit) {
-        if (cfg.titleField && !req.body.title) return error(res, '请填写标题')
-        for (const f of cfg.textFields) {
-          if (f.required && !req.body[f.key]) return error(res, `请填写${f.label || f.key}`)
-        }
-      }
-
       // 前置依赖：同学生同课题须已完成前一环节（如任务书确认、开题通过）才可提交
       if (submit && cfg.requiresPrevious) {
         const dep = cfg.requiresPrevious
@@ -108,35 +103,43 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
       if (existing && [cfg.submitStatus, cfg.reviewStates.pass, cfg.reviewStates.reject].includes(existing.status)) {
         return error(res, `当前状态「${existing.status}」不可再编辑，请联系导师退回后修改`)
       }
+      const type = cfg.stagePhase as TemplateType
+      const selected = await resolveMaterialTemplate(type, sel.cycle_id, existing?.id)
+      if (req.body.templateId !== selected.template.id) throw new TemplateError('模板版本已变化，请刷新页面后重新保存')
+      const input = materialValues(selected.template.profile, req.body.templateValues, submit)
 
       const targetStatus = submit ? cfg.submitStatus : 'draft'
 
       const sets: string[] = []
       const params: any[] = []
-      if (cfg.titleField && req.body.title !== undefined) { sets.push(`${cfg.titleField} = ?`); params.push(req.body.title) }
+      if (cfg.titleField) { sets.push(`${cfg.titleField} = ?`); params.push(input.title || existing?.title || sel.topic_title) }
       for (const f of cfg.textFields) {
-        if (req.body[f.key] !== undefined) { sets.push(`${f.column} = ?`); params.push(req.body[f.key]) }
+        sets.push(`${f.column} = ?`); params.push(input[f.key] ?? existing?.[f.column] ?? null)
       }
 
-      let id: string
+      const id = existing?.id || uuidv4()
+      await transaction(async conn => {
+      const [locked] = await conn.query<any[]>(`SELECT status FROM ${table} WHERE student_id = ? AND topic_id = ? FOR UPDATE`, [req.user!.id, sel.topic_id])
+      if (existing && !locked.length) throw new TemplateError('材料记录已变化，请刷新后重试')
+      if (locked[0] && !['draft', 'not_started', cfg.reviewStates.revision].includes(locked[0].status)) throw new TemplateError('材料状态已变化，请刷新后重试')
       if (existing) {
-        id = existing.id
         sets.push('status = ?'); params.push(targetStatus)
-        await query(`UPDATE ${table} SET ${sets.join(', ')}, updated_at = NOW() WHERE id = ?`, [...params, id])
+        await conn.query(`UPDATE ${table} SET ${sets.join(', ')}, updated_at = NOW() WHERE id = ?`, [...params, id])
       } else {
-        id = uuidv4()
         const cols = ['id', 'student_id', 'topic_id', 'cycle_id']
         if (cfg.titleField) cols.push(cfg.titleField)
         for (const f of cfg.textFields) cols.push(f.column)
         cols.push('file_urls', 'status')
         const placeholders = cols.map(() => '?').join(', ')
         const vals: any[] = [id, req.user!.id, sel.topic_id, sel.cycle_id || null]
-        if (cfg.titleField) vals.push(req.body.title || '')
-        for (const f of cfg.textFields) vals.push(req.body[f.key] ?? null)
+        if (cfg.titleField) vals.push(input.title || sel.topic_title || '')
+        for (const f of cfg.textFields) vals.push(input[f.key] ?? null)
         vals.push('[]')
         vals.push(targetStatus)
-        await query(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`, vals)
+        await conn.query(`INSERT INTO ${table} (${cols.join(', ')}) VALUES (${placeholders})`, vals)
       }
+      await bindMaterial(conn, type, id, sel.cycle_id, selected, input)
+      })
 
       if (submit && sel.teacher_id) {
         await notify([sel.teacher_id], `${table}_submitted`, `${cfg.label}待审核`, `学生提交了${cfg.label}，请及时审核`, table, id)
@@ -144,7 +147,7 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
       success(res, { id }, `${submit ? '提交' : '保存'}成功`)
     } catch (err: any) {
       console.error(`[${table}] 提交失败:`, err)
-      error(res, '服务器内部错误', 500)
+      error(res, err.message || '服务器内部错误', err.status || 500)
     }
   })
 
@@ -227,7 +230,7 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
         `)
       }
 
-      success(res, rows.map(present))
+      success(res, await Promise.all(rows.map(async row => ({ ...present(row), ...await materialPresentation(cfg.stagePhase as TemplateType, row) }))))
     } catch (err: any) {
       console.error(`[${table}] 列表失败:`, err)
       error(res, '服务器内部错误', 500)
@@ -258,7 +261,7 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
       await sendOfficialDocx(res, cfg.stagePhase as OfficialDocumentType, record, row.status, cfg.reviewStates.pass)
     } catch (err: any) {
       console.error(`[${table}] 导出失败:`, err)
-      error(res, `导出${cfg.label}失败`, 500)
+      error(res, err.message || `导出${cfg.label}失败`, err.status || 500)
     }
   })
 

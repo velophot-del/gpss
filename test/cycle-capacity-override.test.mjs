@@ -10,7 +10,7 @@ const module={exports:{}}
 let queries=0
 const code=ts.transpileModule(fn,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText
 new Function('exports','getReviewDeadline','getTeacherStudentLimit','query',code)(module.exports,getReviewDeadline,getTeacherStudentLimit,async()=>{queries++;return [{teacher_id:'t',teacher_name:'Teacher',capacity:10}]})
-const base={teacher_review:{end:'2026-10-20'},teacher_student_limit:2}
+const base={teacher_review:{end:new Date(Date.now()+365*24*60*60*1000).toISOString()},teacher_student_limit:2}
 test('cycle capacity override skips aggregate conflict but retains deadline validation',async()=>{
  queries=0
  assert.equal(await module.exports.getSelectionConfigurationError(1,{...base,ignore_capacity_conflicts:true}),null)

@@ -106,3 +106,10 @@ test('HTTPS template uses the current Nginx HTTP/2 directive', async () => {
   assert.doesNotMatch(nginxConfig, /listen\s+443\s+ssl\s+http2/)
   assert.match(nginxConfig, /http2\s+on;/)
 })
+
+test('production deploy creates template tables before switching to the new app', async () => {
+  const script = await readFile(new URL('../deployment/deploy-gpss-only.sh', import.meta.url), 'utf8')
+  const migration = 'docker compose run --rm --no-deps --entrypoint node gpss-app server/dist/scripts/migrateTemplateContracts.js'
+  assert.ok(script.includes(migration), 'template migration must run on the production deployment path')
+  assert.ok(script.indexOf(migration) < script.indexOf('docker compose up -d --no-deps gpss-app\nlog'), 'template schema must exist before replacing the running app')
+})

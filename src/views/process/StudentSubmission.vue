@@ -33,17 +33,10 @@
         class="mb16"
       />
 
-      <el-form label-width="110px" :model="form">
-        <el-form-item v-if="cfg.hasTitle" :label="cfg.titleLabel">
-          <el-input v-model="form.title" maxlength="200" placeholder="请输入" :disabled="locked" />
-        </el-form-item>
-        <el-form-item v-for="f in cfg.fields" :key="f.key" :label="f.label">
-          <el-input v-if="f.type === 'input'" v-model="form[f.key]" :placeholder="'请输入' + f.label" :disabled="locked" />
-          <el-input v-else v-model="form[f.key]" type="textarea" :rows="f.rows || 3" :placeholder="'请输入' + f.label" :disabled="locked" />
-        </el-form-item>
-      </el-form>
+      <el-alert v-if="templateError" :title="templateError" type="warning" :closable="false" />
+      <TemplateMaterialForm v-if="materialTemplate" :template="materialTemplate" v-model="form" :readonly="locked" />
 
-      <div v-if="!locked" class="actions">
+      <div v-if="!locked && materialTemplate" class="actions">
         <el-button :loading="saving" @click="save(false)">保存草稿</el-button>
         <el-button type="primary" :loading="submitting" @click="save(true)">提交</el-button>
       </div>
@@ -52,11 +45,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { saveAs } from 'file-saver'
 import { STAGE_CONFIGS } from './processConfig'
 import { SUBMISSION_STATUS_LABELS, SUBMISSION_STATUS_TAG } from '../../types'
+import type { MaterialTemplate } from '../../types'
+import { documentTemplateApi } from '../../api'
+import TemplateMaterialForm from '../../components/TemplateMaterialForm.vue'
 
 const props = defineProps<{ stage: string }>()
 
@@ -68,10 +64,9 @@ const submitting = ref(false)
 const record = ref<any>(null)
 const exporting = ref(false)
 
-const form = reactive<Record<string, any>>({ title: '' })
-
-// 初始化动态字段
-for (const f of cfg.value.fields) form[f.key] = ''
+const form = ref<Record<string, string>>({})
+const materialTemplate = ref<MaterialTemplate | null>(null)
+const templateError = ref('')
 
 const locked = computed(() => {
   if (!record.value) return false
@@ -94,31 +89,28 @@ async function downloadDocx() {
 
 async function load() {
   loading.value = true
+  materialTemplate.value = null
+  templateError.value = ''
+  form.value = {}
   try {
     const res: any = await cfg.value.api.getList()
     const list = res.data || []
     record.value = list[0] || null
-    if (record.value) {
-      form.title = record.value.title || ''
-      for (const f of cfg.value.fields) form[f.key] = record.value[f.key] || ''
+    const templateRes: any = await documentTemplateApi.getForm(props.stage, record.value?.id)
+    materialTemplate.value = templateRes.data.template
+    for (const f of materialTemplate.value!.profile.fields.filter(f => f.source === 'student')) {
+      form.value[f.key] = templateRes.data.values?.[f.key] ?? record.value?.[f.key] ?? ''
     }
-  } catch (e) {
-    // 拦截器已提示
+  } catch (e: any) {
+    templateError.value = e.response?.data?.message || '读取模板失败，请刷新后重试'
   } finally {
     loading.value = false
   }
 }
 
 async function save(submit: boolean) {
-  if (submit) {
-    if (cfg.value.hasTitle && !form.title) return ElMessage.warning('请填写' + cfg.value.titleLabel)
-    for (const f of cfg.value.fields) {
-      if (f.required && !form[f.key]) return ElMessage.warning('请填写' + f.label)
-    }
-  }
-  const body: any = { submit }
-  if (cfg.value.hasTitle) body.title = form.title
-  for (const f of cfg.value.fields) body[f.key] = form[f.key]
+  if (!materialTemplate.value) return
+  const body = { submit, templateId: materialTemplate.value.id, templateValues: form.value }
   if (submit) submitting.value = true
   else saving.value = true
   try {
@@ -134,6 +126,7 @@ async function save(submit: boolean) {
 }
 
 onMounted(load)
+watch(() => props.stage, load)
 </script>
 
 <style scoped>

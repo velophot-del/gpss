@@ -115,6 +115,8 @@ mv "$SOURCE" "$BACKUP_DIR/old-source"
 SWAPPED=1
 mv "$STAGE_DIR/gpss-src" "$SOURCE"
 docker compose build gpss-app
+log 'Creating template configuration tables before switching service'
+docker compose run --rm --no-deps --entrypoint node gpss-app server/dist/scripts/migrateTemplateContracts.js
 docker compose up -d --no-deps gpss-app
 log 'Running additive GPSS database migrations'
 docker compose exec -T gpss-app node server/dist/scripts/migrateAdjustmentVolunteers.js

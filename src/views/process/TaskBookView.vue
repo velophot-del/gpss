@@ -14,28 +14,10 @@
 
       <template v-if="!isTeacher">
         <el-alert v-if="record?.teacherComment" :title="'指导教师意见：' + record.teacherComment" type="warning" :closable="false" class="mb16" />
-        <el-alert type="info" :closable="false" class="mb16" title="任务书可随时保存草稿并下载预览版；提交导师审核后暂不可修改，退回后可继续修改，确认后可下载正式 Word。" />
-        <el-form label-width="125px" :model="form">
-          <el-form-item label="毕业设计题目"><el-input v-model="form.title" :disabled="locked" maxlength="200" placeholder="留空时自动使用已正式确定的课题题目" /></el-form-item>
-          <el-form-item label="设计目的和意义"><el-input v-model="form.content" :disabled="locked" type="textarea" :rows="5" /></el-form-item>
-          <el-form-item label="设计主要内容"><el-input v-model="form.mainContent" :disabled="locked" type="textarea" :rows="5" /></el-form-item>
-          <el-form-item label="基本要求"><el-input v-model="form.requirements" :disabled="locked" type="textarea" :rows="5" /></el-form-item>
-          <el-form-item label="具体要求"><el-input v-model="form.specificRequirements" :disabled="locked" type="textarea" :rows="5" /></el-form-item>
-          <el-form-item label="阶段工作计划">
-            <el-table :data="form.schedule" border size="small" class="schedule-table">
-              <el-table-column prop="phase" label="阶段" min-width="230" />
-              <el-table-column label="时间节点" width="180">
-                <template #default="{ row }">
-                  <el-select v-model="row.month" :disabled="locked" placeholder="请选择月份" style="width: 140px">
-                    <el-option v-for="month in months" :key="month" :label="month + '月份'" :value="month" />
-                  </el-select>
-                </template>
-              </el-table-column>
-            </el-table>
-            <div class="form-tip">请为模板中的 8 个固定阶段各选择一个月份，导出 Word 时自动写入原模板对应位置。</div>
-          </el-form-item>
-        </el-form>
-        <div v-if="!locked" class="actions">
+        <el-alert type="info" :closable="false" class="mb16" title="保存后可下载预览版；提交后暂不可修改，待教师退回修改后可继续填写。确认后可下载正式 Word。" />
+        <el-alert v-if="templateError" :title="templateError" type="warning" :closable="false" />
+        <TemplateMaterialForm v-if="materialTemplate" :template="materialTemplate" v-model="form" :readonly="locked" />
+        <div v-if="!locked && materialTemplate" class="actions">
           <el-button :loading="saving" @click="save(false)">保存草稿</el-button>
           <el-button type="primary" :loading="submitting" @click="save(true)">提交教师确认</el-button>
         </div>
@@ -51,17 +33,15 @@
     </el-card>
 
     <el-dialog v-model="reviewVisible" :title="'确认任务书：' + (current?.studentName || '')" width="700px">
-      <el-descriptions :column="1" border size="small">
+      <TemplateMaterialForm v-if="current?.template" :template="current.template" :model-value="current.templateValues || {}" readonly />
+      <el-descriptions v-else :column="1" border size="small">
         <el-descriptions-item label="任务书题目">{{ current?.title }}</el-descriptions-item>
         <el-descriptions-item label="设计目的和意义"><div class="pre">{{ current?.content || '—' }}</div></el-descriptions-item>
         <el-descriptions-item label="设计主要内容"><div class="pre">{{ current?.mainContent || '—' }}</div></el-descriptions-item>
         <el-descriptions-item label="基本要求"><div class="pre">{{ current?.requirements || '—' }}</div></el-descriptions-item>
         <el-descriptions-item label="具体要求"><div class="pre">{{ current?.specificRequirements || '—' }}</div></el-descriptions-item>
         <el-descriptions-item label="阶段工作计划">
-          <div v-if="parseSchedule(current?.schedule).length" class="review-schedule">
-            <div v-for="item in parseSchedule(current?.schedule)" :key="item.phase">{{ item.phase }}：{{ item.month ? `${item.month}月份` : '未填写' }}</div>
-          </div>
-          <div v-else>—</div>
+          <div>历史材料尚未绑定模板版本，请管理员在毕业资料库关联后核对。</div>
         </el-descriptions-item>
       </el-descriptions>
       <el-form label-width="90px" class="mt16">
@@ -79,7 +59,9 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { saveAs } from 'file-saver'
 import { useUserStore } from '../../stores/user'
-import { taskBookApi } from '../../api'
+import { taskBookApi, documentTemplateApi } from '../../api'
+import type { MaterialTemplate } from '../../types'
+import TemplateMaterialForm from '../../components/TemplateMaterialForm.vue'
 
 const userStore = useUserStore()
 const isTeacher = computed(() => userStore.userRole === 'teacher' || userStore.userRole === 'admin')
@@ -92,24 +74,15 @@ const record = ref<any>(null)
 const current = ref<any>(null)
 const reviewVisible = ref(false)
 const exporting = ref(false)
-const phases = ['选题、下达任务书', '实施研究、收集资料', '开题报告', '撰写设计报告、完成初稿', '毕业设计中期检查', '完成修改、定稿', '学术不端检测', '答辩、展览']
-const months = Array.from({ length: 12 }, (_, i) => i + 1)
-const newSchedule = () => phases.map(phase => ({ phase, month: '' as number | '' }))
-const form = reactive<{ title: string; content: string; mainContent: string; requirements: string; specificRequirements: string; schedule: Array<{ phase: string; month: number | '' }> }>({ title: '', content: '', mainContent: '', requirements: '', specificRequirements: '', schedule: newSchedule() })
+const form = ref<Record<string, string>>({})
+const materialTemplate = ref<MaterialTemplate | null>(null)
+const templateError = ref('')
 const review = reactive<{ status: 'confirmed' | 'need_revision'; comment: string }>({ status: 'confirmed', comment: '' })
 const locked = computed(() => ['submitted', 'confirmed', 'issued'].includes(record.value?.status))
 
 const labels: Record<string, string> = { draft: '草稿', submitted: '待确认', need_revision: '待修改', confirmed: '已确认', issued: '历史已下达' }
 function statusLabel(status: string) { return labels[status] || status }
 function statusType(status: string) { return status === 'confirmed' ? 'success' : status === 'submitted' ? 'warning' : status === 'need_revision' ? 'danger' : 'info' }
-function parseSchedule(value: unknown): Array<{ phase: string; month: number | '' }> {
-  if (Array.isArray(value)) return value as Array<{ phase: string; month: number | '' }>
-  if (typeof value !== 'string' || !value.trim()) return newSchedule()
-  try {
-    const parsed = JSON.parse(value)
-    return Array.isArray(parsed) ? phases.map(phase => ({ phase, month: parsed.find((item: any) => item.phase === phase)?.month || '' })) : newSchedule()
-  } catch { return newSchedule() }
-}
 async function downloadDocx() {
   if (!record.value) return
   exporting.value = true
@@ -124,24 +97,30 @@ async function downloadDocx() {
 
 async function load() {
   loading.value = true
+  materialTemplate.value = null
+  templateError.value = ''
   try {
     const res: any = await taskBookApi.getList()
     list.value = res.data || []
     if (!isTeacher.value) {
       record.value = list.value[0] || null
-      if (record.value) Object.assign(form, {
-        title: record.value.title || '', content: record.value.content || '', mainContent: record.value.mainContent || '',
-        requirements: record.value.requirements || '', specificRequirements: record.value.specificRequirements || '',
-        schedule: parseSchedule(record.value.schedule)
-      })
+      const templateRes: any = await documentTemplateApi.getForm('task_book', record.value?.id)
+      materialTemplate.value = templateRes.data.template
+      form.value = {}
+      for (const f of materialTemplate.value!.profile.fields.filter(f => f.source === 'student')) {
+        form.value[f.key] = templateRes.data.values?.[f.key] ?? record.value?.[f.key] ?? ''
+      }
     }
+  } catch (e: any) {
+    templateError.value = e.response?.data?.message || '读取任务书模板失败，请刷新重试'
   } finally { loading.value = false }
 }
 
 async function save(submit: boolean) {
   submit ? submitting.value = true : saving.value = true
   try {
-    await taskBookApi.submit({ ...form, schedule: JSON.stringify(form.schedule), submit })
+    if (!materialTemplate.value) return
+    await taskBookApi.submit({ templateId: materialTemplate.value.id, templateValues: form.value, submit })
     ElMessage.success(submit ? '已提交教师确认' : '草稿已保存')
     await load()
   } finally { submitting.value = false; saving.value = false }

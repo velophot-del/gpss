@@ -12,6 +12,7 @@
     "db:seed": "tsx src/scripts/seed.ts",
     "db:bootstrap-admin": "tsx src/scripts/bootstrapAdmin.ts",
     "db:migrate-process": "tsx src/scripts/migrateAddProcessStages.ts",
+    "db:migrate-templates": "tsx src/scripts/migrateTemplateContracts.ts",
     "db:migrate-selection": "tsx src/scripts/migrateSelectionDrafts.ts",
     "db:migrate-adjustment": "tsx src/scripts/migrateAdjustmentVolunteers.ts",
     "db:migrate-smart-interaction": "tsx src/scripts/migrateSmartInteractionMajorCode.ts"

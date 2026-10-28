@@ -1,3 +1,5 @@
+import { createTemplateContractTables } from './templateSchema.js'
+
 /**
  * 毕业全流程相关表的建表 SQL（与 initDb 共享，供迁移脚本复用）
  *
@@ -43,6 +45,8 @@ export async function createProcessTables(conn: any) {
       INDEX idx_cycle_status (cycle_id, status)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `)
+
+  await createTemplateContractTables(conn)
 
   // ===== 毕业全流程：任务书 =====
   await conn.query(`
