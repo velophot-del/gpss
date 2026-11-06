@@ -47,7 +47,7 @@
     <template v-else>
       <el-alert v-if="!selection" title="尚未正式确定课题" description="选题被正式录取后，系统将自动显示所属周期的毕业资料模板。" type="info" :closable="false" show-icon />
       <template v-else>
-        <el-alert :title="`当前课题：${selection.topic_title}`" description="以下为本周期已发布模板；个人材料请在对应毕业流程中填写并下载，已有材料可能绑定较早版本。" type="success" :closable="false" show-icon />
+        <el-alert :title="`当前课题：${selection.topic_title}`" description="本周期全部已发布资料均可下载，不受当前办理阶段限制。个人任务书请在“任务书”中填写、修改和提交。" type="success" :closable="false" show-icon />
         <el-row v-loading="loading" :gutter="16" class="template-list">
           <el-col v-for="item in templates" :key="item.id" :xs="24" :sm="12" :lg="8">
             <el-card shadow="hover" class="template-card">

@@ -14,7 +14,7 @@
 
       <template v-if="!isTeacher">
         <el-alert v-if="record?.teacherComment" :title="'指导教师意见：' + record.teacherComment" type="warning" :closable="false" class="mb16" />
-        <el-alert type="info" :closable="false" class="mb16" title="保存后可下载预览版；提交后暂不可修改，待教师退回修改后可继续填写。确认后可下载正式 Word。" />
+        <el-alert type="info" :closable="false" class="mb16" title="开题报告经导师审核通过前，任务书可修改并重新提交；修改后需导师重新确认。开题通过后锁定，已保存内容仍可下载。" />
         <el-alert v-if="templateError" :title="templateError" type="warning" :closable="false" />
         <TemplateMaterialForm v-if="materialTemplate" :template="materialTemplate" v-model="form" :readonly="locked" />
         <div v-if="!locked && materialTemplate" class="actions">
@@ -77,8 +77,9 @@ const exporting = ref(false)
 const form = ref<Record<string, string>>({})
 const materialTemplate = ref<MaterialTemplate | null>(null)
 const templateError = ref('')
+const canEdit = ref(false)
 const review = reactive<{ status: 'confirmed' | 'need_revision'; comment: string }>({ status: 'confirmed', comment: '' })
-const locked = computed(() => ['submitted', 'confirmed', 'issued'].includes(record.value?.status))
+const locked = computed(() => !canEdit.value)
 
 const labels: Record<string, string> = { draft: '草稿', submitted: '待确认', need_revision: '待修改', confirmed: '已确认', issued: '历史已下达' }
 function statusLabel(status: string) { return labels[status] || status }
@@ -98,6 +99,7 @@ async function downloadDocx() {
 async function load() {
   loading.value = true
   materialTemplate.value = null
+  canEdit.value = false
   templateError.value = ''
   try {
     const res: any = await taskBookApi.getList()
@@ -106,6 +108,7 @@ async function load() {
       record.value = list.value[0] || null
       const templateRes: any = await documentTemplateApi.getForm('task_book', record.value?.id)
       materialTemplate.value = templateRes.data.template
+      canEdit.value = templateRes.data.canEdit === true
       form.value = {}
       for (const f of materialTemplate.value!.profile.fields.filter(f => f.source === 'student')) {
         form.value[f.key] = templateRes.data.values?.[f.key] ?? record.value?.[f.key] ?? ''
@@ -137,7 +140,7 @@ async function submitReview() {
   if (!current.value) return
   reviewing.value = true
   try {
-    await taskBookApi.review(current.value.id, review)
+    await taskBookApi.review(current.value.id, { ...review, expectedUpdatedAt: current.value.updated_at })
     ElMessage.success(review.status === 'confirmed' ? '任务书已确认' : '已退回学生修改')
     reviewVisible.value = false
     await load()

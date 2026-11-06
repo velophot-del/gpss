@@ -84,6 +84,17 @@ export async function bindMaterial(conn: any, type: TemplateType, recordId: stri
 
 export async function requireBoundExport(type: TemplateType, record: any) {
   const resolved = await resolveMaterialTemplate(type, record.cycle_id ?? record.cycleId, record.id)
+  // 历史草稿可按当前发布模板下载预览，正式材料仍需明确绑定版本。
+  if (!resolved.bound && ['draft', 'not_started', 'need_revision'].includes(record.status)) {
+    const values = materialValues(resolved.template.profile, {
+      ...record,
+      mainContent: record.mainContent ?? record.main_content,
+      specificRequirements: record.specificRequirements ?? record.specific_requirements,
+      completedWork: record.completedWork ?? record.completed_work,
+      nextPlan: record.nextPlan ?? record.next_plan,
+    }, false)
+    return { ...resolved, values }
+  }
   if (!resolved.bound) throw new TemplateError('此历史材料尚未绑定模板版本，请管理员在毕业资料库中明确关联后再导出')
   return resolved
 }

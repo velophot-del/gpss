@@ -7,6 +7,7 @@ import { query, transaction } from '../config/database.js'
 import { authMiddleware, requireRole, type AuthRequest } from '../middleware/auth.js'
 import { privateTemplateRoot } from '../utils/privateTemplates.js'
 import { getAcceptedSelection } from '../utils/processFlow.js'
+import { taskBookEditable } from '../utils/taskBookPolicy.js'
 import { canDownloadDocumentTemplate, validateUploadFile } from '../utils/policies.js'
 import { error, success } from '../utils/response.js'
 import { inspectTemplate, validateTemplateProfile, canonicalTemplateProfile, renderTemplate, TemplateError, type TemplateType } from '../utils/templateContract.js'
@@ -107,13 +108,15 @@ router.get('/form', requireRole(['student']), async (req: AuthRequest, res) => {
       if (!row) return error(res, '记录不存在', 404)
       cycleId = row.cycle_id
       const result = await resolveMaterialTemplate(type, cycleId, recordId)
-      if (!result.bound && !['draft', 'not_started', 'need_revision'].includes(row.status)) throw new TemplateError('此历史材料尚未绑定模板，请管理员在毕业资料库中明确关联')
-      return success(res, { template: result.template, values: result.values })
+      const canEdit = type === 'task_book' ? await taskBookEditable(req.user!.id, row.topic_id, cycleId) : undefined
+      if (!result.bound && !['draft', 'not_started', 'need_revision'].includes(row.status) && !canEdit) throw new TemplateError('此历史材料尚未绑定模板，请管理员在毕业资料库中明确关联')
+      return success(res, { template: result.template, values: result.values, canEdit })
     }
     const selection = await getAcceptedSelection(req.user!.id)
     if (!selection) return error(res, '正式确定课题后才可填写毕业材料')
     const result = await resolveMaterialTemplate(type, selection.cycle_id)
-    success(res, { template: result.template, values: result.values })
+    success(res, { template: result.template, values: result.values,
+      ...(type === 'task_book' ? { canEdit: await taskBookEditable(req.user!.id, selection.topic_id, selection.cycle_id) } : {}) })
   } catch (err: any) { error(res, err.message || '读取模板失败', err.status || 500) }
 })
 
@@ -273,7 +276,12 @@ router.get('/:id/download', async (req: AuthRequest, res) => {
     if (!canDownloadDocumentTemplate(req.user!, template, selection?.cycle_id ?? null)) return error(res, '无权下载此模板', 403)
     if (isTemplateType(template.document_type) && (req.user!.role !== 'admin' || req.query.effective === 'true')) {
       const [contract] = await query<any>('SELECT * FROM document_template_contracts WHERE template_id = ?', [template.id])
-      if (!contract?.confirmed_at) throw new TemplateError('此模板尚未确认填写区域，请联系管理员')
+      // 下载通用资料不依赖在线填写配置；未配置的已发布资料仍可下载原文件。
+      if (!contract?.confirmed_at) {
+        const filePath = path.join(templateRoot, path.basename(template.storage_key))
+        if (!fs.existsSync(filePath)) return error(res, '模板文件不存在', 404)
+        return res.download(filePath, template.original_name)
+      }
       const { buffer, profile } = checkedProfile(template, parseProfile(contract.profile))
       const output = renderTemplate(buffer, profile, {}, {})
       res.type('application/vnd.openxmlformats-officedocument.wordprocessingml.document')

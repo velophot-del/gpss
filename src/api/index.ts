@@ -238,7 +238,7 @@ export const taskBookApi = {
   getDetail: (id: string) => request.get(`/task-books/${id}`),
   exportDocx: (id: string) => request.get(`/task-books/${id}/export`, { responseType: 'blob' }),
   submit: (data: any) => request.post('/task-books', data),
-  review: (id: string, data: { status: 'confirmed' | 'need_revision'; comment?: string }) =>
+  review: (id: string, data: { status: 'confirmed' | 'need_revision'; comment?: string; expectedUpdatedAt: string }) =>
     request.put(`/task-books/${id}/review`, data)
 }
 

@@ -171,17 +171,27 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
         return error(res, `${cfg.label}已通过，过程不可逆，不能再退回或拒绝`)
       }
 
+      await transaction(async conn => {
+      await conn.query('SELECT id FROM topics WHERE id = ? FOR UPDATE', [row.topic_id])
+      const [current] = await conn.query<any[]>(`SELECT * FROM ${table} WHERE id = ? FOR UPDATE`, [id])
+      if (!current[0] || current[0].status !== row.status) throw new TemplateError('材料状态已变化，请刷新后重新审核')
+      if (status === cfg.reviewStates.pass && cfg.requiresPrevious) {
+        const dep = cfg.requiresPrevious
+        const [previous] = await conn.query<any[]>(`SELECT status FROM ${dep.table} WHERE student_id = ? AND topic_id = ? FOR UPDATE`, [row.student_id, row.topic_id])
+        if (!previous[0] || !dep.statuses.includes(previous[0].status)) throw new TemplateError(`请先完成「${dep.label}」，再通过${cfg.label}`)
+      }
       if (cfg.hasScore && score !== undefined) {
-        await query(
+        await conn.query(
           `UPDATE ${table} SET status = ?, teacher_comment = ?, score = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?`,
           [status, comment ?? null, score, req.user!.id, id]
         )
       } else {
-        await query(
+        await conn.query(
           `UPDATE ${table} SET status = ?, teacher_comment = ?, reviewed_by = ?, reviewed_at = NOW() WHERE id = ?`,
           [status, comment ?? null, req.user!.id, id]
         )
       }
+      })
 
       await notify(
         [row.student_id], `${table}_reviewed`, `${cfg.label}审核结果`,
@@ -191,7 +201,7 @@ export function createSubmissionRouter(cfg: SubmissionConfig): Router {
       success(res, null, '审核完成')
     } catch (err: any) {
       console.error(`[${table}] 审核失败:`, err)
-      error(res, '服务器内部错误', 500)
+      error(res, err.message || '服务器内部错误', err.status || 500)
     }
   })
 
