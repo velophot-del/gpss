@@ -131,8 +131,8 @@
         </el-table>
         <el-button v-if="!mappingLocked" @click="addMapping">新增填写区域</el-button>
         <p>展开行可查看原文、调整范围或统一内容；取消映射后该范围保留原文。系统不会自动修改上传原件。</p>
-        <el-checkbox v-model="mappingConfirmed" :disabled="editingPublished && !hasCurrentPreview">我已核对栏目和固定内容，并检查了生成预览，确认可用于学生填写</el-checkbox>
-        <p v-if="editingPublished && !hasCurrentPreview">请先下载并检查当前内容的生成预览；继续修改后需重新生成预览。</p>
+        <el-checkbox v-if="!editingPublished" v-model="mappingConfirmed">我已核对栏目和固定内容，并检查了生成预览，确认可用于学生填写</el-checkbox>
+        <p v-if="editingPublished">修改后点击“保存并生效”，系统会检查当前预览并请您确认；缺少预览时会自动生成。</p>
         <template v-if="!editingPublished">
         <el-divider>历史材料版本关联</el-divider>
         <p>已提交的历史材料不会自动采用本模板。仅在明确核对后选择关联，原始填写数据保留。</p>
@@ -146,7 +146,7 @@
         <el-button @click="mappingVisible = false">关闭</el-button>
         <el-button v-if="mappingLocked && mappingItem" @click="download(mappingItem, true)">下载生效空白模板</el-button>
         <el-button v-if="profile" :loading="mappingSaving" @click="previewMapping">下载生成预览</el-button>
-        <el-button v-if="editingPublished" type="primary" :disabled="!!profile && (!mappingConfirmed || !hasCurrentPreview)" :loading="mappingSaving" @click="savePublishedTemplate">保存并生效</el-button>
+        <el-button v-if="editingPublished" type="primary" :loading="mappingSaving || publishedSaving" @click="savePublishedTemplate">保存并生效</el-button>
         <el-button v-else-if="!mappingLocked" :loading="mappingSaving" @click="saveMapping">保存配置</el-button>
         <el-button v-if="!editingPublished && mappingItem?.status !== 'published'" type="primary" :disabled="!mappingConfirmed" :loading="mappingSaving" @click="publishMapping">确认并发布</el-button>
       </template>
@@ -183,6 +183,7 @@ const editRevision = ref('')
 const editForm = reactive({ title: '', version: '', description: '' })
 const previewSignature = ref('')
 const mappingSaving = ref(false)
+const publishedSaving = ref(false)
 const mappingLocked = ref(false)
 const mappingConfirmed = ref(false)
 const mappingItem = ref<DocumentTemplate | null>(null)
@@ -228,16 +229,32 @@ async function openPublishedEditor(item: DocumentTemplate) {
   mappingVisible.value = true
 }
 async function savePublishedTemplate() {
+  if (publishedSaving.value) return
   if (!mappingItem.value || !editForm.title.trim() || !editForm.version.trim()) return ElMessage.warning('请填写资料名称和版本号')
-  if (profile.value && (!mappingConfirmed.value || !hasCurrentPreview.value)) return ElMessage.warning('请检查当前生成预览并确认后保存')
-  mappingSaving.value = true
+  const templateId = mappingItem.value.id
+  const signature = currentEditSignature.value
+  publishedSaving.value = true
   try {
-    const result: any = await documentTemplateApi.editPublished(mappingItem.value.id, { ...editForm, revision: editRevision.value,
+    if (profile.value) {
+      if (!hasCurrentPreview.value && !await previewMapping()) return
+      if (!mappingVisible.value || mappingItem.value?.id !== templateId) return
+      if (!hasCurrentPreview.value || signature !== currentEditSignature.value) return ElMessage.warning('内容已变化，请重新生成预览后保存')
+      try {
+        await ElMessageBox.confirm('请核对当前生成的预览。确认后修改将生效；如已有学生材料使用此模板，会自动另存新版本，原材料继续使用旧版。', '确认保存模板', {
+          confirmButtonText: '已核对，保存', cancelButtonText: '返回编辑', type: 'warning'
+        })
+      } catch { return }
+      if (!mappingVisible.value || mappingItem.value?.id !== templateId) return
+      if (!hasCurrentPreview.value || signature !== currentEditSignature.value) return ElMessage.warning('内容已变化，请重新生成预览后保存')
+      mappingConfirmed.value = true
+    }
+    mappingSaving.value = true
+    const result: any = await documentTemplateApi.editPublished(templateId, { ...editForm, revision: editRevision.value,
       profile: profile.value || undefined, confirmMapping: mappingConfirmed.value })
     ElMessage.success(result.data.mode === 'versioned' ? `已另存并发布 ${result.data.version}，原材料继续使用旧版` : '模板修改已生效')
     mappingVisible.value = false
     await loadAdminTemplates()
-  } finally { mappingSaving.value = false }
+  } finally { mappingSaving.value = false; publishedSaving.value = false }
 }
 function addMapping() {
   if (!profile.value) return
@@ -250,14 +267,22 @@ async function saveMapping() {
   try { const result: any = await documentTemplateApi.saveProfile(mappingItem.value.id, profile.value); profile.value = result.data.profile; mappingErrors.value = []; ElMessage.success('配置已保存，原模板文件保持不变') }
   finally { mappingSaving.value = false }
 }
-async function previewMapping() {
-  if (!mappingItem.value || !profile.value) return
+async function previewMapping(): Promise<boolean> {
+  if (!mappingItem.value || !profile.value) return false
   mappingSaving.value = true
   try {
     const signature = currentEditSignature.value
     const blob: any = await documentTemplateApi.preview(mappingItem.value.id, profile.value)
     saveBlob(blob, `预览_${mappingItem.value.originalName}`)
-    if (editingPublished.value && signature === currentEditSignature.value) previewSignature.value = signature
+    mappingErrors.value = []
+    if (editingPublished.value) {
+      if (signature !== currentEditSignature.value) return false
+      previewSignature.value = signature
+    }
+    return true
+  } catch (e: any) {
+    mappingErrors.value = [e.response?.data?.message || e.message || '生成预览失败，请检查模板配置后重试']
+    return false
   } finally { mappingSaving.value = false }
 }
 async function publishMapping() {
