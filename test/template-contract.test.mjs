@@ -33,6 +33,15 @@ test('uploaded task-book replaces cover and complete content regions but retains
   }
 })
 
+test('renamed fixed栏目 name is reflected in the generated document', () => {
+  const buffer = read('task-book'), profile = inspectTemplate('task_book', buffer)
+  const heading = profile.fields[0]
+  heading.label = '附件4:毕业设计任务书'
+  const text = plain(renderTemplate(buffer, profile, {}, record))
+  assert.match(text, /附件4:毕业设计任务书/)
+  assert.doesNotMatch(text, /附件4．毕业设计报告流程/)
+})
+
 test('proposal and midterm expose template labels and keep signatures and review decision instructions', () => {
   for (const [type, file, keys] of [['proposal','proposal',['title','background','objectives','methods','plan']], ['midterm','midterm',['completedWork','problems','nextPlan']]]) {
     const buffer = read(file), profile = inspectTemplate(type, buffer)

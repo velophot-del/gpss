@@ -213,9 +213,10 @@ export function renderTemplate(buffer: Buffer, profile: TemplateProfile, values:
   const { zip, xml, paragraphs } = readDocument(buffer)
   const replacements = new Map<number, string>()
   for (const f of profile.fields) {
-    if (f.source === 'fixed' && f.value === undefined) continue
+    const fixedValue = f.value ?? (f.start === f.end && normalize(f.label) !== normalize(f.original) ? f.label : undefined)
+    if (f.source === 'fixed' && fixedValue === undefined) continue
     const templateCollege = f.prefix ? normalize(f.original).slice(normalize(f.prefix).length) : f.original.trim()
-    const raw = f.source === 'fixed' ? f.value : f.source === 'student' ? values[f.key]
+    const raw = f.source === 'fixed' ? fixedValue : f.source === 'student' ? values[f.key]
       : f.key === 'collegeName' ? record.collegeName || templateCollege || '视觉传达设计学院' : record[f.key]
     const value = String(raw ?? (f.key === 'title' ? record.topicTitle || '' : ''))
     for (let i = f.start; i <= f.end; i++) replacements.set(i, fillParagraph(paragraphs[i].xml, i === f.start ? (f.source === 'fixed' ? '' : f.prefix || '') + value : ''))
