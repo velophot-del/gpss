@@ -23,6 +23,7 @@ function download({ confirmed = false, cycle = 1 } = {}) {
     '../utils/privateTemplates.js': { privateTemplateRoot: () => '/private-templates' },
     '../utils/processFlow.js': { getAcceptedSelection: async () => ({ cycle_id: cycle }) },
     '../utils/taskBookPolicy.js': {}, '../utils/policies.js': { canDownloadDocumentTemplate },
+    '../services/templateEditingService.js': {},
     '../utils/response.js': { error: (_res, message, code) => ({ message, code }) },
     '../utils/templateContract.js': { renderTemplate: () => Buffer.from('rendered') },
     '../services/materialTemplateService.js': { isTemplateType: () => true, parseProfile: () => ({}), checkedProfile: () => ({ buffer: Buffer.from('original'), profile: {} }) },

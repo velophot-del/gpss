@@ -22,9 +22,10 @@
         <el-table-column prop="version" label="版本" width="110" />
         <el-table-column prop="originalName" label="文件" min-width="160" show-overflow-tooltip />
         <el-table-column label="状态" width="100"><template #default="{ row }"><el-tag :type="statusType[row.status]">{{ statusLabel[row.status] }}</el-tag></template></el-table-column>
-        <el-table-column label="操作" width="410" fixed="right">
+        <el-table-column label="操作" width="490" fixed="right">
           <template #default="{ row }">
             <el-button link type="primary" @click="download(row)">下载原件</el-button>
+            <el-button v-if="row.status === 'published'" link type="primary" @click="openPublishedEditor(row)">编辑模板</el-button>
             <el-button v-if="isOnlineType(row.documentType)" link type="primary" @click="openMapping(row)">核对填写区域</el-button>
             <el-button v-if="row.status !== 'published'" link type="success" @click="isOnlineType(row.documentType) ? openMapping(row) : changeStatus(row, 'published')">发布</el-button>
             <el-button v-if="row.status === 'published'" link type="warning" @click="changeStatus(row, 'archived')">归档</el-button>
@@ -82,12 +83,21 @@
       <template #footer><el-button @click="dialogVisible = false">取消</el-button><el-button type="primary" :loading="saving" @click="createTemplate">保存草稿</el-button></template>
     </el-dialog>
 
-    <el-dialog v-model="mappingVisible" :title="`核对模板：${mappingItem?.title || ''} · ${mappingItem?.version || ''}`" width="95%" :close-on-click-modal="false">
-      <el-alert type="info" :closable="false" title="固定区保留模板原文；学生区显示为填写项；系统区填入个人信息；教师区填入审核意见。请保留签名区域。" />
-      <el-alert v-if="mappingLocked" type="warning" :closable="false" title="此版本已确认，配置只读。修改内容请上传新版本；已绑定材料继续使用原版本。" />
+    <el-dialog v-model="mappingVisible" :title="`${editingPublished ? '编辑已发布模板' : '核对模板'}：${mappingItem?.title || ''} · ${mappingItem?.version || ''}`" width="95%" :close-on-click-modal="false">
+      <template v-if="editingPublished">
+        <el-alert type="info" :closable="false" :title="editBoundCount ? '已有学生材料使用此模板。保存将发布新版本，原材料继续使用旧版。' : '尚无学生材料使用此模板，保存后直接生效；如保存时已有学生使用，将自动另存新版本。'" />
+        <el-form label-width="100px" class="edit-metadata">
+          <el-form-item label="资料名称" required><el-input v-model="editForm.title" maxlength="200" show-word-limit /></el-form-item>
+          <el-form-item label="版本号" required><el-input v-model="editForm.version" maxlength="50" /><span>保留原版本号时，另存新版会自动追加修订后缀。</span></el-form-item>
+          <el-form-item label="资料说明"><el-input v-model="editForm.description" type="textarea" :rows="3" maxlength="5000" show-word-limit /></el-form-item>
+        </el-form>
+        <el-alert v-if="!profile" type="info" :closable="false" title="此文件可修改名称、版本号和说明；固定内容及填写区域编辑仅支持 DOCX 模板。" />
+      </template>
+      <el-alert v-if="profile" type="info" :closable="false" title="固定区保留模板原文；学生区显示为填写项；系统区填入个人信息；教师区填入审核意见。请保留签名区域。" />
+      <el-alert v-if="mappingLocked" type="warning" :closable="false" title="此处仅查看已确认配置。如需修改，请使用资料列表中的“编辑模板”；已有学生材料保留原版本。" />
       <el-alert v-for="message in mappingErrors" :key="message" type="error" :closable="false" :title="message" />
       <template v-if="profile">
-        <el-table :data="profile.fields" border max-height="460" class="mapping-table">
+        <el-table :data="profile.fields" row-key="id" border max-height="460" class="mapping-table">
           <el-table-column type="expand"><template #default="{ row }">
             <div class="mapping-detail">
               <p class="original-content">原文：{{ row.original || '（空白）' }}</p>
@@ -121,27 +131,31 @@
         </el-table>
         <el-button v-if="!mappingLocked" @click="addMapping">新增填写区域</el-button>
         <p>展开行可查看原文、调整范围或统一内容；取消映射后该范围保留原文。系统不会自动修改上传原件。</p>
-        <el-checkbox v-model="mappingConfirmed">我已核对栏目和固定内容，并检查了生成预览，确认可用于学生填写</el-checkbox>
+        <el-checkbox v-model="mappingConfirmed" :disabled="editingPublished && !hasCurrentPreview">我已核对栏目和固定内容，并检查了生成预览，确认可用于学生填写</el-checkbox>
+        <p v-if="editingPublished && !hasCurrentPreview">请先下载并检查当前内容的生成预览；继续修改后需重新生成预览。</p>
+        <template v-if="!editingPublished">
         <el-divider>历史材料版本关联</el-divider>
         <p>已提交的历史材料不会自动采用本模板。仅在明确核对后选择关联，原始填写数据保留。</p>
         <el-table :data="unboundRecords" max-height="200" @selection-change="historySelection = $event.map((row: any) => row.id)">
           <el-table-column type="selection" width="50" /><el-table-column prop="studentName" label="学生" /><el-table-column prop="title" label="材料标题" /><el-table-column prop="status" label="状态" />
         </el-table>
         <el-button :disabled="!mappingLocked || !historySelection.length" :loading="mappingSaving" @click="bindHistory">关联所选历史材料到此版本</el-button>
+        </template>
       </template>
       <template #footer>
         <el-button @click="mappingVisible = false">关闭</el-button>
         <el-button v-if="mappingLocked && mappingItem" @click="download(mappingItem, true)">下载生效空白模板</el-button>
-        <el-button :loading="mappingSaving" @click="previewMapping">下载生成预览</el-button>
-        <el-button v-if="!mappingLocked" :loading="mappingSaving" @click="saveMapping">保存配置</el-button>
-        <el-button v-if="mappingItem?.status !== 'published'" type="primary" :disabled="!mappingConfirmed" :loading="mappingSaving" @click="publishMapping">确认并发布</el-button>
+        <el-button v-if="profile" :loading="mappingSaving" @click="previewMapping">下载生成预览</el-button>
+        <el-button v-if="editingPublished" type="primary" :disabled="!!profile && (!mappingConfirmed || !hasCurrentPreview)" :loading="mappingSaving" @click="savePublishedTemplate">保存并生效</el-button>
+        <el-button v-else-if="!mappingLocked" :loading="mappingSaving" @click="saveMapping">保存配置</el-button>
+        <el-button v-if="!editingPublished && mappingItem?.status !== 'published'" type="primary" :disabled="!mappingConfirmed" :loading="mappingSaving" @click="publishMapping">确认并发布</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { cycleApi, documentTemplateApi } from '../../api'
@@ -163,18 +177,29 @@ const statusLabel: Record<DocumentTemplate['status'], string> = { draft: '草稿
 const statusType: Record<DocumentTemplate['status'], 'info' | 'success' | 'warning'> = { draft: 'info', published: 'success', archived: 'warning' }
 const form = reactive<{ cycleId?: number; documentType: DocumentTemplateType; title: string; version: string; description: string }>({ cycleId: undefined, documentType: 'task_book', title: '', version: '', description: '' })
 const mappingVisible = ref(false)
+const editingPublished = ref(false)
+const editBoundCount = ref(0)
+const editRevision = ref('')
+const editForm = reactive({ title: '', version: '', description: '' })
+const previewSignature = ref('')
 const mappingSaving = ref(false)
 const mappingLocked = ref(false)
 const mappingConfirmed = ref(false)
 const mappingItem = ref<DocumentTemplate | null>(null)
 const mappingErrors = ref<string[]>([])
 const profile = ref<TemplateProfile | null>(null)
+const currentEditSignature = computed(() => JSON.stringify([editForm, profile.value]))
+const hasCurrentPreview = computed(() => previewSignature.value !== '' && previewSignature.value === currentEditSignature.value)
+watch(currentEditSignature, () => {
+  if (editingPublished.value) { mappingConfirmed.value = false; previewSignature.value = '' }
+}, { flush: 'sync' })
 const unboundRecords = ref<any[]>([])
 const historySelection = ref<string[]>([])
 const systemFields = { collegeName: '学院', major: '专业', className: '班级', studentName: '姓名', studentCode: '学号', teacherName: '指导教师', topicTitle: '正式课题题目', title: '材料标题' }
 const isOnlineType = (type: string) => ['task_book', 'proposal', 'midterm'].includes(type)
 
 async function openMapping(item: DocumentTemplate) {
+  editingPublished.value = false
   mappingVisible.value = false
   mappingItem.value = item
   mappingConfirmed.value = false
@@ -185,6 +210,34 @@ async function openMapping(item: DocumentTemplate) {
   mappingErrors.value = result.data.errors || []
   unboundRecords.value = history.data || []
   mappingVisible.value = true
+}
+async function openPublishedEditor(item: DocumentTemplate) {
+  mappingVisible.value = false
+  const result: any = await documentTemplateApi.getEditState(item.id)
+  const state = result.data
+  editingPublished.value = true
+  mappingItem.value = state.template
+  editRevision.value = state.revision
+  editBoundCount.value = state.boundCount
+  Object.assign(editForm, { title: state.template.title, version: state.template.version, description: state.template.description || '' })
+  profile.value = state.profile
+  mappingLocked.value = false
+  mappingConfirmed.value = false
+  previewSignature.value = ''
+  mappingErrors.value = state.errors || []
+  mappingVisible.value = true
+}
+async function savePublishedTemplate() {
+  if (!mappingItem.value || !editForm.title.trim() || !editForm.version.trim()) return ElMessage.warning('请填写资料名称和版本号')
+  if (profile.value && (!mappingConfirmed.value || !hasCurrentPreview.value)) return ElMessage.warning('请检查当前生成预览并确认后保存')
+  mappingSaving.value = true
+  try {
+    const result: any = await documentTemplateApi.editPublished(mappingItem.value.id, { ...editForm, revision: editRevision.value,
+      profile: profile.value || undefined, confirmMapping: mappingConfirmed.value })
+    ElMessage.success(result.data.mode === 'versioned' ? `已另存并发布 ${result.data.version}，原材料继续使用旧版` : '模板修改已生效')
+    mappingVisible.value = false
+    await loadAdminTemplates()
+  } finally { mappingSaving.value = false }
 }
 function addMapping() {
   if (!profile.value) return
@@ -201,8 +254,10 @@ async function previewMapping() {
   if (!mappingItem.value || !profile.value) return
   mappingSaving.value = true
   try {
+    const signature = currentEditSignature.value
     const blob: any = await documentTemplateApi.preview(mappingItem.value.id, profile.value)
     saveBlob(blob, `预览_${mappingItem.value.originalName}`)
+    if (editingPublished.value && signature === currentEditSignature.value) previewSignature.value = signature
   } finally { mappingSaving.value = false }
 }
 async function publishMapping() {

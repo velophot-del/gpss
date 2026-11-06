@@ -8,6 +8,7 @@ import { authMiddleware, requireRole, type AuthRequest } from '../middleware/aut
 import { privateTemplateRoot } from '../utils/privateTemplates.js'
 import { getAcceptedSelection } from '../utils/processFlow.js'
 import { taskBookEditable } from '../utils/taskBookPolicy.js'
+import { getTemplateEditState, editPublishedTemplate } from '../services/templateEditingService.js'
 import { canDownloadDocumentTemplate, validateUploadFile } from '../utils/policies.js'
 import { error, success } from '../utils/response.js'
 import { inspectTemplate, validateTemplateProfile, canonicalTemplateProfile, renderTemplate, TemplateError, type TemplateType } from '../utils/templateContract.js'
@@ -118,6 +119,23 @@ router.get('/form', requireRole(['student']), async (req: AuthRequest, res) => {
     success(res, { template: result.template, values: result.values,
       ...(type === 'task_book' ? { canEdit: await taskBookEditable(req.user!.id, selection.topic_id, selection.cycle_id) } : {}) })
   } catch (err: any) { error(res, err.message || '读取模板失败', err.status || 500) }
+})
+
+router.get('/:id/edit', requireRole(['admin']), async (req, res) => {
+  try {
+    const state = await getTemplateEditState(req.params.id)
+    success(res, { ...state, template: cleanTemplate(state.template) })
+  } catch (err: any) { error(res, err.message || '读取模板失败', err.status || 500) }
+})
+
+router.put('/:id/edit', requireRole(['admin']), async (req: AuthRequest, res) => {
+  try {
+    const result = await editPublishedTemplate(req.params.id, req.body, { id: req.user!.id, ip: req.ip })
+    success(res, result, result.mode === 'versioned' ? '已另存并发布新版本，原材料继续使用旧版' : '模板修改已生效')
+  } catch (err: any) {
+    console.error('编辑已发布模板失败:', err)
+    error(res, err.message || '保存模板失败', err.status || 500)
+  }
 })
 
 router.get('/:id/inspect', requireRole(['admin']), async (req, res) => {

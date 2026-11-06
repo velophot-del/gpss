@@ -196,6 +196,9 @@ export const uploadApi = {
 export const documentTemplateApi = {
   getAll: (cycleId?: number) => request.get('/document-templates', { params: cycleId ? { cycleId } : undefined }),
   getMine: () => request.get('/document-templates/mine'),
+  getEditState: (id: string) => request.get(`/document-templates/${id}/edit`),
+  editPublished: (id: string, data: { title: string; version: string; description: string; revision: string; profile?: import('../types').TemplateProfile; confirmMapping: boolean }) =>
+    request.put(`/document-templates/${id}/edit`, data),
   create: (data: FormData) => request.post('/document-templates', data, {
     headers: { 'Content-Type': 'multipart/form-data' }
   }),
