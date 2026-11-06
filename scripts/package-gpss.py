@@ -25,6 +25,7 @@ def main() -> None:
     if git("status", "--porcelain", "--untracked-files=no").strip():
         parser.error("tracked files have uncommitted changes; commit before packaging")
     commit = git("rev-parse", "HEAD").decode().strip()
+    commit_time = int(git("show", "-s", "--format=%ct", "HEAD").decode().strip())
     paths = [p.decode() for p in git("ls-files", "-z").split(b"\0") if p]
     paths = [p for p in paths if not p.startswith(EXCLUDED) and not Path(p).name.startswith(".env")]
     output = args.output.resolve()
@@ -46,6 +47,8 @@ def main() -> None:
         info = tarfile.TarInfo("gpss-src/DEPLOY_COMMIT")
         info.size = len(marker)
         info.mode = 0o644
+        # BuildKit may reuse an equal-size file when its timestamp never changes.
+        info.mtime = commit_time
         archive.addfile(info, io.BytesIO(marker))
 
     digest = hashlib.sha256(output.read_bytes()).hexdigest()

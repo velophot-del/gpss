@@ -38,6 +38,21 @@ health() {
   return 1
 }
 
+verify_commit() {
+  local expected actual
+  expected=$(cat "$SOURCE/DEPLOY_COMMIT")
+  actual=$(docker compose exec -T gpss-app node -p "require('fs').readFileSync('/app/DEPLOY_COMMIT', 'utf8').trim()")
+  log "Expected commit: $expected; running commit: $actual"
+  [[ "$actual" == "$expected" ]]
+}
+
+build_app() {
+  local revision
+  revision=$(cat "$SOURCE/DEPLOY_COMMIT")
+  [[ "$revision" =~ ^[0-9a-f]{40}$ ]] || return 1
+  docker compose build --build-arg GPSS_BUILD_COMMIT="$revision" gpss-app
+}
+
 on_error() {
   local code=$1 line=$2
   trap - ERR
@@ -48,7 +63,7 @@ on_error() {
     if [[ -d $BACKUP_DIR/old-source ]]; then
       mv "$BACKUP_DIR/old-source" "$SOURCE" || true
       if [[ -d $SOURCE ]]; then
-        docker compose build gpss-app && docker compose up -d --no-deps gpss-app && health \
+        build_app && docker compose up -d --no-deps gpss-app && health \
           && log 'Old GPSS service restored' || log 'Automatic rollback failed; inspect Docker logs and backup immediately'
       fi
     fi
@@ -114,7 +129,7 @@ log 'Switching GPSS source; existing container remains running during build'
 mv "$SOURCE" "$BACKUP_DIR/old-source"
 SWAPPED=1
 mv "$STAGE_DIR/gpss-src" "$SOURCE"
-docker compose build gpss-app
+build_app
 log 'Creating template configuration tables before switching service'
 docker compose run --rm --no-deps --entrypoint node gpss-app server/dist/scripts/migrateTemplateContracts.js
 docker compose up -d --no-deps gpss-app
@@ -122,5 +137,6 @@ log 'Running additive GPSS database migrations'
 docker compose exec -T gpss-app node server/dist/scripts/migrateAdjustmentVolunteers.js
 docker compose exec -T gpss-app node server/dist/scripts/migrateSmartInteractionMajorCode.js
 health
+verify_commit
 log "GPSS healthy. Commit: $(cat "$SOURCE/DEPLOY_COMMIT")"
 log "Backups retained at $BACKUP_DIR"

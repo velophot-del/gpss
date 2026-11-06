@@ -46,3 +46,7 @@ Files: modify src/api/index.ts, src/views/process/DocumentTemplates.vue, src/typ
 - Browser checks with local mock interfaces passed: metadata/fixed-content editing, preview invalidation, direct save and versioned save. No production template was changed to test this feature.
 - Browser verification found expanded rows collapsed while typing; row-key="id" now preserves them.
 - Database transaction/concurrency tests use test doubles; no real MySQL concurrent-writer test was run.
+
+### Deployment verification ruling
+
+The first publish loaded the correct feature source and compiled files, but its container retained an old equal-size DEPLOY_COMMIT with tar timestamp zero. Health-only CI incorrectly passed. The release marker now uses commit time, and the supported deploy path passes the complete validated hash as a Docker build argument and stamps it in an independent RUN; post-health comparison rejects stale versions and uses the existing rollback. Both normal build and rollback use the same build helper. Tests cover equal file size/timestamp with different hashes, actual temporary Git packaging and runtime version rejection. Full suite: 193 passing; deployment subset: 14 passing; independent follow-up review found no remaining important issue.

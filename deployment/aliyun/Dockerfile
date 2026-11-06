@@ -14,6 +14,10 @@ RUN cd server && npm install --no-fund --no-audit
 # 拷贝源码
 COPY . .
 
+# 独立使用完整提交哈希生成标识，避免等长、同时间文件的上下文缓存。
+ARG GPSS_BUILD_COMMIT
+RUN if [ -n "$GPSS_BUILD_COMMIT" ]; then printf '%s\n' "$GPSS_BUILD_COMMIT" > /app/DEPLOY_COMMIT; fi
+
 # 构建前端和后端
 RUN npm run build
 RUN cd server && npm run build

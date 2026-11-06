@@ -113,3 +113,79 @@ test('production deploy creates template tables before switching to the new app'
   assert.ok(script.includes(migration), 'template migration must run on the production deployment path')
   assert.ok(script.indexOf(migration) < script.indexOf('docker compose up -d --no-deps gpss-app\nlog'), 'template schema must exist before replacing the running app')
 })
+
+test('release markers use commit timestamps so equal-size revisions are transferred again', async () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const path = await import('node:path')
+  const { execFileSync } = await import('node:child_process')
+  const dir = mkdtempSync(path.join(tmpdir(), 'gpss-release-marker-'))
+  try {
+    const repo = path.join(dir, 'repo'); mkdirSync(path.join(repo, 'scripts'), { recursive: true })
+    writeFileSync(path.join(repo, 'scripts/package-gpss.py'), await readFile(new URL('../scripts/package-gpss.py', import.meta.url)))
+    const git = (...args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim()
+    git('init', '-q');git('config','user.name','Release Test');git('config','user.email','release-test@example.invalid')
+    const markers = []
+    for (let revision = 1; revision <= 2; revision++) {
+      writeFileSync(path.join(repo,'README.md'),`revision ${revision}\n`);git('add','README.md','scripts/package-gpss.py')
+      const stamp=`2026-11-06T00:00:0${revision}Z`
+      execFileSync('git',['commit','-qm',`revision ${revision}`],{cwd:repo,env:{...process.env,GIT_AUTHOR_DATE:stamp,GIT_COMMITTER_DATE:stamp}})
+      const output=path.join(dir,`release-${revision}.tar.gz`)
+      execFileSync('python3',[path.join(repo,'scripts/package-gpss.py'),output],{cwd:repo})
+      const marker=JSON.parse(execFileSync('python3',['-c',"import tarfile,sys,json; a=tarfile.open(sys.argv[1]); m=a.getmember('gpss-src/DEPLOY_COMMIT'); print(json.dumps({'text':a.extractfile(m).read().decode().strip(),'mtime':m.mtime,'size':m.size}))",output],{encoding:'utf8'}))
+      assert.equal(marker.text,git('rev-parse','HEAD'));assert.equal(marker.mtime,Number(git('show','-s','--format=%ct','HEAD')));markers.push(marker)
+    }
+    assert.equal(markers[0].size,markers[1].size);assert.notEqual(markers[0].mtime,markers[1].mtime)
+  } finally { rmSync(dir,{recursive:true,force:true}) }
+})
+
+test('deployment rejects a healthy container when its running commit is stale', async () => {
+  const { mkdtempSync,writeFileSync,rmSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const path = await import('node:path')
+  const { spawnSync } = await import('node:child_process')
+  const script = await readFile(new URL('../deployment/deploy-gpss-only.sh',import.meta.url),'utf8')
+  const fn = script.match(/verify_commit\(\) \{[\s\S]*?\n\}/)?.[0]
+  assert.ok(fn,'deployment must verify the running container commit')
+  assert.match(script,/\nhealth\nverify_commit\n/)
+  const dir=mkdtempSync(path.join(tmpdir(),'gpss-verify-commit-'))
+  try {
+    const expected='a'.repeat(40);writeFileSync(path.join(dir,'DEPLOY_COMMIT'),expected+'\n')
+    const code='log() { :; }\ndocker() { printf "%s\\n" "$MOCK_COMMIT"; }\n'+fn+'\nverify_commit\n'
+    for(const [actual,status] of [[expected,0],['b'.repeat(40),1]]){
+      const result=spawnSync('bash',['-c',code],{env:{...process.env,SOURCE:dir,MOCK_COMMIT:actual}})
+      assert.equal(result.status,status)
+    }
+  } finally { rmSync(dir,{recursive:true,force:true}) }
+})
+
+test('builds use the full commit independently of file size and timestamp', async () => {
+  const { mkdtempSync,writeFileSync,rmSync,readFileSync,utimesSync,statSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const path = await import('node:path')
+  const { spawnSync } = await import('node:child_process')
+  const script=await readFile(new URL('../deployment/deploy-gpss-only.sh',import.meta.url),'utf8')
+  const fn=script.match(/build_app\(\) \{[\s\S]*?\n\}/)?.[0];assert.ok(fn)
+  const dockerfile=await readFile(new URL('../deployment/aliyun/Dockerfile',import.meta.url),'utf8')
+  assert.match(dockerfile,/ARG GPSS_BUILD_COMMIT/)
+  const stamp=dockerfile.split('\n').find(line=>line.startsWith('RUN if [ -n "$GPSS_BUILD_COMMIT"'))?.slice(4)
+  assert.ok(stamp,'image must stamp the provided build commit rather than relying on COPY')
+  const dir=mkdtempSync(path.join(tmpdir(),'gpss-build-commit-'))
+  try {
+    for(const revision of ['a'.repeat(40),'b'.repeat(40)]){
+      writeFileSync(path.join(dir,'DEPLOY_COMMIT'),revision+'\n')
+      utimesSync(path.join(dir,'DEPLOY_COMMIT'),1793923201,1793923201)
+      const metadata=statSync(path.join(dir,'DEPLOY_COMMIT'))
+      assert.equal(metadata.size,41);assert.equal(metadata.mtimeMs,1793923201000)
+      const result=spawnSync('bash',['-c','docker() { printf "%s\\n" "$@"; }\n'+fn+'\nbuild_app'],{env:{...process.env,SOURCE:dir},encoding:'utf8'})
+      assert.equal(result.status,0)
+      assert.deepEqual(result.stdout.trim().split('\n'),['compose','build','--build-arg','GPSS_BUILD_COMMIT='+revision,'gpss-app'])
+      const stamped=path.join(dir,'image-commit')
+      const run=spawnSync('bash',['-c',stamp.replace('/app/DEPLOY_COMMIT','"$STAMP_FILE"')],{env:{...process.env,GPSS_BUILD_COMMIT:revision,STAMP_FILE:stamped}})
+      assert.equal(run.status,0);assert.equal(readFileSync(stamped,'utf8').trim(),revision)
+    }
+    writeFileSync(path.join(dir,'DEPLOY_COMMIT'),'invalid revision\n')
+    const invalid=spawnSync('bash',['-c','docker() { echo should-not-run; }\n'+fn+'\nbuild_app'],{env:{...process.env,SOURCE:dir},encoding:'utf8'})
+    assert.equal(invalid.status,1);assert.equal(invalid.stdout,'')
+  } finally { rmSync(dir,{recursive:true,force:true}) }
+})
